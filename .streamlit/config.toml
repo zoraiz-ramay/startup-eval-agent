@@ -1,9 +1,0 @@
-[server]
-# Auto-rerun the app whenever app.py (or an imported module) is saved,
-# instead of showing the "Source file changed" prompt and keeping the old UI.
-runOnSave = true
-# Watch every file in the project so edits to core/*.py also trigger a reload.
-fileWatcherType = "auto"
-
-[browser]
-gatherUsageStats = false
