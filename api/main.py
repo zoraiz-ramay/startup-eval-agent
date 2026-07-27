@@ -15,7 +15,7 @@ import pathlib
 # Ensure the project root is importable when launched as `uvicorn api.main:app`.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -27,6 +27,7 @@ import pandas as pd
 
 import core
 from core.solve import solve_problem, load_challenges, set_challenge_status
+from core import s3 as _s3
 from api import store
 from api.security import SecurityMiddleware
 
@@ -127,7 +128,9 @@ def health() -> dict:
             "glassdollar_key": bool(core.GLASSDOLLAR_API_KEY or os.getenv("GLASSDOLLAR_API_KEY", "")),
             "data_source": "glassdollar_api",
             "applications_file": os.path.basename(_LOCAL_XLSX) if _LOCAL_XLSX else "",
-            "applications_count": int(len(_get_local_df())) if _LOCAL_XLSX else 0}
+            "applications_count": int(len(_get_local_df())) if _LOCAL_XLSX else 0,
+            "s3_bucket": _s3.S3_BUCKET,
+            "s3_available": _s3._available()}
 
 
 @app.get("/api/search")
@@ -317,6 +320,49 @@ def ask(body: AskBody) -> dict:
                  f"(+{', '.join(rt.get('secondary', []) or [])})\nSiemens fit tools: {tools}")
     return core.chat_smart(body.question, llm=core.LLMClient(),
                            context_company=company, context_brief=brief)
+
+
+# ── PDF management (S3-backed) ────────────────────────────────────────────────
+
+@app.get("/api/pdfs")
+def list_pdfs() -> dict:
+    """List all pitch PDFs stored in S3."""
+    return {"pdfs": _s3.list_pdfs()}
+
+
+@app.post("/api/pdfs/upload")
+async def upload_pdf(file: UploadFile = File(...)) -> dict:
+    """Upload a pitch PDF to S3."""
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are accepted.")
+    import tempfile, shutil, pathlib
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+        shutil.copyfileobj(file.file, tmp)
+        tmp_path = tmp.name
+    try:
+        key = _s3.upload_pdf(tmp_path, file.filename)
+        if not key:
+            raise HTTPException(status_code=500, detail="S3 upload failed — check credentials.")
+    finally:
+        pathlib.Path(tmp_path).unlink(missing_ok=True)
+    return {"key": key, "filename": file.filename}
+
+
+@app.delete("/api/pdfs/{filename}")
+def delete_pdf(filename: str) -> dict:
+    """Delete a pitch PDF from S3."""
+    if not _s3.delete_pdf(filename):
+        raise HTTPException(status_code=404, detail=f"PDF '{filename}' not found in S3.")
+    return {"deleted": filename}
+
+
+@app.get("/api/pdfs/{filename}/url")
+def pdf_url(filename: str) -> dict:
+    """Get a pre-signed download URL for a PDF stored in S3."""
+    url = _s3.presigned_url(filename)
+    if not url:
+        raise HTTPException(status_code=404, detail=f"PDF '{filename}' not found or S3 unavailable.")
+    return {"url": url, "filename": filename}
 
 
 # ── Static file serving (single-container production mode) ───────────────────
