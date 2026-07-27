@@ -1,0 +1,58 @@
+/* ============================================================================
+   Design tokens — single source of truth for the whole app.
+   Enterprise research-platform palette: dark slate chrome, light data canvas.
+   ========================================================================== */
+:root {
+  /* chrome (product shell) */
+  --chrome-900: #151b2e;        /* icon rail        */
+  --chrome-800: #1b2340;        /* top bar          */
+  --chrome-700: #242e52;        /* chrome hover     */
+  --chrome-border: #2f3a63;
+  --chrome-text: #e8ecf6;
+  --chrome-muted: #8b96b8;
+
+  /* workspace (data canvas) */
+  --canvas: #f3f5f9;
+  --surface: #ffffff;
+  --surface-2: #f8fafc;
+  --border: #e4e8ee;
+  --border-2: #cbd4e0;
+
+  /* text */
+  --text-1: #1a2233;
+  --text-2: #5a6472;
+  --text-3: #8b95a5;
+
+  /* semantic */
+  --accent: #2457c5;            /* disciplined blue */
+  --accent-soft: #eaf0fb;
+  --success: #177245;
+  --success-soft: #eaf6ef;
+  --warning: #96660f;
+  --warning-soft: #fdf6e7;
+  --danger: #b3261e;
+  --danger-soft: #fdefee;
+  --ai: #6d4fc4;                /* subtle violet — AI only */
+  --ai-soft: #f2eefb;
+
+  /* pillars (status ramp, muted) */
+  --pillar-connect: #177245;
+  --pillar-collaborate: #0e7490;
+  --pillar-empower: #2457c5;
+  --pillar-pass: #6b7480;
+
+  /* typography scale */
+  --fs-title: 23px;
+  --fs-section: 16px;
+  --fs-body: 13.5px;
+  --fs-table: 12.5px;
+  --fs-meta: 11.5px;
+
+  /* geometry */
+  --radius: 6px;
+  --topbar-h: 56px;
+  --rail-w: 68px;
+  --sidenav-w: 236px;
+
+  font-family: -apple-system, "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
+}

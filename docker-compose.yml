@@ -1,0 +1,34 @@
+services:
+  app:                      # Streamlit UI (current)
+    build: .
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env                # GLASSDOLLAR_API_KEY, OPENAI_API_KEY, LLM_MODEL...
+    volumes:
+      - ./data:/data        # put glassdollar_applications.xlsx + pdfs/ here (optional in API mode)
+    restart: unless-stopped
+
+  api:                      # FastAPI backend (for the React UI)
+    build: .
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"         # optional to expose; the ui container reaches it internally
+    env_file:
+      - .env
+    volumes:
+      - ./data:/data        # runs.db + challenges.json persist here
+    healthcheck:            # override the Dockerfile's :8501 check, which doesn't apply here
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+    restart: unless-stopped
+
+  ui:                       # React app (Tracxn-style), nginx-served, non-root
+    build: ./ui
+    ports:
+      - "3000:8080"
+    depends_on:
+      - api
+    restart: unless-stopped

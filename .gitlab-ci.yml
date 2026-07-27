@@ -1,0 +1,97 @@
+# Application Repository CI/CD Configuration
+# This file triggers the centralized CI/CD hub for Docker deployments
+
+stages:
+  - trigger
+
+variables:
+  # Absolutely necessary variables for Proxy configuration
+  http_proxy: $CODE_PROXY  
+  https_proxy: $CODE_PROXY  
+  no_proxy: $CODE_NO_PROXY  
+  HTTP_PROXY: $http_proxy  
+  HTTPS_PROXY: $http_proxy  
+  NO_PROXY: $no_proxy 
+
+  # CI Hub project configuration
+  CI_HUB_PROJECT_ID: "461093"
+  CI_HUB_REF: "main"
+  
+  # Application configuration
+  APP_TYPE: "DOCKER_SR"
+  APP_PORT: "8080"
+  APP_LANG: "python"
+  
+  # AWS Secrets Manager
+  AWS_SECRET_NAME: "docker-apps/startup-evaluation-agent-hydra"
+
+  # AWS Resource Tags
+  AWS_TAGS: '[{"name":"created_by","value":"claude"},{"name":"type","value":"app"}]'
+
+# Trigger centralized CI/CD hub on main branch push
+trigger_ci_hub:
+  stage: trigger
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache curl
+  script:
+    - |
+      echo "Triggering CI/CD hub for Docker deployment..."
+      echo "Project: $CI_PROJECT_PATH"
+      echo "Commit: $CI_COMMIT_SHORT_SHA"
+      echo "App Type: $APP_TYPE"
+      echo "App Port: $APP_PORT"
+      echo "CI Hub Project ID: $CI_HUB_PROJECT_ID"
+      echo "CI Hub Ref: $CI_HUB_REF"
+      echo "Attach WAF: ${ATTACH_WAF:-true}"
+
+      # Build the trigger URL
+      TRIGGER_URL="https://code.siemens.com/api/v4/projects/${CI_HUB_PROJECT_ID}/trigger/pipeline"
+      echo "Trigger URL: $TRIGGER_URL"
+      
+      # Trigger the centralized CI/CD hub
+      RESPONSE=$(curl -X POST \
+        --fail-with-body \
+        -F token=$ORCHESTRATOR_TRIGGER_TOKEN \
+        -F ref=$CI_HUB_REF \
+        -F "variables[APP_TYPE]=$APP_TYPE" \
+        -F "variables[APP_PORT]=$APP_PORT" \
+        -F "variables[APP_LANG]=$APP_LANG" \
+        -F "variables[CI_PIPELINE_SOURCE_PROJECT_PATH]=$CI_PROJECT_PATH" \
+        -F "variables[CI_COMMIT_SHORT_SHA]=$CI_COMMIT_SHORT_SHA" \
+        -F "variables[AWS_SECRET_NAME]=$AWS_SECRET_NAME" \
+        -F "variables[AWS_TAGS]=$AWS_TAGS" \
+        -F "variables[ATTACH_WAF]=${ATTACH_WAF:-true}" \
+        -F "variables[GIT_DEPTH]=1" \
+        -F "variables[APP_GIT_REF]=latest" \
+        "$TRIGGER_URL" 2>&1 || echo "$RESPONSE")
+      
+      echo "Response: $RESPONSE"
+      
+      # Check if trigger was successful
+      if echo "$RESPONSE" | grep -q '"id"'; then
+        PIPELINE_ID=$(echo "$RESPONSE" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
+        echo "✓ CI/CD hub triggered successfully!"
+        echo "Pipeline ID: $PIPELINE_ID"
+        echo "View pipeline: https://code.siemens.com/agents/agents-ci-hub/-/pipelines/$PIPELINE_ID"
+      else
+        echo "✗ Failed to trigger CI/CD hub"
+        echo "Please check:"
+        echo "  1. CI_HUB_PROJECT_ID is correct (current: $CI_HUB_PROJECT_ID)"
+        echo "  2. ORCHESTRATOR_TRIGGER_TOKEN is set in CI/CD variables"
+        echo "  3. Token has access to trigger pipelines in project $CI_HUB_PROJECT_ID"
+        echo "$RESPONSE"
+        exit 1
+      fi
+  rules:
+    - if: $CI_COMMIT_BRANCH == "latest"
+      when: always
+    - if: $CI_PIPELINE_SOURCE == "web"
+      when: manual
+
+# Optional: Auto-trigger on merge requests for testing
+trigger_ci_hub_mr:
+  extends: trigger_ci_hub
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: manual
