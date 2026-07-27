@@ -21,14 +21,8 @@ WEIGHTS = {
 THIN_PROFILE_CAP = 75.0          # sparse/unverifiable profiles top out here
 FIT_ALIGN_THRESHOLD = 50.0       # below this, "not aligned with Siemens portfolio"
 MIN_OFFLINE_OVERLAP = 2          # offline mode needs >=2 meaningful shared terms to count
-# Default model on the Siemens LLM gateway. These are gpt-5.x reasoning models, so the API
-# expects 'max_completion_tokens' (not 'max_tokens') and spends hidden reasoning tokens
-# before the visible answer. Override with LLM_MODEL (e.g. gpt-5.5).
-LLM_MODEL = os.getenv("LLM_MODEL", "gpt-5.4")
-# Per-request timeout (seconds) for the Siemens LLM API. The endpoint's latency is highly
-# variable; this bounds each call so a stalled request degrades to the offline heuristic
-# instead of freezing an evaluation. Override with LLM_TIMEOUT.
-LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT", "25"))
+LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o")
+LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT", "60"))
 
 
 def _find_data_dir(start: pathlib.Path) -> pathlib.Path:

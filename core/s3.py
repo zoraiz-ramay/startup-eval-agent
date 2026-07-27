@@ -110,6 +110,22 @@ def delete_pdf(basename: str) -> bool:
         return False
 
 
+def fetch_data_file(s3_key: str, local_path: str) -> str:
+    """Download an arbitrary data file from S3 to a local path. Returns the local path on success."""
+    if not _available():
+        return ""
+    if pathlib.Path(local_path).exists():
+        return local_path
+    try:
+        pathlib.Path(local_path).parent.mkdir(parents=True, exist_ok=True)
+        _client().download_file(S3_BUCKET, s3_key, local_path)
+        log.info("Downloaded s3://%s/%s -> %s", S3_BUCKET, s3_key, local_path)
+        return local_path
+    except Exception as exc:
+        log.debug("S3 fetch failed for %s: %s", s3_key, exc)
+        return ""
+
+
 def presigned_url(basename: str, expiry: int = 3600) -> str:
     """Generate a pre-signed download URL for a PDF in S3."""
     if not _available():

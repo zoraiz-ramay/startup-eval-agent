@@ -44,7 +44,13 @@ def _find_local_xlsx() -> str:
     if os.path.exists(core.DEFAULT_GLASSDOLLAR):
         return core.DEFAULT_GLASSDOLLAR
     hits = sorted(glob.glob(os.path.join(str(core.BASE_DIR), "*.xlsx")))
-    return hits[0] if hits else ""
+    if hits:
+        return hits[0]
+    # Fall back to S3
+    import tempfile
+    local = os.path.join(tempfile.gettempdir(), "glassdollar_applications.xlsx")
+    fetched = _s3.fetch_data_file("data/glassdollar_applications.xlsx", local)
+    return fetched
 
 
 _LOCAL_XLSX = _find_local_xlsx()
