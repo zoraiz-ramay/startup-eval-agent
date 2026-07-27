@@ -11,6 +11,7 @@ from .config import PDF_DIR, GLASSDOLLAR_API_KEY
 from .text import _norm
 from .web import _ddg_many
 from .llm import LLMClient
+from . import s3 as _s3
 
 
 def load_glassdollar(path: str = None) -> pd.DataFrame:
@@ -228,8 +229,8 @@ def load_siemens_tools(path: str) -> list[dict]:
 # ----------------------------------------------------------------------------- pdf
 def _resolve_pdf(path_field: str, pdf_dir: str = PDF_DIR) -> str:
     """Resolve a row's pdf_local_path (which may list several "; "-joined paths) to a
-    real file inside the pdfs folder. Tries the stored path first, then falls back to the
-    basename inside pdf_dir so it works regardless of the launch directory."""
+    real file inside the pdfs folder. Tries the stored path first, falls back to the
+    basename inside pdf_dir, and finally fetches from S3 if still not found."""
     for raw in str(path_field).split(";"):
         raw = raw.strip().strip('"')
         if not raw:
@@ -238,6 +239,11 @@ def _resolve_pdf(path_field: str, pdf_dir: str = PDF_DIR) -> str:
         for cand in (raw, os.path.join(pdf_dir, basename)):
             if cand and os.path.exists(cand):
                 return cand
+        # Fall back to S3
+        if basename:
+            local = _s3.fetch_pdf(basename)
+            if local:
+                return local
     return ""
 
 

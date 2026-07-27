@@ -11,7 +11,7 @@ The engine is organised into focused modules:
     config       paths, weights, thresholds, model settings
     text         normalisation / keyword / stopword helpers
     provenance   the Fact dataclass (evidence with provenance)
-    llm          OPENAI_API_KEY resolution + LLMClient (Siemens gateway)
+    llm          Azure OpenAI LLMClient
     web          DuckDuckGo search helpers
     data         GlassDollar / web-profile / Siemens-tools / PDF loading
     enrich       claim verification + fact enrichment
@@ -33,7 +33,7 @@ from .config import (
     GLASSDOLLAR_API_BASE, GLASSDOLLAR_API_KEY, GLASSDOLLAR_API_TIMEOUT,
 )
 from .provenance import Fact
-from .llm import openai_api_key, LLMClient, LLM_BASE_URL, LLM_MIN_BUDGET
+from .llm import LLMClient
 from .web import ddg_search
 from .data import (
     load_glassdollar, load_glassdollar_api, search_glassdollar, find_startup, web_profile_row,
@@ -65,7 +65,7 @@ __all__ = [
     # provenance
     "Fact",
     # llm
-    "openai_api_key", "LLMClient", "LLM_BASE_URL", "LLM_MIN_BUDGET",
+    "LLMClient",
     # web
     "ddg_search",
     # data

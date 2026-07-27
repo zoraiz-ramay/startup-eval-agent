@@ -1,3 +1,11 @@
-
 .env
-
+.venv/
+ui/node_modules/
+__pycache__/
+py-env/
+data/pdfs/
+data/*.xlsx
+data/runs.db
+*.DS_Store
+.DS_Store
+ui/dist/

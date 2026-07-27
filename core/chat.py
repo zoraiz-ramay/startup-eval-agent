@@ -123,7 +123,7 @@ def chat_answer(question: str, source: str, *, df: "pd.DataFrame" = None,
 
     # ---- AI (model knowledge) -------------------------------------------------
     if not (llm and llm.available):
-        return {"answer": "AI search is unavailable — set OPENAI_API_KEY to enable it.",
+        return {"answer": "AI search is unavailable — Azure OpenAI credentials are not configured.",
                 "evidence": [], "source": source}
     parts = []
     if context_brief:
@@ -168,7 +168,7 @@ def chat_smart(question: str, *, llm: "LLMClient" = None, context_company: str =
         if not hits:
             return {"answer": "No web results found, and no LLM key is set for AI answers.",
                     "evidence": [], "source": "web"}
-        md = "**Top web results** (set OPENAI_API_KEY for AI-refined answers):\n" + "\n".join(
+        md = "**Top web results** (configure Azure OpenAI for AI-refined answers):\n" + "\n".join(
             f"- [{h.get('title','(link)')}]({h.get('href','')}) — {h.get('body','')[:160]}" for h in hits)
         return {"answer": md, "evidence": evidence, "source": "web"}
 

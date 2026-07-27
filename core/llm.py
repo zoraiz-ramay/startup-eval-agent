@@ -1,93 +1,73 @@
-"""OpenAI-compatible LLM client with pluggable providers.
+"""Azure OpenAI LLM client.
 
-Provider selection (first match wins):
-  1. GEMINI_API_KEY set  -> Google Gemini via its OpenAI-compatible endpoint
-     (default model: gemini-2.5-flash; override with LLM_MODEL)
-  2. OPENAI_API_KEY set  -> Siemens LLM gateway / OpenAI
-     (default model from config.LLM_MODEL; override with LLM_BASE_URL for other gateways)
-  3. neither             -> offline keyword fallbacks throughout the app
+Uses AZURE_OPEN_AI_ENDPOINT and AZURE_OPEN_AI_KEY env vars.
+Default deployment: gpt-4o (override with LLM_MODEL).
 """
 from __future__ import annotations
 
 import os
 import re
 import json
+import time
+import logging
 from typing import Optional
 
 from .config import LLM_MODEL, LLM_TIMEOUT
 
-GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
-GEMINI_DEFAULT_MODEL = "gemini-2.5-flash"
+log = logging.getLogger(__name__)
 
-
-def openai_api_key() -> str:
-    """LLM gateway API key from OPENAI_API_KEY. Stray angle brackets/whitespace are stripped."""
-    return os.getenv("OPENAI_API_KEY", "").strip().strip("<>").strip()
-
-
-def gemini_api_key() -> str:
-    return os.getenv("GEMINI_API_KEY", "").strip().strip("<>").strip()
-
-
-# OpenAI-compatible gateway default (used for the OPENAI_API_KEY provider). The Siemens
-# gateway authenticates via an 'x-api-key' header (not Bearer), so we pass the key both
-# as the SDK api_key and as a default x-api-key header. Override with LLM_BASE_URL.
-LLM_BASE_URL = (os.getenv("LLM_BASE_URL") or "https://llm.sdc.siemens.cloud/v1").strip()
-# Floor for the per-call token budget: reasoning models consume hidden tokens before the
-# visible answer, so a tiny cap can yield empty content.
-LLM_MIN_BUDGET = int(os.getenv("LLM_MIN_BUDGET", "1024"))
+MAX_RETRIES = 3
+RETRY_BACKOFF = 2
 
 
 class LLMClient:
     def __init__(self):
-        gem, oai = gemini_api_key(), openai_api_key()
-        self.provider = "gemini" if gem else ("openai" if oai else "none")
-        self.key = gem or oai
-        self.available = bool(self.key)
+        self.endpoint = os.getenv("AZURE_OPEN_AI_ENDPOINT", "").strip().rstrip("/")
+        self.key = os.getenv("AZURE_OPEN_AI_KEY", "").strip()
+        self.model = LLM_MODEL
+        self.provider = "azure_openai" if (self.endpoint and self.key) else "none"
+        self.available = self.provider != "none"
         self._client = None
-        if self.provider == "gemini":
-            self.base_url = GEMINI_BASE_URL
-            # honour an explicit LLM_MODEL env override, else use the Gemini default
-            self.model = os.getenv("LLM_MODEL", "").strip() or GEMINI_DEFAULT_MODEL
-        else:
-            self.base_url = LLM_BASE_URL
-            self.model = LLM_MODEL
+        self.last_error: str = ""
+
         if self.available:
             try:
-                from openai import OpenAI
-                headers = {} if self.provider == "gemini" else {"x-api-key": self.key}
-                self._client = OpenAI(api_key=self.key, base_url=self.base_url,
-                                      default_headers=headers,
-                                      timeout=LLM_TIMEOUT, max_retries=0)
+                from openai import AzureOpenAI
+                self._client = AzureOpenAI(
+                    azure_endpoint=self.endpoint,
+                    api_key=self.key,
+                    api_version="2024-12-01-preview",
+                    timeout=LLM_TIMEOUT,
+                    max_retries=0,
+                )
             except Exception as e:
                 self.available = False
                 self.last_error = str(e)
 
-    last_error: str = ""
-
     def complete(self, prompt: str, system: str = "", max_tokens: int = 1200) -> str:
         if not self.available:
             return ""
-        budget = max(max_tokens, LLM_MIN_BUDGET)
-        # Gemini's OpenAI-compat layer expects 'max_tokens'; gpt-5.x reasoning gateways
-        # expect 'max_completion_tokens'.
-        tok_kw = {"max_tokens": budget} if self.provider == "gemini" \
-            else {"max_completion_tokens": budget}
-        try:
-            resp = self._client.chat.completions.create(
-                model=self.model, timeout=LLM_TIMEOUT,
-                messages=[
-                    {"role": "system",
-                     "content": system or "You are a precise startup-evaluation analyst for Siemens."},
-                    {"role": "user", "content": prompt},
-                ],
-                **tok_kw,
-            )
-            self.last_error = ""
-            return resp.choices[0].message.content or ""
-        except Exception as e:
-            self.last_error = str(e)
-            return ""
+        msgs = [
+            {"role": "system",
+             "content": system or "You are a precise startup-evaluation analyst for Siemens."},
+            {"role": "user", "content": prompt},
+        ]
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                resp = self._client.chat.completions.create(
+                    model=self.model,
+                    messages=msgs,
+                    max_tokens=max_tokens,
+                    timeout=LLM_TIMEOUT,
+                )
+                self.last_error = ""
+                return resp.choices[0].message.content or ""
+            except Exception as e:
+                self.last_error = str(e)
+                log.warning("LLM attempt %d/%d failed: %s", attempt, MAX_RETRIES, e)
+                if attempt < MAX_RETRIES:
+                    time.sleep(RETRY_BACKOFF * attempt)
+        return ""
 
     @staticmethod
     def parse_json(text: str) -> Optional[dict]:
