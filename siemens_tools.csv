@@ -1,0 +1,16 @@
+product,category,division,description
+Teamcenter,PLM,Digital Industries Software,Product lifecycle management platform for managing product data and processes
+NX,CAD/CAM/CAE,Digital Industries Software,Integrated solution for computer-aided design manufacturing and engineering
+Simcenter,Simulation,Digital Industries Software,Simulation and test solutions for predicting performance of products
+Polarion,ALM,Digital Industries Software,Application lifecycle management for requirements engineering and test management
+Capital,EDA,Digital Industries Software,Electrical systems design and wire harness engineering
+Xcelerator,Platform,Digital Industries Software,Open digital business platform for engineering and manufacturing
+MindSphere,IoT,Digital Industries Software,Industrial IoT as a service platform for connecting products and machines
+Mendix,Low-Code,Digital Industries Software,Low-code application development platform for enterprise apps
+SIMATIC,Automation,Digital Industries,Industrial automation systems for discrete and process industries
+SINUMERIK,CNC,Digital Industries,CNC systems for machine tools and manufacturing
+Tecnomatix,Manufacturing,Digital Industries Software,Digital manufacturing solutions for process planning and simulation
+Solid Edge,CAD,Digital Industries Software,3D CAD software for product design engineering and manufacturing
+HEEDS,Optimization,Digital Industries Software,Design space exploration and optimization software
+Opcenter,MES/MOM,Digital Industries Software,Manufacturing execution and operations management solutions
+Calibre,IC Verification,Digital Industries Software,Semiconductor IC verification and DFM solutions
