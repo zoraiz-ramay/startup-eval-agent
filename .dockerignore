@@ -13,10 +13,7 @@ docker-compose.yml
 ui/node_modules/
 ui/dist/
 data/pdfs/
-data/*.xlsx
 data/runs.db
-*.xlsx
-*.db
 PROJECT_STATUS.md
 CHANGELOG.md
 README.md
