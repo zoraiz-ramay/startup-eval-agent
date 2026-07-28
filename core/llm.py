@@ -1,7 +1,7 @@
-"""Azure OpenAI LLM client.
+"""OpenAI-compatible LLM client for the Siemens LLM gateway.
 
-Uses AZURE_OPEN_AI_ENDPOINT and AZURE_OPEN_AI_KEY env vars.
-Default deployment: gpt-4o (override with LLM_MODEL).
+Uses OPENAI_API_KEY with the Siemens gateway at llm.sdc.siemens.cloud.
+The gateway authenticates via an 'x-api-key' header.
 """
 from __future__ import annotations
 
@@ -16,27 +16,33 @@ from .config import LLM_MODEL, LLM_TIMEOUT
 
 log = logging.getLogger(__name__)
 
+LLM_BASE_URL = (os.getenv("LLM_BASE_URL") or "https://llm.sdc.siemens.cloud/v1").strip()
+LLM_MIN_BUDGET = int(os.getenv("LLM_MIN_BUDGET", "1024"))
 MAX_RETRIES = 3
 RETRY_BACKOFF = 2
 
 
+def openai_api_key() -> str:
+    return os.getenv("OPENAI_API_KEY", "").strip().strip("<>").strip()
+
+
 class LLMClient:
     def __init__(self):
-        self.endpoint = os.getenv("AZURE_OPEN_AI_ENDPOINT", "").strip().rstrip("/")
-        self.key = os.getenv("AZURE_OPEN_AI_KEY", "").strip()
+        self.key = openai_api_key()
+        self.provider = "openai" if self.key else "none"
+        self.available = bool(self.key)
+        self.base_url = LLM_BASE_URL
         self.model = LLM_MODEL
-        self.provider = "azure_openai" if (self.endpoint and self.key) else "none"
-        self.available = self.provider != "none"
         self._client = None
         self.last_error: str = ""
 
         if self.available:
             try:
-                from openai import AzureOpenAI
-                self._client = AzureOpenAI(
-                    azure_endpoint=self.endpoint,
+                from openai import OpenAI
+                self._client = OpenAI(
                     api_key=self.key,
-                    api_version="2024-12-01-preview",
+                    base_url=self.base_url,
+                    default_headers={"x-api-key": self.key},
                     timeout=LLM_TIMEOUT,
                     max_retries=0,
                 )
@@ -47,6 +53,7 @@ class LLMClient:
     def complete(self, prompt: str, system: str = "", max_tokens: int = 1200) -> str:
         if not self.available:
             return ""
+        budget = max(max_tokens, LLM_MIN_BUDGET)
         msgs = [
             {"role": "system",
              "content": system or "You are a precise startup-evaluation analyst for Siemens."},
@@ -57,7 +64,7 @@ class LLMClient:
                 resp = self._client.chat.completions.create(
                     model=self.model,
                     messages=msgs,
-                    max_tokens=max_tokens,
+                    max_completion_tokens=budget,
                     timeout=LLM_TIMEOUT,
                 )
                 self.last_error = ""
