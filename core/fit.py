@@ -1,6 +1,7 @@
 """Siemens portfolio fit — two-stage LLM tool matching with an offline fallback."""
 from __future__ import annotations
 
+import logging
 import os
 
 import pandas as pd
@@ -8,6 +9,8 @@ import pandas as pd
 from .config import FIT_ALIGN_THRESHOLD, MIN_OFFLINE_OVERLAP
 from .text import _norm, _keywords
 from .llm import LLMClient
+
+log = logging.getLogger(__name__)
 
 # Size of the LLM-ranked shortlist sent to the final fit match. Override with FIT_SHORTLIST_SIZE.
 FIT_SHORTLIST_SIZE = int(os.getenv("FIT_SHORTLIST_SIZE", "80"))
@@ -70,6 +73,8 @@ def match_siemens_tools(row: pd.Series, pitch_pdf: str, tools: list[dict], llm: 
     if llm.available:
         terms = _derive_fit_keywords(startup_text, llm)
         shortlist = _shortlist_tools(tools, terms, FIT_SHORTLIST_SIZE)
+        log.info("[fit] %s — catalogue=%d keywords=%d shortlist=%d",
+                 row.get("company_name","?"), len(tools), len(terms), len(shortlist))
         if shortlist:
             catalogue = "\n".join(f"- {t['product']} | {t['category']} | {t['division']} | {t['description']}"
                                   for t in shortlist)
