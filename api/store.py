@@ -1,19 +1,93 @@
-"""SQLite persistence for evaluation runs (replaces session-only history).
+"""SQLite persistence for evaluation runs with S3 backup.
 
 Stored per run: summary columns for fast listing + the full result JSON blob.
 DB lives at DATA_DIR/runs.db (override with RUNS_DB).
+
+On first connection the DB is restored from S3 if a remote copy exists and no
+local file is present. After every write (save_run, delete_run, add_override)
+the DB is uploaded back to S3 in a background thread so it survives container
+restarts and redeployments.
 """
 from __future__ import annotations
 
 import json
+import logging
 import os
 import pathlib
+import shutil
 import sqlite3
+import threading
 from datetime import datetime, timezone
 
 from core.config import BASE_DIR
 
+log = logging.getLogger(__name__)
+
 DB_PATH = os.getenv("RUNS_DB", str(pathlib.Path(BASE_DIR) / "runs.db"))
+
+# ----------------------------------------------------------------- S3 sync
+_S3_DB_KEY = "data/runs.db"
+_s3_lock = threading.Lock()
+_restored = False
+
+
+def _s3_client():
+    import boto3
+    return boto3.client(
+        "s3",
+        region_name=os.getenv("AWS_REGION", "us-west-2"),
+        aws_access_key_id=os.environ.get("HYDRA_DATA_AWS_ACCESS_KEY_ID"),
+        aws_secret_access_key=os.environ.get("HYDRA_DATA_AWS_SECRET_ACCESS_KEY"),
+    )
+
+
+def _s3_available() -> bool:
+    return bool(
+        os.environ.get("HYDRA_DATA_AWS_ACCESS_KEY_ID")
+        and os.environ.get("HYDRA_DATA_AWS_SECRET_ACCESS_KEY")
+    )
+
+
+def _s3_bucket() -> str:
+    return os.getenv("S3_BUCKET", "hydra-data-app-startup-evaluation-agent-hydra-pdfs")
+
+
+def _restore_from_s3() -> None:
+    """Download runs.db from S3 if no local copy exists yet."""
+    global _restored
+    if _restored or not _s3_available():
+        _restored = True
+        return
+    _restored = True
+    if os.path.exists(DB_PATH):
+        log.info("[store] Local DB already exists at %s, skipping S3 restore", DB_PATH)
+        return
+    try:
+        os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
+        tmp = DB_PATH + ".s3tmp"
+        _s3_client().download_file(_s3_bucket(), _S3_DB_KEY, tmp)
+        shutil.move(tmp, DB_PATH)
+        log.info("[store] Restored DB from s3://%s/%s -> %s", _s3_bucket(), _S3_DB_KEY, DB_PATH)
+    except Exception as exc:
+        log.info("[store] No DB in S3 (starting fresh): %s", exc)
+        if os.path.exists(DB_PATH + ".s3tmp"):
+            os.remove(DB_PATH + ".s3tmp")
+
+
+def _upload_to_s3() -> None:
+    """Upload the current runs.db to S3 in a background thread."""
+    if not _s3_available():
+        return
+
+    def _do_upload():
+        with _s3_lock:
+            try:
+                _s3_client().upload_file(DB_PATH, _s3_bucket(), _S3_DB_KEY)
+                log.debug("[store] Synced DB to s3://%s/%s", _s3_bucket(), _S3_DB_KEY)
+            except Exception as exc:
+                log.warning("[store] S3 upload failed: %s", exc)
+
+    threading.Thread(target=_do_upload, daemon=True).start()
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
@@ -93,15 +167,15 @@ CREATE INDEX IF NOT EXISTS idx_facts_run ON evidence_facts(run_id);
 
 
 def _conn() -> sqlite3.Connection:
+    _restore_from_s3()
     os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
     con = sqlite3.connect(DB_PATH)
     con.executescript(_SCHEMA)
-    # lightweight migrations for DBs created before these columns existed
     for col, typ in (("summary", "TEXT"), ("parent_group", "TEXT"), ("company_id", "INTEGER")):
         try:
             con.execute(f"ALTER TABLE runs ADD COLUMN {col} {typ}")
         except sqlite3.OperationalError:
-            pass                                   # column already present
+            pass
     return con
 
 
@@ -204,11 +278,11 @@ def save_run(result: dict) -> int:
              json.dumps(result, default=str),
              str(result.get("summary", ""))[:300], str(dp.get("parent_group", ""))[:120]))
         run_id = int(cur.lastrowid)
-        # normalized persistence of everything the pipeline fetched
         cid = _upsert_company(con, result, run_id)
         con.execute("UPDATE runs SET company_id=? WHERE id=?", (cid, run_id))
         _replace_children(con, cid, run_id, result)
-        return run_id
+    _upload_to_s3()
+    return run_id
 
 
 def backfill_entities() -> int:
@@ -335,7 +409,10 @@ def latest_run_for_company(company: str) -> dict | None:
 def delete_run(run_id: int) -> bool:
     with _conn() as con:
         cur = con.execute("DELETE FROM runs WHERE id=?", (run_id,))
-        return cur.rowcount > 0
+        deleted = cur.rowcount > 0
+    if deleted:
+        _upload_to_s3()
+    return deleted
 
 
 # ----------------------------------------------------------------- reviewer overrides
@@ -354,6 +431,7 @@ def add_override(run_id: int, new_pillar: str, reason: str,
             "reviewer, created_at) VALUES (?,?,?,?,?,?,?)",
             (run_id, prev, new_pillar, reason, evidence_note, reviewer, ts))
         con.execute("UPDATE runs SET pillar=? WHERE id=?", (new_pillar, run_id))
+    _upload_to_s3()
     return {"run_id": run_id, "prev_pillar": prev, "new_pillar": new_pillar,
             "reason": reason, "evidence_note": evidence_note,
             "reviewer": reviewer, "created_at": ts}
