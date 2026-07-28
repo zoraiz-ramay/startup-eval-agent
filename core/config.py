@@ -21,8 +21,8 @@ WEIGHTS = {
 THIN_PROFILE_CAP = 75.0          # sparse/unverifiable profiles top out here
 FIT_ALIGN_THRESHOLD = 50.0       # below this, "not aligned with Siemens portfolio"
 MIN_OFFLINE_OVERLAP = 2          # offline mode needs >=2 meaningful shared terms to count
-LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o")
-LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT", "60"))
+LLM_MODEL = os.getenv("LLM_MODEL", "gpt-5.4")
+LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT", "30"))
 
 
 def _find_data_dir(start: pathlib.Path) -> pathlib.Path:
