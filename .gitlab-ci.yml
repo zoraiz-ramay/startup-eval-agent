@@ -25,6 +25,9 @@ variables:
   # AWS Secrets Manager
   AWS_SECRET_NAME: "docker-apps/startup-evaluation-agent-hydra"
 
+  # Disable WAF to allow global access (including Israel office)
+  ATTACH_WAF: "false"
+
   # AWS Resource Tags
   AWS_TAGS: '[{"name":"created_by","value":"claude"},{"name":"type","value":"app"}]'
 

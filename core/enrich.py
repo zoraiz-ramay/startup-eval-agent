@@ -1,6 +1,7 @@
 """Fact collection (with provenance) from the DB row and, optionally, the web."""
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 import pandas as pd
@@ -9,6 +10,8 @@ from .provenance import Fact
 from .web import ddg_search, _ddg_many
 from .data import extract_pdf_text, _resolve_pdf
 from .text import _split_list
+
+log = logging.getLogger(__name__)
 
 
 def _verify_claim(claim: str, company: str) -> Optional[Fact]:
@@ -44,7 +47,10 @@ def enrich(row: pd.Series, do_web: bool = True) -> dict:
 
     pitch_pdf = ""
     if str(row.get("has_pdf", "")).lower() in ("true", "1", "yes"):
-        pitch_pdf = extract_pdf_text(_resolve_pdf(str(row.get("pdf_local_path", ""))))
+        pdf_path_raw = str(row.get("pdf_local_path", ""))
+        resolved = _resolve_pdf(pdf_path_raw)
+        log.info("[enrich] PDF for %s: raw=%r resolved=%r", company, pdf_path_raw[:60], resolved[:60] if resolved else "")
+        pitch_pdf = extract_pdf_text(resolved)
         if pitch_pdf:
             facts.append(Fact(key="pitch_deck", value=f"{len(pitch_pdf)} chars extracted",
                               method="pitch_pdf", source_url=str(row.get("pdf_filename", "")),
