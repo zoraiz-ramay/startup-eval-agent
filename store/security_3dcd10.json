@@ -1,0 +1,11 @@
+{
+  "status": "pass",
+  "secrets_found": [],
+  "pip_audit": {
+    "status": "skipped (no dependency changes)"
+  },
+  "npm_audit": {
+    "status": "skipped"
+  },
+  "issues": []
+}

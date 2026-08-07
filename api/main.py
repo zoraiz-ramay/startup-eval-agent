@@ -30,6 +30,7 @@ from core.solve import solve_problem, load_challenges, set_challenge_status
 from core import s3 as _s3
 from api import store
 from api.security import SecurityMiddleware
+from api.routes_evidence import router as evidence_router
 
 
 # ---------------------------------------------------------------- local applications file
@@ -88,6 +89,7 @@ app.add_middleware(SecurityMiddleware)
 app.add_middleware(CORSMiddleware, allow_origins=_origins, allow_credentials=True,
                    allow_methods=["GET", "POST", "PATCH", "DELETE"],
                    allow_headers=["Authorization", "Content-Type"])
+app.include_router(evidence_router)
 
 
 class EvaluateBody(BaseModel):

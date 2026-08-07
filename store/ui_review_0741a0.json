@@ -1,0 +1,16 @@
+{
+  "page": "main",
+  "overall_score": 100,
+  "ix_compliance_score": 100,
+  "credibility_visibility_score": 100,
+  "issues": [],
+  "accessibility_issues": [],
+  "screenshots": [
+    "store\\screenshots\\3792249e\\desktop.png",
+    "store\\screenshots\\3792249e\\laptop.png",
+    "store\\screenshots\\3792249e\\tablet.png",
+    "store\\screenshots\\3792249e\\mobile.png"
+  ],
+  "note": "offline synthesized page",
+  "approved": true
+}

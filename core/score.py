@@ -5,7 +5,7 @@ import re
 
 import pandas as pd
 
-from .config import WEIGHTS, THIN_PROFILE_CAP
+from .config import WEIGHTS, THIN_PROFILE_CAP, PROGRAM_PRESTIGE_WEIGHTS, PROGRAM_PRESTIGE_CAP
 
 # Per-route weight profiles (each sums to 1.0). The universal WEIGHTS remain the
 # backwards-compatible headline score; these drive route-specific recommendations.
@@ -79,11 +79,18 @@ def score_startup(row: pd.Series, enrichment: dict, verification: dict, fit: dic
     # ecosystem: verified web presence + program membership (Xcelerator, incubators,
     # corporate programs like Nvidia Inception / Microsoft for Startups) + corporate parent.
     # Programs are SUPPORTING signals: only evidence-backed memberships (with a source URL)
-    # earn points, so a self-claimed membership cannot inflate the score automatically.
+    # earn points, and each is weighted by a PRESTIGE TIER (a Y Combinator / Siemens-run spot
+    # is worth more than a generic local incubator), so a self-claimed membership cannot inflate
+    # the score and one prestigious program outweighs several obscure ones.
     programs = [p for p in profile.get("programs", []) if isinstance(p, dict) and p.get("name")]
     evidenced_programs = [p for p in programs if str(p.get("source_url", "")).startswith("http")]
+    prestige_pts = sum(
+        PROGRAM_PRESTIGE_WEIGHTS.get(str(p.get("prestige", "tier3")).lower(),
+                                     PROGRAM_PRESTIGE_WEIGHTS["tier3"])
+        for p in evidenced_programs)
+    prestige_pts = min(prestige_pts, PROGRAM_PRESTIGE_CAP)
     eco = 30 + 20 * len([f for f in facts if f.method == "ddg_search" and f.verified])
-    eco += 12 * min(3, len(evidenced_programs)) + 4 * min(2, len(programs) - len(evidenced_programs))
+    eco += prestige_pts + 4 * min(2, len(programs) - len(evidenced_programs))
     eco += 10 if str(profile.get("parent_group", "")).strip() else 0
     dims["ecosystem"] = min(100, eco)
 

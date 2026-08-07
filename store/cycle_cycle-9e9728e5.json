@@ -1,0 +1,44 @@
+{
+  "cycle_id": "cycle-9e9728e5",
+  "active_feature": "profile-overview-scorebars",
+  "timestamp": "2026-08-06T13:13:18.841075+00:00",
+  "repair_attempts": 1,
+  "models_used": {
+    "repo_analysis": "gpt-oss-120b",
+    "ui_improver": "gpt-oss-120b",
+    "coding": "gpt-oss-120b",
+    "applied_se": "gpt-oss-120b",
+    "ui_review": "gpt-oss-120b",
+    "fact_checking": "gpt-oss-120b"
+  },
+  "ui_focus": true,
+  "files_changed": [
+    "ui/src/pages/Profile.jsx",
+    "ui/src/components/ScoreBar.jsx",
+    "ui/src/components/Loading.jsx",
+    "ui/src/components/ErrorBox.jsx",
+    "features/profile_overview_scorebars/utils.py",
+    "tests/pure_logic/test_scorebar_utils.py"
+  ],
+  "gate_details": {
+    "tests": "pass",
+    "flake8": "pass",
+    "mypy": "pass",
+    "security": "pass",
+    "cost": "within_budget",
+    "ui_approved": true,
+    "credibility": "needs_review"
+  },
+  "merge_decision": "approved",
+  "blocking_reasons": [],
+  "summary": "Displays startup profile metrics using ScoreBar components beneath a sticky header.",
+  "applied_files": [
+    "ui/src/pages/Profile.jsx",
+    "ui/src/components/ScoreBar.jsx",
+    "ui/src/components/Loading.jsx",
+    "ui/src/components/ErrorBox.jsx",
+    "features/profile_overview_scorebars/utils.py",
+    "tests/pure_logic/test_scorebar_utils.py"
+  ],
+  "registered_feature": "profile-overview-scorebars"
+}

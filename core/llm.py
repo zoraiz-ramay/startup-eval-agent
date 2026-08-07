@@ -27,12 +27,12 @@ def openai_api_key() -> str:
 
 
 class LLMClient:
-    def __init__(self):
-        self.key = openai_api_key()
+    def __init__(self, key: str = "", base_url: str = "", model: str = ""):
+        self.key = (key or openai_api_key()).strip().strip("<>").strip()
         self.provider = "openai" if self.key else "none"
         self.available = bool(self.key)
-        self.base_url = LLM_BASE_URL
-        self.model = LLM_MODEL
+        self.base_url = (base_url or LLM_BASE_URL).strip()
+        self.model = model or LLM_MODEL
         self._client = None
         self.last_error: str = ""
 
@@ -50,10 +50,12 @@ class LLMClient:
                 self.available = False
                 self.last_error = str(e)
 
-    def complete(self, prompt: str, system: str = "", max_tokens: int = 1200) -> str:
+    def complete(self, prompt: str, system: str = "", max_tokens: int = 1200,
+                 model: str = "") -> str:
         if not self.available:
             return ""
         budget = max(max_tokens, LLM_MIN_BUDGET)
+        use_model = (model or self.model)
         msgs = [
             {"role": "system",
              "content": system or "You are a precise startup-evaluation analyst for Siemens."},
@@ -62,7 +64,7 @@ class LLMClient:
         for attempt in range(1, MAX_RETRIES + 1):
             try:
                 resp = self._client.chat.completions.create(
-                    model=self.model,
+                    model=use_model,
                     messages=msgs,
                     max_completion_tokens=budget,
                     timeout=LLM_TIMEOUT,

@@ -1,0 +1,36 @@
+{
+  "cycle_id": "cycle-6263a15c",
+  "active_feature": "evidence-quality-legend",
+  "timestamp": "2026-08-06T13:17:17.564785+00:00",
+  "repair_attempts": 0,
+  "models_used": {
+    "repo_analysis": "gpt-oss-120b",
+    "ui_improver": "gpt-oss-120b",
+    "coding": "gpt-5.4",
+    "applied_se": "gpt-oss-120b",
+    "ui_review": "gpt-oss-120b",
+    "fact_checking": "gpt-5.4"
+  },
+  "ui_focus": true,
+  "files_changed": [
+    "ui/src/pages/EvidenceTab.jsx",
+    "tests/test_evidence_quality_legend.py"
+  ],
+  "gate_details": {
+    "tests": "pass",
+    "flake8": "pass",
+    "mypy": "pass",
+    "security": "pass",
+    "cost": "within_budget",
+    "ui_approved": true,
+    "credibility": "pass"
+  },
+  "merge_decision": "approved",
+  "blocking_reasons": [],
+  "summary": "Added a source quality legend above the evidence table so badge colors are explained at a glance.",
+  "applied_files": [
+    "ui/src/pages/EvidenceTab.jsx",
+    "tests/test_evidence_quality_legend.py"
+  ],
+  "registered_feature": "evidence-quality-legend"
+}

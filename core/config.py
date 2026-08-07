@@ -24,6 +24,24 @@ MIN_OFFLINE_OVERLAP = 2          # offline mode needs >=2 meaningful shared term
 LLM_MODEL = os.getenv("LLM_MODEL", "gpt-5.4")
 LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT", "30"))
 
+# --- Program prestige -------------------------------------------------------------------
+# Membership in a startup program is a credibility signal, but not all programs are equal: a
+# spot in Y Combinator / Techstars or a Siemens-run program (Xcelerator, Startup Autobahn) is
+# far stronger evidence than a generic local incubator. The ecosystem score therefore weights
+# each EVIDENCED membership by a prestige tier instead of counting them flat. The tier is
+# graded by the LLM (global reputation) and falls back to KNOWN_PROGRAM_TIERS offline.
+PROGRAM_PRESTIGE_WEIGHTS = {"tier1": 16.0, "tier2": 11.0, "tier3": 6.0}
+PROGRAM_PRESTIGE_CAP = 36.0      # max ecosystem points contributed by program prestige
+KNOWN_PROGRAM_TIERS = {
+    "y combinator": "tier1", "techstars": "tier1", "siemens xcelerator": "tier1",
+    "startup autobahn": "tier1", "nvidia inception": "tier1", "intel ignite": "tier1",
+    "entrepreneur first": "tier1", "sosv": "tier1", "500 global": "tier1",
+    "microsoft for startups": "tier2", "google for startups": "tier2", "aws activate": "tier2",
+    "sap.io": "tier2", "plug and play": "tier2", "antler": "tier2", "masschallenge": "tier2",
+    "startupbootcamp": "tier2", "seedcamp": "tier2", "alchemist accelerator": "tier2",
+    "station f": "tier2", "eit": "tier2", "esa bic": "tier2",
+}
+
 
 def _find_data_dir(start: pathlib.Path) -> pathlib.Path:
     # also scan the repo's data/ folder, where the shipped xlsx/pdfs/runs.db live —

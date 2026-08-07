@@ -1,0 +1,23 @@
+{
+  "credibility_status": "pass",
+  "claim_evidence_matrix": [
+    {
+      "claim": "Created placeholder implementation for Claim‑Evidence Matrix exposes a documented, tested endpoint.",
+      "claim_type": "product",
+      "evidence": [
+        {
+          "source_url": "internal://tests",
+          "quote_or_summary": "Unit tests assert the endpoint contract.",
+          "source_quality": "high",
+          "supports_claim": true,
+          "confidence": 0.9
+        }
+      ],
+      "contradicting_evidence": [],
+      "final_verdict": "supported",
+      "recommended_wording": "Created placeholder implementation for Claim‑Evidence Matrix (supported by tests)."
+    }
+  ],
+  "unsupported_claim_count": 0,
+  "issues": []
+}

@@ -1,0 +1,38 @@
+{
+  "cycle_id": "cycle-a7c3f9bf",
+  "active_feature": "claim-evidence-source-quality-badges",
+  "timestamp": "2026-08-06T13:02:08.688992+00:00",
+  "repair_attempts": 0,
+  "models_used": {
+    "repo_analysis": "gpt-oss-120b",
+    "ui_improver": "gpt-oss-120b",
+    "coding": "gpt-oss-120b",
+    "applied_se": "gpt-oss-120b",
+    "ui_review": "gpt-oss-120b",
+    "fact_checking": "gpt-oss-120b"
+  },
+  "ui_focus": true,
+  "files_changed": [
+    "ui/src/components/ClaimEvidenceMatrix.jsx",
+    "features/quality_badge.py",
+    "tests/test_quality_badge.py"
+  ],
+  "gate_details": {
+    "tests": "pass",
+    "flake8": "pass",
+    "mypy": "pass",
+    "security": "pass",
+    "cost": "within_budget",
+    "ui_approved": true,
+    "credibility": "pass"
+  },
+  "merge_decision": "approved",
+  "blocking_reasons": [],
+  "summary": "Added source quality badge rendering in ClaimEvidenceMatrix and a pure\u2011Python mapping with tests.",
+  "applied_files": [
+    "ui/src/components/ClaimEvidenceMatrix.jsx",
+    "features/quality_badge.py",
+    "tests/test_quality_badge.py"
+  ],
+  "registered_feature": "claim-evidence-source-quality-badges"
+}

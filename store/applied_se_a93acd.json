@@ -1,0 +1,13 @@
+{
+  "status": "pass",
+  "files_checked": [
+    "C:\\Users\\z005af2t\\Desktop\\Startup_Eval_Agent\\startup_eval_agent\\startup_eval_agent\\.claude\\worktrees\\cycle-b2ced09a\\api\\routes_evidence.py",
+    "C:\\Users\\z005af2t\\Desktop\\Startup_Eval_Agent\\startup_eval_agent\\startup_eval_agent\\.claude\\worktrees\\cycle-b2ced09a\\benchmarks\\__init__.py",
+    "C:\\Users\\z005af2t\\Desktop\\Startup_Eval_Agent\\startup_eval_agent\\startup_eval_agent\\.claude\\worktrees\\cycle-b2ced09a\\benchmarks\\matrix.py",
+    "C:\\Users\\z005af2t\\Desktop\\Startup_Eval_Agent\\startup_eval_agent\\startup_eval_agent\\.claude\\worktrees\\cycle-b2ced09a\\benchmarks\\tracxn.py",
+    "C:\\Users\\z005af2t\\Desktop\\Startup_Eval_Agent\\startup_eval_agent\\startup_eval_agent\\.claude\\worktrees\\cycle-b2ced09a\\tests\\test_evidence_endpoint.py"
+  ],
+  "lint_errors": [],
+  "type_errors": [],
+  "issues": []
+}

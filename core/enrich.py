@@ -7,7 +7,7 @@ from typing import Optional
 import pandas as pd
 
 from .provenance import Fact
-from .web import ddg_search, _ddg_many
+from .web import ddg_search, _ddg_many, fetch_site_text
 from .data import extract_pdf_text, _resolve_pdf
 from .text import _split_list
 
@@ -68,7 +68,10 @@ def enrich(row: pd.Series, do_web: bool = True) -> dict:
             "employees_web": f"{company} number of employees headcount",
             "customers_web": f"{company} customers clients case study",
             "competitors_web": f"{company} competitors alternatives",
+            "ecosystem_web": f"{company} ecosystem partner network member accelerator",
+            "partnerships_web": f"{company} partnership collaboration strategic partner",
             "news_web": f"{company} {domain} news".strip(),
+            "crunchbase_web": f"{company} crunchbase founded funding stage pre-seed seed series",
         }
         if country:
             queries["country_vc_web"] = f"venture capital funding {country} startups 2025"
@@ -98,4 +101,22 @@ def enrich(row: pd.Series, do_web: bool = True) -> dict:
                 facts.append(Fact(key=f"verify:{c}", value="no corroboration found",
                                   method="ddg_search", confidence=0.3, verified=False))
 
-    return {"company": company, "facts": facts, "pitch_pdf": pitch_pdf, "web": web}
+    # Direct fetch of the company's OWN site (about/partners/ecosystem/...). DuckDuckGo
+    # misses a lot of a startup's own pages, so ecosystem/partnership facts that live only
+    # on the site (the phena.tech case) never surface via search alone. SSRF-guarded in web.py.
+    site: dict = {}
+    if do_web and company:
+        site_src = str(row.get("website", "") or row.get("domain", "")).strip()
+        if site_src:
+            try:
+                site = fetch_site_text(site_src)
+            except Exception:
+                site = {}
+            for path, text in site.items():
+                if text:
+                    facts.append(Fact(key=f"site:{path}", value=text[:280],
+                                      source_url=site_src, method="site_fetch",
+                                      confidence=0.6, verified=True))
+
+    return {"company": company, "facts": facts, "pitch_pdf": pitch_pdf,
+            "web": web, "site": site}

@@ -1,0 +1,34 @@
+{
+  "cycle_id": "cycle-a3de792d",
+  "active_feature": "profile-claim-evidence-matrix",
+  "timestamp": "2026-08-06T13:18:37.163604+00:00",
+  "repair_attempts": 0,
+  "models_used": {
+    "repo_analysis": "gpt-oss-120b",
+    "ui_improver": "gpt-oss-120b",
+    "coding": "gpt-5.4",
+    "applied_se": "gpt-oss-120b",
+    "ui_review": "gpt-oss-120b",
+    "fact_checking": "gpt-5.4"
+  },
+  "ui_focus": true,
+  "files_changed": [
+    "ui/src/pages/Profile.jsx"
+  ],
+  "gate_details": {
+    "tests": "pass",
+    "flake8": "pass",
+    "mypy": "pass",
+    "security": "pass",
+    "cost": "within_budget",
+    "ui_approved": true,
+    "credibility": "pass"
+  },
+  "merge_decision": "approved",
+  "blocking_reasons": [],
+  "summary": "Added the ClaimEvidenceMatrix to the Profile page below the scorebars and passed the startup company name through.",
+  "applied_files": [
+    "ui/src/pages/Profile.jsx"
+  ],
+  "registered_feature": "profile-claim-evidence-matrix"
+}

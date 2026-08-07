@@ -8,7 +8,7 @@ redis-server /app/redis.conf --daemonize yes
 # Wait for Redis to be ready
 until redis-cli ping 2>/dev/null | grep -q PONG; do
   sleep 0.5
-done
+donestart
 echo "Redis is ready."
 
 # Start the application

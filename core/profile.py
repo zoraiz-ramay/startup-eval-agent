@@ -15,7 +15,7 @@ import pandas as pd
 from .provenance import Fact
 from .web import _ddg_many
 from .llm import LLMClient
-
+from .config import KNOWN_PROGRAM_TIERS
 # Known startup programs for offline detection (matched case-insensitively).
 KNOWN_PROGRAMS = {
     "siemens xcelerator": "corporate_program",
@@ -57,6 +57,7 @@ EMPTY_PROFILE = {
     "key_team": [],           # early/core non-founder team [{name, role, source_url}]
     "advisors": [],           # [{name, role, affiliation, source_url}]
     "employees": "",          # best-evidence headcount
+    "employees_over_time": [],  # [{year, count, source_url}] — evidence-cited points only
     "parent_group": "",       # part of a major group / corporate parent
     "programs": [],           # [{name, type: incubator|accelerator|corporate_program, source_url}]
     "reference_customers": [],  # NAMED accounts only, grounded in evidence
@@ -399,7 +400,10 @@ def _profile_facts(prof: dict) -> list[Fact]:
                 a.get("source_url", ""))
     for p in prof.get("programs", []):
         if isinstance(p, dict) and p.get("name"):
-            add("program", f"{p.get('name')} ({p.get('type','program')})", p.get("source_url", ""))
+            tier = str(p.get("prestige", "")).strip()
+            label = f"{p.get('name')} ({p.get('type', 'program')}"
+            label += f", {tier})" if tier else ")"
+            add("program", label, p.get("source_url", ""))
     add("parent_group", prof.get("parent_group", ""))
     add("employees_research", prof.get("employees", ""))
     if prof.get("sfs", {}).get("relevant"):
@@ -407,14 +411,213 @@ def _profile_facts(prof: dict) -> list[Fact]:
     return facts
 
 
-def research_profile(row: pd.Series, llm: LLMClient, do_web: bool = True) -> dict:
-    """Return {'profile': {...}, 'facts': [Fact...]}; never raises."""
+def _merge_site_results(results: dict, company: str, row: pd.Series,
+                        site: dict | None) -> dict:
+    """Fold the company's own fetched pages into the search-results dict as pseudo-hits.
+
+    The grounding gate (_program_grounded / _rel_grounded) requires a program/customer name
+    and the company to co-occur in a SINGLE result. A company's own /partners or /ecosystem
+    page trivially satisfies "company co-occurs" (it is their site), so we prepend the company
+    name to each page's body and use the site URL as href. This lets memberships published
+    only on the site be grounded, without weakening the co-occurrence rule for real search
+    results. Returns a new dict; the input is not mutated."""
+    merged = dict(results or {})
+    if not site:
+        return merged
+    website = str(row.get("website", "") or row.get("domain", "")).strip()
+    for i, (path, text) in enumerate(site.items()):
+        if not str(text).strip():
+            continue
+        merged[f"__site__{i}"] = [{
+            "title": f"{company} — {path}",
+            "body": f"{company} {text}",
+            "href": website,
+        }]
+    return merged
+
+
+def _recheck_programs(prof: dict, row: pd.Series, company: str,
+                      results: dict, llm: LLMClient) -> None:
+    """Second-pass recall check for program/ecosystem membership.
+
+    When the first pass found NO grounded programs, an empty result is not yet proof of
+    "no memberships" — the ecosystem queries may have been throttled or the membership may
+    live on a page DuckDuckGo skipped. Run a dedicated ecosystem/accelerator search wave,
+    merge it with whatever site evidence we already have, and re-run the same grounded
+    detection. Only memberships tied to THIS startup (co-occurrence) survive, so recall
+    improves without sacrificing correctness. No-op when programs already exist."""
+    if prof.get("programs"):
+        return
+    company_l = company.lower()
+    queries = {
+        "e1": f'{company} ("part of" OR member OR backed OR portfolio) ecosystem',
+        "e2": f"{company} accelerator incubator cohort alumni program",
+        "e3": f"{company} strategic partner alliance network",
+    }
+    extra = _ddg_many(queries, max_results=5, overall_timeout=20.0)
+    combined = dict(results or {})
+    combined.update(extra)
+    found = _detect_programs(row, combined)
+    if not found and llm.available:
+        # Let the LLM name any program the evidence supports, then ground it hard.
+        corpus = _corpus(combined)
+        if corpus:
+            data = LLMClient.parse_json(llm.complete(
+                f"Web/company-site results about '{company}':\n\n{corpus}\n\n"
+                "List ONLY startup programs, accelerators, incubators, corporate startup "
+                "programs, or partner ecosystems that the evidence clearly ties to THIS "
+                "company as a member/participant. Never guess; empty list if none.\n"
+                'Return ONLY JSON: {"programs":[{"name":"","type":"incubator|accelerator|'
+                'corporate_program","source_url":""}]}',
+                system="You extract structured facts strictly from supplied evidence. JSON only.",
+                max_tokens=500)) or {}
+            found = _ground_programs(data.get("programs", []), row, combined)
+    if found:
+        seen = set()
+        deduped = []
+        for p in found:
+            k = str(p.get("name", "")).strip().lower()
+            if k and k != company_l and k not in seen:
+                seen.add(k)
+                deduped.append(p)
+        prof["programs"] = deduped
+
+
+def _program_tier_offline(name: str) -> str:
+    """Deterministic prestige tier from the known-program map; unknown -> tier3."""
+    n = str(name).lower()
+    for key, tier in KNOWN_PROGRAM_TIERS.items():
+        if key and key in n:
+            return tier
+    return "tier3"
+
+
+def _grade_programs(programs: list, company: str, llm: LLMClient) -> None:
+    """Annotate each program with a prestige ``tier`` (tier1/tier2/tier3) in place.
+
+    Every program first gets a deterministic tier from KNOWN_PROGRAM_TIERS (unknown -> tier3),
+    so scoring is stable even offline. When the LLM is available it re-grades by global
+    reputation (tier1 = top-tier / Siemens-run, tier3 = generic local), but it may ONLY set
+    the tier — it can never add, drop, or rename a membership, so grading can't fabricate
+    credibility. Invalid/absent LLM tiers keep the deterministic baseline."""
+    if not programs:
+        return
+    for p in programs:
+        if isinstance(p, dict):
+            p["prestige"] = _program_tier_offline(str(p.get("name", "")))
+    if not llm.available:
+        return
+    named = [str(p.get("name", "")).strip() for p in programs
+             if isinstance(p, dict) and str(p.get("name", "")).strip()]
+    if not named:
+        return
+    listing = "; ".join(named)
+    data = LLMClient.parse_json(llm.complete(
+        f"Rate the prestige of these startup programs that '{company}' belongs to: {listing}.\n"
+        "Tiers: tier1 = globally top-tier accelerator/program or run by a major corporate "
+        "(e.g. Y Combinator, Techstars, Siemens Xcelerator, Startup Autobahn, Intel Ignite); "
+        "tier2 = well-known but broad-access (e.g. Microsoft/Google for Startups, Plug and "
+        "Play, Antler); tier3 = regional/generic/unknown. Judge by the program's reputation, "
+        "not this company.\n"
+        'Return ONLY JSON: {"tiers": {"<program name>": "tier1|tier2|tier3"}}',
+        system="You grade startup-program prestige. JSON only.", max_tokens=300)) or {}
+    tiers = data.get("tiers") or {}
+    if not isinstance(tiers, dict):
+        return
+    lut = {str(k).strip().lower(): str(v).strip().lower() for k, v in tiers.items()}
+    for p in programs:
+        if not isinstance(p, dict):
+            continue
+        t = lut.get(str(p.get("name", "")).strip().lower())
+        if t in ("tier1", "tier2", "tier3"):
+            p["prestige"] = t
+
+
+def _clean_employee_series(points: list) -> list[dict]:
+    """Sanitise raw {year, count, source_url} points into a trustworthy time series.
+
+    Correctness over recall: a point is kept ONLY when it has a plausible year
+    (2000..current+1), a positive integer headcount, and an http(s) source_url — an
+    uncited number is dropped rather than guessed. Duplicated years collapse to one
+    (highest count wins) and the result is sorted ascending. Fewer than TWO cited points
+    returns [] so the UI can honestly show 'insufficient data' instead of a misleading
+    single dot or a fabricated line."""
+    import datetime
+    max_year = datetime.date.today().year + 1
+    by_year: dict[int, dict] = {}
+    for p in points or []:
+        if not isinstance(p, dict):
+            continue
+        src = str(p.get("source_url", "")).strip()
+        if not src.startswith("http"):
+            continue
+        try:
+            year = int(str(p.get("year", "")).strip()[:4])
+            count = int(float(str(p.get("count", "")).strip().replace(",", "")))
+        except (ValueError, TypeError):
+            continue
+        if year < 2000 or year > max_year or count <= 0:
+            continue
+        prev = by_year.get(year)
+        if prev is None or count > prev["count"]:
+            by_year[year] = {"year": year, "count": count, "source_url": src}
+    series = [by_year[y] for y in sorted(by_year)]
+    return series if len(series) >= 2 else []
+
+
+def _employee_history(company: str, row: pd.Series, results: dict,
+                      llm: LLMClient) -> list[dict]:
+    """Best-effort headcount-over-time series, every point backed by a source URL.
+
+    Runs a small dedicated wave of historical-headcount queries, then asks the LLM to pull
+    ONLY year+count pairs the evidence supports, each with the supporting URL. The result is
+    passed through _clean_employee_series, so anything uncited or implausible is discarded and
+    a series with <2 cited points collapses to []. Returns [] on any failure — never raises."""
+    if not llm.available:
+        return []
+    queries = {
+        "h1": f"{company} number of employees 2021 2022 2023 2024 headcount growth",
+        "h2": f"{company} linkedin employees company size over time",
+        "h3": f"{company} crunchbase employee count history",
+    }
+    try:
+        extra = _ddg_many(queries, max_results=5, overall_timeout=18.0)
+    except Exception:
+        extra = {}
+    combined = dict(results or {})
+    combined.update(extra)
+    corpus = _corpus(combined)
+    if not corpus:
+        return []
+    data = LLMClient.parse_json(llm.complete(
+        f"Web results about the headcount of the startup '{company}':\n\n{corpus}\n\n"
+        "Extract the number of EMPLOYEES per YEAR, using ONLY figures the evidence states "
+        "for this company. For each data point give the calendar year, the employee count as "
+        "an integer, and the source_url of the result that supports it. Never estimate or "
+        "interpolate; omit any year you cannot cite. Return an empty list if none are cited.\n"
+        'Return ONLY JSON: {"employees_over_time":[{"year":2023,"count":42,"source_url":""}]}',
+        system="You extract structured facts strictly from supplied evidence. JSON only.",
+        max_tokens=600)) or {}
+    return _clean_employee_series(data.get("employees_over_time", []))
+
+
+def research_profile(row: pd.Series, llm: LLMClient, do_web: bool = True,
+                     site: dict | None = None) -> dict:
+    """Return {'profile': {...}, 'facts': [Fact...]}; never raises.
+
+    ``site`` is the optional {path: text} map of the company's OWN pages already fetched
+    during enrichment (web.fetch_site_text). Folding it into the evidence lets the recall
+    check ground ecosystem/program memberships that live only on the site and were never
+    indexed by DuckDuckGo."""
     company = str(row.get("company_name", "")).strip()
     if not company:
         return {"profile": dict(EMPTY_PROFILE), "facts": []}
     try:
         results = _ddg_many(_queries(company, row, llm), max_results=4,
                             overall_timeout=25.0) if do_web else {}
+        # Fold the company's own site text in as pseudo-results so the grounding gate
+        # (name + company must co-occur in one result) can see facts published only there.
+        results = _merge_site_results(results, company, row, site)
         prof = None
         if llm.available:
             prof = _llm_extract(company, row, results, llm)
@@ -441,6 +644,27 @@ def research_profile(row: pd.Series, llm: LLMClient, do_web: bool = True) -> dic
         # Employees: never leave blank when the application row already knows it.
         if not str(prof.get("employees", "")).strip():
             prof["employees"] = str(row.get("employees_count", "") or row.get("employee_band", "")).strip()
+        # Headcount-over-time: dedicated, evidence-cited series (empty unless >=2 cited points).
+        if do_web:
+            try:
+                prof["employees_over_time"] = _employee_history(company, row, results, llm)
+            except Exception:
+                prof["employees_over_time"] = []
+        # Recall check: when programs come back empty, don't conclude "none" yet — run a
+        # dedicated ecosystem/program search wave (plus the site text) and re-ground before
+        # declaring the field unavailable. Best-effort; never costs the profile.
+        if do_web:
+            try:
+                _recheck_programs(prof, row, company, results, llm)
+            except Exception:
+                pass
+        # Grade the surviving (grounded) memberships by prestige tier so the ecosystem
+        # score can weight a top-tier accelerator above a generic one. In place; never
+        # adds or removes a program.
+        try:
+            _grade_programs(prof.get("programs", []), company, llm)
+        except Exception:
+            pass
         # Founder recovery (when extraction found none) then deep-dive (fill thin
         # backgrounds). Both best-effort: a failure here must never cost the profile.
         if do_web:

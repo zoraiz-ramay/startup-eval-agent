@@ -94,6 +94,7 @@ def web_profile_row(name: str, llm: "LLMClient" = None, max_results: int = 4) ->
         f"{name} funding raised investors valuation",
         f"{name} headquarters location founded year",
         f"{name} customers clients case study",
+        f"{name} crunchbase founded funding stage",
     ]
     results = _ddg_many({str(i): q for i, q in enumerate(queries)}, max_results=max_results)
     hits: list[dict] = []
