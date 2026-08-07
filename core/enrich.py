@@ -57,6 +57,7 @@ def enrich(row: pd.Series, do_web: bool = True) -> dict:
                               confidence=0.6, verified=True))
 
     web = {}
+    search_stats: dict = {}
     if do_web and company:
         domain = str(row.get("domain", "")).strip()
         hq = str(row.get("hq", "")).strip()
@@ -81,7 +82,13 @@ def enrich(row: pd.Series, do_web: bool = True) -> dict:
         all_q = dict(queries)
         for i, c in enumerate(custs):
             all_q[f"__cust__{i}"] = f"{company} {c}"
-        results = _ddg_many(all_q, max_results=4)
+        # Track how much of the wave actually came back: a throttled query is indistinguishable
+        # downstream from "the web knows nothing", so without this a partial run looks identical
+        # to a genuinely thin company — and reruns of the same startup silently disagree.
+        results = _ddg_many(all_q, max_results=4, stats=search_stats)
+        if search_stats.get("timed_out"):
+            log.warning("[enrich] %s: %d/%d web queries abandoned at the deadline",
+                        company, search_stats["timed_out"], search_stats["requested"])
         web = {k: results.get(k, []) for k in queries}
         for key in queries:
             hits = web.get(key, [])
@@ -119,4 +126,4 @@ def enrich(row: pd.Series, do_web: bool = True) -> dict:
                                       confidence=0.6, verified=True))
 
     return {"company": company, "facts": facts, "pitch_pdf": pitch_pdf,
-            "web": web, "site": site}
+            "web": web, "site": site, "search_stats": search_stats}

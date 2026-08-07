@@ -82,8 +82,21 @@ def score_startup(row: pd.Series, enrichment: dict, verification: dict, fit: dic
     # earn points, and each is weighted by a PRESTIGE TIER (a Y Combinator / Siemens-run spot
     # is worth more than a generic local incubator), so a self-claimed membership cannot inflate
     # the score and one prestigious program outweighs several obscure ones.
+    # "Evidenced" means INDEPENDENTLY corroborated: the membership and the company co-occur in
+    # a third-party result. A source_url alone is no longer sufficient evidence, because a
+    # membership grounded only in the company's own fetched site pages also carries a URL (its
+    # website) — counting that as evidence would let any startup inflate this dimension just by
+    # listing a program on its /partners page. Older cached profiles predate the `confidence`
+    # field, so they fall back to the original URL heuristic.
     programs = [p for p in profile.get("programs", []) if isinstance(p, dict) and p.get("name")]
-    evidenced_programs = [p for p in programs if str(p.get("source_url", "")).startswith("http")]
+
+    def _corroborated(p: dict) -> bool:
+        conf = str(p.get("confidence", "")).strip().lower()
+        if conf:
+            return conf == "corroborated"
+        return str(p.get("source_url", "")).startswith("http")
+
+    evidenced_programs = [p for p in programs if _corroborated(p)]
     prestige_pts = sum(
         PROGRAM_PRESTIGE_WEIGHTS.get(str(p.get("prestige", "tier3")).lower(),
                                      PROGRAM_PRESTIGE_WEIGHTS["tier3"])

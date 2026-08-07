@@ -27,3 +27,12 @@ def filter_facts(facts: List[Mapping[str, Any]], query: str) -> List[Mapping[str
         if any(q in str(f.get(k, "")).lower() for k in ("key", "value", "method")):
             result.append(f)
     return result
+
+
+def should_show_clear_button(filter_text: str) -> bool:
+    """Return ``True`` when the clear button should be displayed.
+
+    The button is shown whenever *filter_text* contains any characters. An empty
+    string results in ``False``.
+    """
+    return bool(filter_text)
