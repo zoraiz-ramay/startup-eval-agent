@@ -92,6 +92,32 @@ def test_self_asserted_program_cannot_earn_full_prestige_points():
     assert claimed > _eco([])          # still worth something; it is a real signal
 
 
+def test_short_program_names_match_whole_words_only():
+    """A short key must not match inside ordinary words.
+
+    KNOWN_PROGRAMS writes EIT as "eit " with a trailing space to guard against exactly this,
+    but _program_grounded strips the name before comparing, so it degraded to `"eit" in blob`
+    and fired on 'Zeit'/'arbeit'. Meili Robots gained a fabricated "Eit" membership labelled
+    CORROBORATED, which inflated its ecosystem score.
+    """
+    noise = {"q": [{"title": "Meili Robots news",
+                    "body": "meili robots und arbeit zeitgeist", "href": "https://n/x"}]}
+    assert _program_grounded("eit ", "meili robots", "", noise) is None
+
+    real = {"q": [{"title": "Meili Robots joins EIT Digital",
+                   "body": "meili robots accepted into eit digital", "href": "https://n/y"}]}
+    assert _program_grounded("eit ", "meili robots", "", real) == (
+        "https://n/y", "corroborated")
+
+
+def test_word_matching_keeps_punctuated_and_numeric_names():
+    """Boundaries must not break names that start/end with non-word characters."""
+    for prog, body in (("sap.io", "acme is part of sap.io fund"),
+                       ("500 global", "acme backed by 500 global")):
+        hits = {"q": [{"title": "t", "body": body, "href": "https://n/z"}]}
+        assert _program_grounded(prog, "acme", "", hits) is not None
+
+
 def test_spelling_variants_collapse_to_one_membership():
     """The LLM and the keyword scan name the same program differently.
 

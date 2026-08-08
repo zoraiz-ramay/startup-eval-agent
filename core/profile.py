@@ -173,6 +173,25 @@ def _startup_text(row: pd.Series) -> str:
                      "customers", "Reference customers"))
 
 
+@functools.lru_cache(maxsize=512)
+def _word_match(needle: str) -> "re.Pattern":
+    """Whole-word matcher for a program name.
+
+    Plain substring matching mis-fires badly on short names: the KNOWN_PROGRAMS key for EIT is
+    written ``"eit "`` with a trailing space precisely to avoid that, but this function's
+    caller strips the name before comparing — so it degraded to a bare ``"eit" in blob`` and
+    matched inside ordinary words (Zeit, arbeit, ...). Meili Robots consequently picked up a
+    fabricated "Eit" membership, labelled *corroborated*, which inflated its ecosystem score.
+
+    ``\\b`` is unreliable next to non-word characters (``sap.io``, ``500 global``), so the
+    boundaries are asserted only on the sides that actually begin/end with a word character.
+    """
+    n = needle.strip()
+    left = r"(?<!\w)" if n[:1].isalnum() or n[:1] == "_" else ""
+    right = r"(?!\w)" if n[-1:].isalnum() or n[-1:] == "_" else ""
+    return re.compile(left + re.escape(n) + right, re.I)
+
+
 def _program_grounded(name: str, company: str, app_text: str,
                       results: dict) -> tuple[str, str] | None:
     """Decide whether a program membership is actually tied to THIS startup.
@@ -201,12 +220,13 @@ def _program_grounded(name: str, company: str, app_text: str,
     n = str(name).strip().lower()
     if not n:
         return None
+    n_re = _word_match(n)
     if company:
         fallback = None
         for key, hits in results.items():
             for h in hits or []:
                 blob = (str(h.get("title", "")) + " " + str(h.get("body", ""))).lower()
-                if n in blob and company in blob:
+                if n_re.search(blob) and company in blob:
                     if str(key).startswith("__site__"):
                         # Remember, but keep scanning: a third-party hit outranks the site.
                         if fallback is None:
@@ -215,7 +235,7 @@ def _program_grounded(name: str, company: str, app_text: str,
                         return (h.get("href", "") or "", "corroborated")
         if fallback is not None:
             return (fallback, "self_asserted")
-    if n in app_text:                    # self-claim in the startup's own application text
+    if n_re.search(app_text):            # self-claim in the startup's own application text
         return ("", "self_asserted")
     return None
 
