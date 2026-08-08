@@ -59,7 +59,13 @@ EMPTY_PROFILE = {
     "employees": "",          # best-evidence headcount
     "employees_over_time": [],  # [{year, count, source_url}] — evidence-cited points only
     "parent_group": "",       # part of a major group / corporate parent
-    "programs": [],           # [{name, type: incubator|accelerator|corporate_program, source_url}]
+    "founded_year": "",       # web-researched; backfills a blank DB column (see pipeline)
+    "founded_year_source": "",  # URL supporting founded_year, when the evidence cited one
+    "funding": "",            # web-researched round/amount; backfills a blank DB column
+    "funding_source": "",     # URL supporting funding, when the evidence cited one
+    # [{name, type: incubator|accelerator|corporate_program, source_url,
+    #   confidence: corroborated|self_asserted}]
+    "programs": [],
     "reference_customers": [],  # NAMED accounts only, grounded in evidence
     "customer_segment": "",    # segment/scale descriptor when customers aren't named (e.g. "7-8 figure e-commerce brands")
     "sfs": {"relevant": False, "rationale": ""},
@@ -113,31 +119,50 @@ def _startup_text(row: pd.Series) -> str:
                      "customers", "Reference customers"))
 
 
-def _program_grounded(name: str, company: str, app_text: str, results: dict) -> str | None:
+def _program_grounded(name: str, company: str, app_text: str,
+                      results: dict) -> tuple[str, str] | None:
     """Decide whether a program membership is actually tied to THIS startup.
 
-    Returns a source_url (possibly '') when grounded, or None when it is not:
-      * evidenced  -> the program name and the company co-occur in a SINGLE web result;
-                      returns that result's URL.
-      * self-claim -> the startup's own application text names the program; returns ''.
-      * ungrounded -> returns None (caller drops it).
+    Returns ``(source_url, confidence)`` when grounded, or None when it is not:
+      * ``corroborated``  -> program and company co-occur in a SINGLE THIRD-PARTY result;
+                             returns that result's URL.
+      * ``self_asserted`` -> the only support is the company itself — its own fetched site
+                             pages (the ``__site__*`` pseudo-results merged by
+                             _merge_site_results) or its application text. URL may be ''.
+      * ungrounded        -> returns None (caller drops it).
 
     Matching a program name anywhere in the concatenated corpus is NOT enough: the
     program search query names specific programs, so DuckDuckGo returns generic program
     directory pages that mention many unrelated startups. Requiring the program and the
     company in the same result is what prevents false memberships (e.g. AfterFlow showing
-    Nvidia Inception / Microsoft for Startups / Google for Startups it never had)."""
+    Nvidia Inception / Microsoft for Startups / Google for Startups it never had).
+
+    The corroborated/self_asserted split matters because a company's own site is evidence
+    that it CLAIMS a membership, not that the membership exists. Programs like NVIDIA
+    Inception and Microsoft for Startups publish no searchable public member directory, so
+    a claim found only on the startup's site is frequently uncheckable. Dropping it loses a
+    real signal; presenting it as verified overstates it. Labelling lets the UI show it
+    honestly. Third-party corroboration is preferred, so search results are scanned first.
+    """
     n = str(name).strip().lower()
     if not n:
         return None
     if company:
-        for hits in results.values():
+        fallback = None
+        for key, hits in results.items():
             for h in hits or []:
                 blob = (str(h.get("title", "")) + " " + str(h.get("body", ""))).lower()
                 if n in blob and company in blob:
-                    return h.get("href", "") or ""
-    if n in app_text:                    # self-claim in the startup's own text
-        return ""
+                    if str(key).startswith("__site__"):
+                        # Remember, but keep scanning: a third-party hit outranks the site.
+                        if fallback is None:
+                            fallback = h.get("href", "") or ""
+                    else:
+                        return (h.get("href", "") or "", "corroborated")
+        if fallback is not None:
+            return (fallback, "self_asserted")
+    if n in app_text:                    # self-claim in the startup's own application text
+        return ("", "self_asserted")
     return None
 
 
@@ -149,9 +174,11 @@ def _detect_programs(row: pd.Series, results: dict) -> list[dict]:
     app_text = _startup_text(row).lower()
     found = []
     for name, ptype in KNOWN_PROGRAMS.items():
-        src = _program_grounded(name, company, app_text, results)
-        if src is not None:
-            found.append({"name": name.strip().title(), "type": ptype, "source_url": src})
+        grounded = _program_grounded(name, company, app_text, results)
+        if grounded is not None:
+            src, conf = grounded
+            found.append({"name": name.strip().title(), "type": ptype,
+                          "source_url": src, "confidence": conf})
     return found
 
 
@@ -171,13 +198,14 @@ def _ground_programs(programs: list, row: pd.Series, results: dict) -> list[dict
         key = name.lower()
         if not name or key in seen:
             continue
-        src = _program_grounded(name, company, app_text, results)
-        if src is None:
+        grounded = _program_grounded(name, company, app_text, results)
+        if grounded is None:
             continue
+        src, conf = grounded
         seen.add(key)
         out.append({"name": name,
                     "type": str(p.get("type") or "program").strip() or "program",
-                    "source_url": src})
+                    "source_url": src, "confidence": conf})
     return out
 
 
@@ -213,6 +241,14 @@ def _llm_extract(company: str, row: pd.Series, results: dict, llm: LLMClient) ->
         "- founders: include role AND a specific background (prior companies, roles, university/PhD) "
         "whenever the evidence mentions it; include the LinkedIn URL if present in the results.\n"
         "- employees: a number or tight range (e.g. '25' or '50-100'), not vague words.\n"
+        "- founded_year: 4-digit year only (e.g. '2021'), and ONLY if a result states when the "
+        "company was founded/incorporated/started. Never infer it from a copyright notice, a "
+        "domain registration date, or the earliest news article.\n"
+        "- funding: the most recent round as a short phrase with stage and amount when both are "
+        "evidenced (e.g. 'Seed, $2.5M (2024)' or 'Pre-seed, undisclosed'). Leave empty if the "
+        "evidence only says the company 'raised funding' with no stage or amount.\n"
+        "- founded_year_source / funding_source: the source_url of the result supporting each; "
+        "leave empty if the value came from the KNOWN block rather than a search result.\n"
         "Also judge: is Siemens Financial Services (equipment/project financing, leasing) a relevant "
         "partnership avenue for this startup (e.g. hardware, capex-heavy, energy/infrastructure)?\n\n"
         'Return ONLY JSON:\n'
@@ -220,6 +256,8 @@ def _llm_extract(company: str, row: pd.Series, results: dict, llm: LLMClient) ->
         ' "key_team": [{"name":"","role":"","source_url":""}],\n'
         ' "advisors": [{"name":"","role":"","affiliation":"","source_url":""}],\n'
         ' "employees": "", "parent_group": "",\n'
+        ' "founded_year": "", "founded_year_source": "",\n'
+        ' "funding": "", "funding_source": "",\n'
         ' "programs": [{"name":"","type":"incubator|accelerator|corporate_program","source_url":""}],\n'
         ' "reference_customers": [""], "customer_segment": "",\n'
         ' "sfs": {"relevant": true, "rationale": "one sentence"}}'
@@ -236,6 +274,16 @@ def _llm_extract(company: str, row: pd.Series, results: dict, llm: LLMClient) ->
     prof["employees"] = str(data.get("employees") or "").strip()
     prof["parent_group"] = str(data.get("parent_group") or "").strip()
     prof["customer_segment"] = str(data.get("customer_segment") or "").strip()
+    # Founded year is only accepted as a bare 4-digit year in a plausible range: the model
+    # otherwise happily returns '2021 (est.)', 'circa 2019' or a copyright year, none of which
+    # a downstream consumer can treat as a number.
+    fy = re.sub(r"\D", "", str(data.get("founded_year") or ""))[:4]
+    prof["founded_year"] = fy if len(fy) == 4 and 1800 <= int(fy) <= 2100 else ""
+    prof["founded_year_source"] = (str(data.get("founded_year_source") or "").strip()
+                                   if prof["founded_year"] else "")
+    prof["funding"] = str(data.get("funding") or "").strip()
+    prof["funding_source"] = (str(data.get("funding_source") or "").strip()
+                              if prof["funding"] else "")
     sfs = data.get("sfs") or {}
     prof["sfs"] = {"relevant": bool(sfs.get("relevant")),
                    "rationale": str(sfs.get("rationale") or "").strip()}
@@ -403,8 +451,13 @@ def _profile_facts(prof: dict) -> list[Fact]:
             tier = str(p.get("prestige", "")).strip()
             label = f"{p.get('name')} ({p.get('type', 'program')}"
             label += f", {tier})" if tier else ")"
+            if str(p.get("confidence", "")).lower() == "self_asserted":
+                label += " — company-claimed, not independently corroborated"
             add("program", label, p.get("source_url", ""))
     add("parent_group", prof.get("parent_group", ""))
+    add("founded_year_research", prof.get("founded_year", ""),
+        prof.get("founded_year_source", ""))
+    add("funding_research", prof.get("funding", ""), prof.get("funding_source", ""))
     add("employees_research", prof.get("employees", ""))
     if prof.get("sfs", {}).get("relevant"):
         add("sfs_relevance", prof["sfs"].get("rationale") or "SFS financing avenue relevant")
@@ -454,7 +507,7 @@ def _recheck_programs(prof: dict, row: pd.Series, company: str,
         "e2": f"{company} accelerator incubator cohort alumni program",
         "e3": f"{company} strategic partner alliance network",
     }
-    extra = _ddg_many(queries, max_results=5, overall_timeout=20.0)
+    extra = _ddg_many(queries, max_results=5, overall_timeout=30.0)
     combined = dict(results or {})
     combined.update(extra)
     found = _detect_programs(row, combined)
@@ -613,8 +666,9 @@ def research_profile(row: pd.Series, llm: LLMClient, do_web: bool = True,
     if not company:
         return {"profile": dict(EMPTY_PROFILE), "facts": []}
     try:
-        results = _ddg_many(_queries(company, row, llm), max_results=4,
-                            overall_timeout=25.0) if do_web else {}
+        # Uses _ddg_many's default budget, which is sized for the full wave; a tighter
+        # deadline here silently empties the program/advisor queries under throttling.
+        results = _ddg_many(_queries(company, row, llm), max_results=4) if do_web else {}
         # Fold the company's own site text in as pseudo-results so the grounding gate
         # (name + company must co-occur in one result) can see facts published only there.
         results = _merge_site_results(results, company, row, site)

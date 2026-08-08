@@ -114,9 +114,30 @@ def evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = T
     else:                       # web row: keep only the fields we actually populated
         profile = {c: str(row.get(c, "")) for c in profile_cols if str(row.get(c, "")).strip()}
 
+    # Backfill headline fields the DB leaves blank from web research. GlassDollar's export
+    # frequently omits founded_year and funding, and until now the researched values existed
+    # only as evidence Facts — visible in the Evidence tab but never in the profile header, so
+    # the UI showed "—" for facts the run had actually established. Only BLANK fields are
+    # filled: wherever the DB has a value it stays authoritative. Each filled field is recorded
+    # in profile_sources so the UI can mark it web-sourced rather than passing it off as
+    # application data.
+    profile_sources: dict = {}
+    for col, pkey in (("founded_year", "founded_year"), ("funding", "funding")):
+        if str(profile.get(col, "")).strip():
+            continue
+        val = str(deep_profile.get(pkey, "")).strip()
+        if val:
+            profile[col] = val
+            profile_sources[col] = {"origin": "web",
+                                    "url": str(deep_profile.get(f"{pkey}_source", "")).strip()}
+
     engine = "openai:" + LLM_MODEL if llm.available else "offline-fallback"
     if source == "web":
         engine += " · web-sourced"
+    stats = enrichment.get("search_stats") or {}
+    if stats.get("timed_out"):
+        # Surface partial coverage instead of letting it look like a complete run.
+        engine += f" · {stats['timed_out']}/{stats.get('requested', 0)} web queries timed out"
 
     return {
         "found": True,
@@ -124,6 +145,7 @@ def evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = T
         "engine": engine,
         "company": str(row.get("company_name", "")) or name,
         "profile": profile,
+        "profile_sources": profile_sources,
         "summary": summary,
         "facts": [f.as_dict() for f in enrichment["facts"]],
         "verification": verification,

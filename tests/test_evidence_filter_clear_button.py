@@ -2,7 +2,7 @@
 
 import unittest
 
-from features.evidence_filter.utils import should_show_clear_button
+from features.evidence_filter import should_show_clear_button
 
 
 class TestShouldShowClearButton(unittest.TestCase):

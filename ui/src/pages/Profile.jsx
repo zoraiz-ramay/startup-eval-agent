@@ -28,9 +28,20 @@ function SkeletonProfile({ name }) {
 }
 
 /* ---------------- tab bodies ---------------- */
+/* A value the DB did not have, filled in from web research. Marked so it is never mistaken
+   for application data — the source link is the evidence for it. */
+function WebSourced({ src }) {
+  if (!src) return null;
+  const title = src.url ? `Web-sourced: ${src.url}` : "Web-sourced (no direct link captured)";
+  return src.url
+    ? <a className="chip" href={src.url} target="_blank" rel="noreferrer" title={title}>web</a>
+    : <span className="chip" title={title}>web</span>;
+}
+
 function OverviewTab({ res }) {
   const p = res.profile || {}, sc = res.score || {}, dp = res.deep_profile || {};
   const trend = res.trend || {};
+  const psrc = res.profile_sources || {};
   const founders = (dp.founders || []).filter((f) => f?.name);
   const advisors = (dp.advisors || []).filter((a) => a?.name);
   const programs = (dp.programs || []).filter((x) => x?.name);
@@ -41,7 +52,8 @@ function OverviewTab({ res }) {
       <div className="metric-row">
         <div className="metric"><div className="k">Fit Score</div><div className="v">{Number(sc.final_score || 0).toFixed(0)}</div></div>
         <div className="metric"><div className="k">Employees</div><div className="v">{dp.employees || p.employees_count || p.employee_band || "—"}</div></div>
-        <div className="metric"><div className="k">Founded</div><div className="v">{p.founded_year || "—"}</div></div>
+        <div className="metric"><div className="k">Founded</div>
+          <div className="v">{p.founded_year || "—"} <WebSourced src={psrc.founded_year} /></div></div>
         <div className="metric"><div className="k">Completeness</div><div className="v">{Math.round((sc.data_completeness || 0) * 100)}%</div></div>
         <div className="metric"><div className="k">Verified customers</div><div className="v">{sc.verified_customers ?? "—"}</div></div>
         <div className="metric"><div className="k">Market signal</div><div className="v" style={{ fontSize: 13 }}>{trend.label || "—"}</div></div>
@@ -53,7 +65,7 @@ function OverviewTab({ res }) {
           <Spec k="Headquarters">{p.hq}</Spec>
           <Spec k="Stage">{p["Development stage of your solution"]}</Spec>
           <Spec k="Business model">{p["Business model"]}</Spec>
-          <Spec k="Funding">{p.funding}</Spec>
+          <Spec k="Funding">{p.funding}{p.funding && <> <WebSourced src={psrc.funding} /></>}</Spec>
           <Spec k="Website"><ExtLink href={p.website} /></Spec>
           <Spec k="LinkedIn"><ExtLink href={p.linkedin_url} /></Spec>
           {dp.parent_group && <Spec k="Part of group">{dp.parent_group}</Spec>}
@@ -76,7 +88,20 @@ function OverviewTab({ res }) {
             ))}
             {programs.length > 0 && (
               <div style={{ marginTop: 6 }}>
-                {programs.map((x, i) => <span key={i} className="chip" title={x.type}>{x.name}</span>)}
+                {programs.map((x, i) => {
+                  // A membership found only on the company's own site is a claim, not a
+                  // verified fact — several such programs publish no searchable member
+                  // directory, so it is shown but explicitly marked as uncorroborated.
+                  const claimed = String(x.confidence || "").toLowerCase() === "self_asserted";
+                  return (
+                    <span key={i} className="chip"
+                          title={claimed
+                            ? `${x.type} — company-claimed, not independently corroborated`
+                            : `${x.type} — independently corroborated`}>
+                      {x.name}{claimed && <span className="muted"> · claimed</span>}
+                    </span>
+                  );
+                })}
               </div>
             )}
           </div>
