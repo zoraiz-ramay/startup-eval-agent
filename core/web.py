@@ -1,6 +1,64 @@
 """Free web enrichment via DuckDuckGo (no paid data APIs)."""
 from __future__ import annotations
 
+import contextvars
+import functools
+import hashlib
+
+# ------------------------------------------------------------------------------- result cache
+# Searches and site fetches are the slow, NON-REPRODUCIBLE part of an evaluation: DuckDuckGo
+# returns a different mix of results run to run, so two evaluations of the same startup used to
+# disagree. Caching both makes a re-run fast and byte-reproducible.
+#
+# The backend is injected rather than imported: nothing in core/ depends on api/, and keeping it
+# that way lets the engine run uncached from tests, scripts and Streamlit. api/main.py installs
+# the SQLite-backed store at startup via install_cache().
+_cache_get = None
+_cache_put = None
+
+# Set False for a run that must hit the network — "Re-evaluate" has to re-search, otherwise it
+# would just replay week-old results. A ContextVar rather than a parameter so the flag follows
+# the request through _ddg_many's worker threads without touching every signature in between.
+_cache_enabled: contextvars.ContextVar = contextvars.ContextVar("web_cache_enabled", default=True)
+
+
+def install_cache(getter, putter) -> None:
+    """Wire up the cache backend: ``getter(kind, key)`` and ``putter(kind, key, payload)``."""
+    global _cache_get, _cache_put
+    _cache_get, _cache_put = getter, putter
+
+
+def set_cache_enabled(enabled: bool):
+    """Enable/disable cache reads for the current context; returns the ContextVar token."""
+    return _cache_enabled.set(bool(enabled))
+
+
+def reset_cache_enabled(token) -> None:
+    _cache_enabled.reset(token)
+
+
+def _cache_key(*parts) -> str:
+    return hashlib.sha256("\x00".join(str(p) for p in parts).encode("utf-8")).hexdigest()
+
+
+def _cached(kind: str, key: str):
+    if _cache_get is None or not _cache_enabled.get():
+        return None
+    try:
+        return _cache_get(kind, key)
+    except Exception:
+        return None
+
+
+def _store(kind: str, key: str, payload) -> None:
+    # Written even when reads are disabled, so a forced refresh repopulates the cache.
+    if _cache_put is None:
+        return
+    try:
+        _cache_put(kind, key, payload)
+    except Exception:
+        pass
+
 
 def ddg_search(query: str, max_results: int = 5,
                attempts: int = 3, base_delay: float = 0.6) -> list[dict]:
@@ -10,9 +68,16 @@ def ddg_search(query: str, max_results: int = 5,
     two, so an empty or failed result is retried a few times (backoff + jitter) before
     giving up. This turns transient throttling — which otherwise surfaces as a false
     'No match ... on the web' for a real but small company — into a brief extra wait.
-    Returns [] only if every attempt fails, so callers still degrade gracefully."""
+    Returns [] only if every attempt fails, so callers still degrade gracefully.
+
+    Results are cached (see install_cache): re-running the same query inside the TTL replays
+    the same hits, which is what makes a re-evaluation fast AND reproducible."""
     import time
     import random
+    key = _cache_key("ddg", query, max_results)
+    hit = _cached("ddg", key)
+    if hit is not None:
+        return hit
     try:
         from ddgs import DDGS
     except Exception:
@@ -21,16 +86,23 @@ def ddg_search(query: str, max_results: int = 5,
         except Exception:
             return []
     hits: list[dict] = []
+    failed = False
     for i in range(max(1, attempts)):
         try:
             with DDGS() as ddgs:
                 hits = list(ddgs.text(query, max_results=max_results))
+            failed = False
             if hits:
+                _store("ddg", key, hits)
                 return hits
         except Exception:
-            hits = []
+            hits, failed = [], True
         if i < attempts - 1:                     # backoff before the next try
             time.sleep(base_delay * (2 ** i) + random.uniform(0, 0.3))
+    # A genuinely empty result is worth caching; a run that only ever threw is not — caching
+    # that would pin a transient throttle in place for the whole TTL.
+    if not failed:
+        _store("ddg", key, hits)
     return hits
 
 
@@ -86,7 +158,12 @@ def _ddg_many(queries: dict, max_results: int = 4, max_workers: int = 10,
                 done.set()
 
     for k, q in items:
-        threading.Thread(target=worker, args=(k, q), daemon=True).start()
+        # A new thread starts with an EMPTY context, so the cache-bypass ContextVar would fall
+        # back to its default and a forced refresh would quietly read from the cache anyway.
+        # Each worker therefore runs inside its own copy of the caller's context (a Context can
+        # only be entered once, so the copy has to be per-thread).
+        threading.Thread(target=contextvars.copy_context().run,
+                         args=(worker, k, q), daemon=True).start()
     done.wait(timeout=overall_timeout)   # returns early once all finish, else at the deadline
     if isinstance(stats, dict):
         # Snapshot under the lock: workers may still be running past the deadline.
@@ -264,6 +341,25 @@ def _fetch_with_url(url: str, timeout: float = 8.0,
     return "", ""                              # redirect budget exhausted
 
 
+def _fetch_cached(url: str, timeout: float = 8.0,
+                  max_bytes: int = _MAX_BYTES) -> tuple[str, str]:
+    """:func:`_fetch_with_url` with the result cache in front of it.
+
+    Caches the resolved URL alongside the text, because fetch_site_text derives the site's
+    locale prefix from it — replaying only the text would lose the prefix and send the cached
+    run down a different set of paths than the live one."""
+    key = _cache_key("site", url, max_bytes)
+    hit = _cached("site", key)
+    if isinstance(hit, list) and len(hit) == 2:
+        return hit[0], hit[1]
+    text, resolved = _fetch_with_url(url, timeout=timeout, max_bytes=max_bytes)
+    # Only successful fetches are cached: a timeout or a transient 5xx must not pin an empty
+    # page in place for the whole TTL.
+    if text:
+        _store("site", key, [text, resolved])
+    return text, resolved
+
+
 def fetch_url(url: str, timeout: float = 8.0, max_bytes: int = _MAX_BYTES) -> str:
     """Fetch a single URL and return its visible text, or '' on any failure.
 
@@ -293,21 +389,46 @@ def fetch_site_text(domain: str, paths: tuple = _FETCH_PATHS,
     host = urlparse(domain if "//" in domain else "https://" + domain).hostname or ""
     if not host or not _is_public_host(host):
         return {}
+    import concurrent.futures
+
+    # Root first and alone: it is both a wanted page and the probe that reveals the locale
+    # prefix the remaining paths need.
+    rest = [p for p in paths if p != ""]
+    root_text, resolved = _fetch_cached(f"https://{host}", timeout=per_timeout)
+    prefix = ""
+    if resolved:
+        # e.g. https://www.phena.tech/en -> '/en'; ignore anything that is not a locale.
+        landed = "/" + urlparse(resolved).path.strip("/").split("/")[0]
+        if re.fullmatch(r"/[a-z]{2}(-[A-Za-z]{2})?", landed):
+            prefix = landed
+
+    # The rest are independent GETs. Sequentially they cost up to per_timeout each — ~7s of a
+    # run for a site where most paths 404 — so they are fetched concurrently and reassembled
+    # in the ORIGINAL path order below. Completion order must not decide the result: it would
+    # vary run to run and change which duplicate survives the fingerprint check.
+    texts: dict = {"": root_text}
+    if rest:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(rest))) as ex:
+            # copy_context per submission: pool threads do not inherit the caller's context,
+            # which the cache-bypass flag lives in.
+            futures = {
+                p: ex.submit(contextvars.copy_context().run,
+                             functools.partial(
+                                 _fetch_cached,
+                                 f"https://{host}{p if p.startswith(prefix) else prefix + p}",
+                                 timeout=per_timeout))
+                for p in rest
+            }
+            for p, fut in futures.items():
+                try:
+                    texts[p] = fut.result()[0]
+                except Exception:
+                    texts[p] = ""
+
     out: dict = {}
     seen: set = set()
-    # Root first: it is both a wanted page and the probe that reveals the locale prefix.
-    ordered = list(paths)
-    if "" in ordered:
-        ordered.insert(0, ordered.pop(ordered.index("")))
-    prefix = ""
-    for path in ordered:
-        target = path if path.startswith(prefix) else prefix + path
-        text, resolved = _fetch_with_url(f"https://{host}{target}", timeout=per_timeout)
-        if path == "" and resolved:
-            # e.g. https://www.phena.tech/en -> '/en'; ignore anything that is not a locale.
-            landed = "/" + urlparse(resolved).path.strip("/").split("/")[0]
-            if re.fullmatch(r"/[a-z]{2}(-[A-Za-z]{2})?", landed):
-                prefix = landed
+    for path in paths:
+        text = texts.get(path, "")
         if not text:
             continue
         # Now that same-site redirects are followed, distinct paths routinely resolve to the

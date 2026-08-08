@@ -5,6 +5,7 @@ import concurrent.futures
 
 import pandas as pd
 
+from . import web
 from .config import LLM_MODEL
 from .llm import LLMClient
 from .data import load_glassdollar, find_startup, web_profile_row, load_siemens_tools
@@ -49,7 +50,22 @@ def backfill_profile(profile: dict, deep_profile: dict) -> dict:
 
 
 def evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = True,
-             df: "pd.DataFrame" = None, on_step=None) -> dict:
+             df: "pd.DataFrame" = None, on_step=None, use_web_cache: bool = True) -> dict:
+    """Run the full pipeline for one startup.
+
+    ``use_web_cache=False`` forces every search and site fetch to hit the network. A forced
+    re-evaluation must not replay cached results, or "Re-evaluate" would hand back the same
+    week-old evidence it was asked to refresh.
+    """
+    token = web.set_cache_enabled(use_web_cache)
+    try:
+        return _evaluate(name, glassdollar_path, tools_path, do_web, df, on_step)
+    finally:
+        web.reset_cache_enabled(token)
+
+
+def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = True,
+              df: "pd.DataFrame" = None, on_step=None) -> dict:
     # Optional progress callback: on_step(step_label, status) where status is one of
     # "running" | "done" | "error". Reporting must never break the evaluation itself.
     def _step(label: str, status: str = "running") -> None:

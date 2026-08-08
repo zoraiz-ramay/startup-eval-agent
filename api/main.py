@@ -64,6 +64,14 @@ try:
 except Exception:
     pass
 
+# Give the engine its result cache. Injected rather than imported by core/ so nothing in core/
+# depends on api/ and the engine still runs (uncached) from tests, scripts and Streamlit.
+try:
+    core.web.install_cache(store.cache_get, store.cache_put)
+    store.cache_purge_expired()
+except Exception:
+    pass
+
 
 def _get_local_df() -> "pd.DataFrame | None":
     global _local_df
@@ -232,7 +240,10 @@ def evaluate(body: EvaluateBody) -> dict:
             cached["freshness"] = _freshness(cached.get("run_created_at", ""))
             return cached
     df = None if _gd_key() else _get_local_df()
-    res = core.evaluate(name, None, core.DEFAULT_TOOLS_CSV, do_web=body.do_web, df=df)
+    # An explicit refresh must re-search: serving cached hits would replay the very evidence
+    # the caller asked to renew.
+    res = core.evaluate(name, None, core.DEFAULT_TOOLS_CSV, do_web=body.do_web, df=df,
+                        use_web_cache=not body.refresh)
     if not res.get("found"):
         raise HTTPException(status_code=404, detail=f"No match for '{body.name}' in GlassDollar or on the web.")
     if body.save:

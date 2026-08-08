@@ -6,6 +6,9 @@ __pycache__/
 py-env/
 data/pdfs/
 data/runs.db
+# WAL sidecars — the cache enables journal_mode=WAL, which creates these next to the DB.
+data/runs.db-wal
+data/runs.db-shm
 *.DS_Store
 .DS_Store
 ui/dist/

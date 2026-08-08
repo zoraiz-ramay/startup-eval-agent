@@ -8,6 +8,9 @@ the same search corpus, so a profile is always returned.
 """
 from __future__ import annotations
 
+import concurrent.futures
+import contextvars
+import functools
 import os
 import re
 
@@ -154,7 +157,7 @@ def _queries(company: str, row: pd.Series, llm: LLMClient) -> dict:
                   "search queries that would surface: its founders' backgrounds, scientific/industry "
                   "advisors, membership in incubators/accelerators/corporate startup programs, or a "
                   'corporate parent. Return ONLY JSON: {"queries": ["..."]}')
-        data = LLMClient.parse_json(llm.complete(prompt, max_tokens=300))
+        data = LLMClient.parse_json(llm.complete(prompt, max_tokens=300, reasoning="none"))
         if data and isinstance(data.get("queries"), list):
             # cap the extras: an oversized wave triggers DuckDuckGo throttling, which
             # silently empties the program/advisor queries
@@ -349,7 +352,7 @@ def _llm_extract(company: str, row: pd.Series, results: dict, llm: LLMClient) ->
     )
     data = LLMClient.parse_json(llm.complete(prompt, system="You extract structured company facts "
                                              "strictly from supplied evidence. JSON only.",
-                                             max_tokens=1200))
+                                             max_tokens=1200, reasoning="none"))
     if not data:
         return None
     prof = {k: (v.copy() if isinstance(v, (list, dict)) else v) for k, v in EMPTY_PROFILE.items()}
@@ -475,7 +478,7 @@ def _recover_founders(prof: dict, company: str, llm: LLMClient) -> None:
         "Never invent names; return an empty list if the results name nobody.\n"
         'Return ONLY JSON: {"founders": [{"name":"","role":"","background":"","linkedin":"","source_url":""}]}',
         system="You extract structured facts strictly from supplied evidence. JSON only.",
-        max_tokens=700)) or {}
+        max_tokens=700, reasoning="none")) or {}
     found = [f for f in data.get("founders", [])
              if isinstance(f, dict) and str(f.get("name", "")).strip()]
     if found:
@@ -501,7 +504,7 @@ def _deepen_founders(prof: dict, company: str, llm: LLMClient) -> None:
         "education/PhD), and LinkedIn URL — only what the results support; leave empty otherwise.\n"
         'Return ONLY JSON: {"founders": [{"name":"","role":"","background":"","linkedin":"","source_url":""}]}',
         system="You extract structured facts strictly from supplied evidence. JSON only.",
-        max_tokens=700)) or {}
+        max_tokens=700, reasoning="none")) or {}
     updates = {str(f.get("name", "")).strip().lower(): f
                for f in data.get("founders", []) if isinstance(f, dict) and f.get("name")}
     for f in prof["founders"]:
@@ -608,7 +611,7 @@ def _recheck_programs(prof: dict, row: pd.Series, company: str,
                 'Return ONLY JSON: {"programs":[{"name":"","type":"incubator|accelerator|'
                 'corporate_program","source_url":""}]}',
                 system="You extract structured facts strictly from supplied evidence. JSON only.",
-                max_tokens=500)) or {}
+                max_tokens=500, reasoning="none")) or {}
             found = _ground_programs(data.get("programs", []), row, combined)
     if found:
         # Drop any "membership" that is just the company's own name echoed back.
@@ -658,7 +661,7 @@ def _recover_headline_facts(prof: dict, company: str, row: pd.Series, llm: LLMCl
         'Return ONLY JSON: {"founded_year":"","founded_year_source":"",'
         '"employees":"","employees_source":""}',
         system="You extract structured facts strictly from supplied evidence. JSON only.",
-        max_tokens=400)) or {}
+        max_tokens=400, reasoning="none")) or {}
     if need_year:
         fy = re.sub(r"\D", "", str(data.get("founded_year") or ""))[:4]
         if len(fy) == 4 and 1800 <= int(fy) <= 2100:
@@ -709,7 +712,8 @@ def _grade_programs(programs: list, company: str, llm: LLMClient) -> None:
         "Play, Antler); tier3 = regional/generic/unknown. Judge by the program's reputation, "
         "not this company.\n"
         'Return ONLY JSON: {"tiers": {"<program name>": "tier1|tier2|tier3"}}',
-        system="You grade startup-program prestige. JSON only.", max_tokens=300)) or {}
+        system="You grade startup-program prestige. JSON only.", max_tokens=300,
+        reasoning="none")) or {}
     tiers = data.get("tiers") or {}
     if not isinstance(tiers, dict):
         return
@@ -786,7 +790,7 @@ def _employee_history(company: str, row: pd.Series, results: dict,
         "interpolate; omit any year you cannot cite. Return an empty list if none are cited.\n"
         'Return ONLY JSON: {"employees_over_time":[{"year":2023,"count":42,"source_url":""}]}',
         system="You extract structured facts strictly from supplied evidence. JSON only.",
-        max_tokens=600)) or {}
+        max_tokens=600, reasoning="none")) or {}
     return _clean_employee_series(data.get("employees_over_time", []))
 
 
@@ -832,45 +836,48 @@ def research_profile(row: pd.Series, llm: LLMClient, do_web: bool = True,
         if not prof["reference_customers"]:
             raw = str(row.get("customers", "") or row.get("Reference customers", ""))
             prof["reference_customers"] = _clean_customers(re.split(r"[,\n;·|]+", raw))
-        # Recall net for the two headline facts that live on aggregator pages and drop out of
-        # the result window between runs. Runs before the DB fallback below so a researched
-        # figure is preferred, and only when a field is actually blank.
+        # ---- second-pass recall nets ------------------------------------------------------
+        # Four independent passes, each firing its own search wave plus one extraction call:
+        # the headline facts (founded_year / employees), founder recovery, the program recheck,
+        # and the headcount series. Run sequentially they dominated the evaluation — ~29s of
+        # the ~67s profile chain — yet they touch DISJOINT profile fields, so they overlap
+        # safely and the wall time collapses to the slowest one. Each decides for itself
+        # whether it is needed (all no-op when their field is already populated), and each is
+        # individually best-effort: one failure must never cost the profile.
         if do_web:
-            try:
-                _recover_headline_facts(prof, company, row, llm)
-            except Exception:
-                pass
-        # Employees: never leave blank when the application row already knows it.
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
+                # Pool threads start with an empty context, so each job runs inside a copy of
+                # this one — that is what carries core.web's cache-bypass flag into the search
+                # calls these passes make.
+                def _spawn(fn, *a):
+                    return ex.submit(contextvars.copy_context().run, functools.partial(fn, *a))
+
+                jobs = {
+                    "headline": _spawn(_recover_headline_facts, prof, company, row, llm),
+                    "founders": _spawn(_recover_founders, prof, company, llm),
+                    "programs": _spawn(_recheck_programs, prof, row, company, results, llm),
+                    "history": _spawn(_employee_history, company, row, results, llm),
+                }
+                for name, fut in jobs.items():
+                    try:
+                        out = fut.result()
+                    except Exception:
+                        out = None
+                    if name == "history":
+                        prof["employees_over_time"] = out or []
+        # Employees: never leave blank when the application row already knows it. After the
+        # recall net, so a researched figure still wins over the application's.
         if not str(prof.get("employees", "")).strip():
             prof["employees"] = str(row.get("employees_count", "") or row.get("employee_band", "")).strip()
-        # Headcount-over-time: dedicated, evidence-cited series (empty unless >=2 cited points).
-        if do_web:
-            try:
-                prof["employees_over_time"] = _employee_history(company, row, results, llm)
-            except Exception:
-                prof["employees_over_time"] = []
-        # Recall check: when programs come back empty, don't conclude "none" yet — run a
-        # dedicated ecosystem/program search wave (plus the site text) and re-ground before
-        # declaring the field unavailable. Best-effort; never costs the profile.
-        if do_web:
-            try:
-                _recheck_programs(prof, row, company, results, llm)
-            except Exception:
-                pass
-        # Grade the surviving (grounded) memberships by prestige tier so the ecosystem
-        # score can weight a top-tier accelerator above a generic one. In place; never
-        # adds or removes a program.
+        # Grade the surviving (grounded) memberships by prestige tier so the ecosystem score
+        # can weight a top-tier accelerator above a generic one. Must follow the program
+        # recheck — it grades whatever that found. In place; never adds or removes a program.
         try:
             _grade_programs(prof.get("programs", []), company, llm)
         except Exception:
             pass
-        # Founder recovery (when extraction found none) then deep-dive (fill thin
-        # backgrounds). Both best-effort: a failure here must never cost the profile.
+        # Founder deep-dive fills thin backgrounds, so it must follow the recovery pass above.
         if do_web:
-            try:
-                _recover_founders(prof, company, llm)
-            except Exception:
-                pass
             try:
                 _deepen_founders(prof, company, llm)
             except Exception:
