@@ -92,6 +92,36 @@ def test_self_asserted_program_cannot_earn_full_prestige_points():
     assert claimed > _eco([])          # still worth something; it is a real signal
 
 
+def test_spelling_variants_collapse_to_one_membership():
+    """The LLM and the keyword scan name the same program differently.
+
+    'NVIDIA Inception Program' vs 'Nvidia Inception' survived an exact-string dedup, so the
+    profile listed one membership twice and the ecosystem score counted it twice.
+    """
+    from core.profile import _dedupe_programs
+
+    out = _dedupe_programs([
+        {"name": "NVIDIA Inception Program", "source_url": "", "confidence": "self_asserted"},
+        {"name": "Nvidia Inception", "source_url": "https://acme.com",
+         "confidence": "self_asserted"},
+    ])
+    assert len(out) == 1
+    assert out[0]["source_url"] == "https://acme.com"      # the entry with evidence wins
+
+
+def test_dedupe_prefers_corroborated_and_keeps_distinct_programs():
+    from core.profile import _dedupe_programs
+
+    out = _dedupe_programs([
+        {"name": "Techstars", "source_url": "https://acme.com", "confidence": "self_asserted"},
+        {"name": "Techstars", "source_url": "https://news/x", "confidence": "corroborated"},
+        {"name": "Y Combinator", "source_url": "https://news/y", "confidence": "corroborated"},
+    ])
+    assert len(out) == 2
+    tech = [p for p in out if p["name"] == "Techstars"][0]
+    assert tech["confidence"] == "corroborated"
+
+
 def _claimed(name, tier):
     return {"name": name, "prestige": tier, "source_url": "https://acme.com",
             "confidence": "self_asserted"}

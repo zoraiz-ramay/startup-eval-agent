@@ -260,6 +260,40 @@ def _ground_programs(programs: list, row: pd.Series, results: dict) -> list[dict
     return out
 
 
+_PROGRAM_NOISE = re.compile(
+    r"\b(the|program|programme|accelerator|incubator|startups?|inc|ltd|gmbh)\b", re.I)
+
+
+def _program_key(name: str) -> str:
+    """Canonical identity for a program, so spelling variants collapse to one entry.
+
+    The LLM and the keyword scan name the same membership differently ('NVIDIA Inception
+    Program' vs 'Nvidia Inception'), and an exact-string dedup let both through — the profile
+    then listed one membership twice and the ecosystem score counted it twice."""
+    n = _PROGRAM_NOISE.sub(" ", str(name).lower())
+    return re.sub(r"[^a-z0-9]+", "", n)
+
+
+def _dedupe_programs(programs: list) -> list[dict]:
+    """One entry per membership, preferring the independently corroborated spelling."""
+    best: dict = {}
+    for p in programs or []:
+        if not isinstance(p, dict) or not str(p.get("name", "")).strip():
+            continue
+        key = _program_key(p["name"]) or str(p["name"]).strip().lower()
+        cur = best.get(key)
+        if cur is None:
+            best[key] = p
+            continue
+        # Corroborated beats self-asserted; otherwise keep whichever already has a source URL.
+        if (str(p.get("confidence", "")).lower() == "corroborated"
+                and str(cur.get("confidence", "")).lower() != "corroborated"):
+            best[key] = p
+        elif not str(cur.get("source_url", "")).strip() and str(p.get("source_url", "")).strip():
+            best[key] = p
+    return list(best.values())
+
+
 def _offline_extract(company: str, row: pd.Series, results: dict) -> dict:
     """Keyword-based fallback: detect known programs and SFS relevance without an LLM."""
     prof = {k: (v.copy() if isinstance(v, (list, dict)) else v) for k, v in EMPTY_PROFILE.items()}
@@ -577,14 +611,9 @@ def _recheck_programs(prof: dict, row: pd.Series, company: str,
                 max_tokens=500)) or {}
             found = _ground_programs(data.get("programs", []), row, combined)
     if found:
-        seen = set()
-        deduped = []
-        for p in found:
-            k = str(p.get("name", "")).strip().lower()
-            if k and k != company_l and k not in seen:
-                seen.add(k)
-                deduped.append(p)
-        prof["programs"] = deduped
+        # Drop any "membership" that is just the company's own name echoed back.
+        prof["programs"] = _dedupe_programs(
+            [p for p in found if str(p.get("name", "")).strip().lower() != company_l])
 
 
 def _recover_headline_facts(prof: dict, company: str, row: pd.Series, llm: LLMClient) -> None:
@@ -792,11 +821,9 @@ def research_profile(row: pd.Series, llm: LLMClient, do_web: bool = True,
             # worldwide, but each membership must be tied to THIS startup), then union
             # with the KNOWN_PROGRAMS keyword scan so a known program never vanishes
             # because the LLM skipped it or the corpus was truncated.
-            prof["programs"] = _ground_programs(prof.get("programs", []), row, results)
-            seen = {p["name"].lower() for p in prof["programs"]}
-            for p in _detect_programs(row, results):
-                if p["name"].lower() not in seen:
-                    prof["programs"].append(p)
+            prof["programs"] = _dedupe_programs(
+                _ground_programs(prof.get("programs", []), row, results)
+                + _detect_programs(row, results))
         # Named-companies-only filter + grounding (a web-extracted name must co-occur with
         # the company or be self-declared), then backfill from the DB row if research found
         # none. DB-declared customers are trusted, so the backfill needs no grounding.
