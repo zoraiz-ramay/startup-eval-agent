@@ -9,6 +9,12 @@ from __future__ import annotations
 import os
 import pathlib
 
+from dotenv import load_dotenv
+
+# Loads .env from the project root (if present) before any env var below is read, so a
+# local .env can carry secrets like GEMINI_API_KEY without exporting them in the shell.
+load_dotenv(pathlib.Path(__file__).resolve().parent.parent / ".env")
+
 # six weighted dimensions from the deck (sum = 1.00)
 WEIGHTS = {
     "traction": 0.28,
@@ -32,6 +38,13 @@ LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT", "30"))
 # graded by the LLM (global reputation) and falls back to KNOWN_PROGRAM_TIERS offline.
 PROGRAM_PRESTIGE_WEIGHTS = {"tier1": 16.0, "tier2": 11.0, "tier3": 6.0}
 PROGRAM_PRESTIGE_CAP = 36.0      # max ecosystem points contributed by program prestige
+# Memberships evidenced ONLY by the company's own site ("self_asserted") earn a fraction of
+# their tier, under their own lower cap. They cannot be treated as equal to third-party
+# corroboration — a startup can put any logo on its /partners page — but discarding them
+# outright is also wrong: NVIDIA Inception and Microsoft for Startups publish no searchable
+# member directory, so a genuine membership there is frequently impossible to corroborate.
+PROGRAM_SELF_ASSERTED_FACTOR = 0.5
+PROGRAM_SELF_ASSERTED_CAP = 18.0
 KNOWN_PROGRAM_TIERS = {
     "y combinator": "tier1", "techstars": "tier1", "siemens xcelerator": "tier1",
     "startup autobahn": "tier1", "nvidia inception": "tier1", "intel ignite": "tier1",

@@ -8,6 +8,7 @@ the same search corpus, so a profile is always returned.
 """
 from __future__ import annotations
 
+import os
 import re
 
 import pandas as pd
@@ -73,15 +74,62 @@ EMPTY_PROFILE = {
 }
 
 
+_CORPUS_CHARS = int(os.getenv("PROFILE_CORPUS_CHARS", "24000"))
+
+
 def _corpus(results: dict) -> str:
-    lines = []
-    for key, hits in results.items():
-        for h in hits or []:
-            lines.append(f"[{key}] {h.get('title','')} :: {h.get('body','')} :: {h.get('href','')}")
-    return "\n".join(lines)[:9000]
+    """Flatten {query_key: hits} into the evidence block handed to the LLM.
+
+    Results are interleaved ROUND-ROBIN across query keys, with the company's own fetched
+    pages (``__site__*``) first, rather than concatenated key by key. A flat concatenation
+    spends the whole budget on whichever queries happen to come first in the dict: for a
+    typical 11-query wave the corpus ran to ~19k chars, so a 9k cap meant only the first four
+    keys ever reached the model and everything after them — headcount, founding year,
+    customers, and the site text itself — was silently dropped. That is indistinguishable
+    downstream from "the web knows nothing", and it is why researched employee counts and
+    founding years kept coming back empty even when the searches had found them.
+
+    Interleaving makes truncation cost every query roughly equally instead of erasing the
+    tail wholesale. Override the budget with PROFILE_CORPUS_CHARS.
+    """
+    ordered = sorted((results or {}).items(), key=lambda kv: not str(kv[0]).startswith("__site__"))
+    queues = [[f"[{key}] {h.get('title','')} :: {h.get('body','')} :: {h.get('href','')}"
+               for h in (hits or [])] for key, hits in ordered]
+    lines, total = [], 0
+    for rank in range(max((len(q) for q in queues), default=0)):
+        for q in queues:
+            if rank >= len(q):
+                continue
+            line = q[rank]
+            if total + len(line) + 1 > _CORPUS_CHARS:
+                return "\n".join(lines)
+            lines.append(line)
+            total += len(line) + 1
+    return "\n".join(lines)
+
+
+def _site_hint(row: pd.Series) -> str:
+    """Bare host ('phena.tech') from the row's domain/website, or '' when unknown.
+
+    Used to disambiguate identity-sensitive searches. A bare company name is frequently
+    ambiguous — 'Phena' collides with Tryphena, Phena International Ltd, Phena's Studio — and
+    those queries come back as noise, which downstream is indistinguishable from "the web
+    knows nothing". Pinning the query to the company's own domain is what surfaces its
+    LinkedIn ('Company size 2-10 employees') and CB Insights ('founded in 2026') entries."""
+    raw = str(row.get("domain", "") or row.get("website", "")).strip()
+    if not raw:
+        return ""
+    from urllib.parse import urlparse
+    host = urlparse(raw if "//" in raw else "https://" + raw).hostname or ""
+    return host[4:] if host.startswith("www.") else host
 
 
 def _queries(company: str, row: pd.Series, llm: LLMClient) -> dict:
+    # Only the identity-sensitive queries take the domain hint. The founder/advisor/customer
+    # searches already resolve well on the name alone, and the wave is budget-sensitive: see
+    # _ddg_many, where an oversized wave gets throttled into silently empty results.
+    hint = _site_hint(row)
+    q = f"{company} {hint}".strip() if hint else company
     base = {
         "founders": f"{company} founders co-founder CEO CTO LinkedIn",
         "founder_bg": f"{company} founder previous company career university",
@@ -91,10 +139,13 @@ def _queries(company: str, row: pd.Series, llm: LLMClient) -> dict:
         # whatever program the startup actually belongs to (YC, Techstars, Antler, ...). The
         # grounding gate (see _program_grounded) requires the program to co-occur with the
         # company in a single result, so naming programs here can't create false positives.
-        "corp_programs": f'{company} ("backed by" OR alumni OR cohort OR portfolio OR '
+        "corp_programs": f'{q} ("backed by" OR alumni OR cohort OR portfolio OR '
                          f'accelerator OR incubator OR "Y Combinator" OR Techstars)',
         "parent": f"{company} subsidiary parent company acquired part of group",
-        "team": f"{company} number of employees headcount team size",
+        "team": f"{q} number of employees company size linkedin",
+        # Nothing searched for the founding year before, so it was only ever extracted from
+        # whatever the other queries happened to return.
+        "founded": f"{q} founded year established headquarters",
         "customers": f"{company} customer case study deployment client announcement",
     }
     if llm.available:
@@ -536,6 +587,62 @@ def _recheck_programs(prof: dict, row: pd.Series, company: str,
         prof["programs"] = deduped
 
 
+def _recover_headline_facts(prof: dict, company: str, row: pd.Series, llm: LLMClient) -> None:
+    """Second-pass recall net for founded_year / employees, mirroring _recover_founders.
+
+    These two fields live on aggregator pages (LinkedIn "Company size 2-10 employees",
+    CB Insights "It was founded in 2026") that rank below the company's own pages and drop in
+    and out of a 5-result window between runs. The main wave therefore finds them only
+    sometimes, and an empty field is indistinguishable from "the web does not know". When
+    either is still blank, spend one focused wave plus one extraction call on them rather than
+    declaring them unavailable. Only blank fields are filled; never raises.
+    """
+    need_year = not str(prof.get("founded_year", "")).strip()
+    need_emp = not str(prof.get("employees", "")).strip()
+    if not (need_year or need_emp) or not llm.available:
+        return
+    hint = _site_hint(row)
+    q = f"{company} {hint}".strip() if hint else company
+    corpus = _corpus(_ddg_many({
+        "h1": f"{q} linkedin company size employees",
+        "h2": f"{q} crunchbase pitchbook cbinsights company profile founded",
+        "h3": f"{q} founded in year headquarters about the company",
+    }, max_results=5, overall_timeout=25.0))
+    if not corpus:
+        return
+    # A name-based search for a small startup returns near-namesakes (Phena -> FENA Holdings,
+    # Phenna Group, Fena Private Limited), several carrying their own headcount. Without an
+    # anchor the model either declines or picks the wrong row, so the company's own
+    # description/HQ/website go into the prompt as the identity test.
+    known = _startup_text(row)[:600]
+    data = LLMClient.parse_json(llm.complete(
+        f"Web results about the startup '{company}':\n\n{corpus}\n\n"
+        f"THIS COMPANY IS:\nname: {company}\nwebsite: {hint or 'unknown'}\n{known}\n\n"
+        "Extract ONLY these two facts, strictly from the evidence and only from results that "
+        "match THIS company — the results contain other organisations with similar names, and "
+        "a fact taken from one of those is worse than no answer:\n"
+        "- founded_year: 4-digit year the company was founded/incorporated. NEVER infer it "
+        "from a copyright notice, a domain registration, or the date of the earliest article.\n"
+        "- employees: a number or tight range exactly as stated (e.g. '25', '2-10'), not a "
+        "vague word.\n"
+        "Give the supporting source_url for each. Leave a field empty if unsupported.\n"
+        'Return ONLY JSON: {"founded_year":"","founded_year_source":"",'
+        '"employees":"","employees_source":""}',
+        system="You extract structured facts strictly from supplied evidence. JSON only.",
+        max_tokens=400)) or {}
+    if need_year:
+        fy = re.sub(r"\D", "", str(data.get("founded_year") or ""))[:4]
+        if len(fy) == 4 and 1800 <= int(fy) <= 2100:
+            prof["founded_year"] = fy
+            prof["founded_year_source"] = str(data.get("founded_year_source") or "").strip()
+    if need_emp:
+        emp = str(data.get("employees") or "").strip()
+        # A bare count or range only — the prompt asks for one, but a model can still answer
+        # "a small team", which is not a fact a downstream consumer can use.
+        if emp and re.fullmatch(r"[\d,]+(\s*[-–]\s*[\d,]+)?\+?", emp):
+            prof["employees"] = emp
+
+
 def _program_tier_offline(name: str) -> str:
     """Deterministic prestige tier from the known-program map; unknown -> tier3."""
     n = str(name).lower()
@@ -668,7 +775,10 @@ def research_profile(row: pd.Series, llm: LLMClient, do_web: bool = True,
     try:
         # Uses _ddg_many's default budget, which is sized for the full wave; a tighter
         # deadline here silently empties the program/advisor queries under throttling.
-        results = _ddg_many(_queries(company, row, llm), max_results=4) if do_web else {}
+        # 5 results, not 4: the aggregator pages that actually carry headcount and founding
+        # year (LinkedIn's "Company size 2-10 employees", CB Insights) routinely rank fifth
+        # behind the company's own pages, so a 4-result window cut them off.
+        results = _ddg_many(_queries(company, row, llm), max_results=5) if do_web else {}
         # Fold the company's own site text in as pseudo-results so the grounding gate
         # (name + company must co-occur in one result) can see facts published only there.
         results = _merge_site_results(results, company, row, site)
@@ -695,6 +805,14 @@ def research_profile(row: pd.Series, llm: LLMClient, do_web: bool = True,
         if not prof["reference_customers"]:
             raw = str(row.get("customers", "") or row.get("Reference customers", ""))
             prof["reference_customers"] = _clean_customers(re.split(r"[,\n;·|]+", raw))
+        # Recall net for the two headline facts that live on aggregator pages and drop out of
+        # the result window between runs. Runs before the DB fallback below so a researched
+        # figure is preferred, and only when a field is actually blank.
+        if do_web:
+            try:
+                _recover_headline_facts(prof, company, row, llm)
+            except Exception:
+                pass
         # Employees: never leave blank when the application row already knows it.
         if not str(prof.get("employees", "")).strip():
             prof["employees"] = str(row.get("employees_count", "") or row.get("employee_band", "")).strip()

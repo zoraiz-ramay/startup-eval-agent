@@ -18,6 +18,36 @@ from .route import route
 from .profile import research_profile
 
 
+# Headline fields the DB leaves blank but web research can establish, mapped to their key in
+# the researched deep profile.
+_BACKFILL_FIELDS = (("founded_year", "founded_year"), ("funding", "funding"),
+                    ("employees_count", "employees"))
+
+
+def backfill_profile(profile: dict, deep_profile: dict) -> dict:
+    """Fill BLANK profile fields from web research, in place; return the provenance map.
+
+    GlassDollar's export frequently omits founded_year, funding and headcount, and the
+    researched values otherwise exist only as evidence Facts — visible in the Evidence tab but
+    never in the profile header, so the UI showed "—" for facts the run had actually
+    established. Only blank fields are filled: wherever the DB has a value it stays
+    authoritative. Every filled field is recorded in the returned ``profile_sources`` so the UI
+    can mark it web-sourced rather than passing it off as application data.
+    """
+    sources: dict = {}
+    for col, pkey in _BACKFILL_FIELDS:
+        if str(profile.get(col, "")).strip():
+            continue
+        val = str(deep_profile.get(pkey, "")).strip()
+        if val:
+            profile[col] = val
+            # Not every researched field carries a source URL (headcount has no *_source key),
+            # so the origin is recorded even when the URL is unknown.
+            sources[col] = {"origin": "web",
+                            "url": str(deep_profile.get(f"{pkey}_source", "")).strip()}
+    return sources
+
+
 def evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = True,
              df: "pd.DataFrame" = None, on_step=None) -> dict:
     # Optional progress callback: on_step(step_label, status) where status is one of
@@ -114,22 +144,7 @@ def evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = T
     else:                       # web row: keep only the fields we actually populated
         profile = {c: str(row.get(c, "")) for c in profile_cols if str(row.get(c, "")).strip()}
 
-    # Backfill headline fields the DB leaves blank from web research. GlassDollar's export
-    # frequently omits founded_year and funding, and until now the researched values existed
-    # only as evidence Facts — visible in the Evidence tab but never in the profile header, so
-    # the UI showed "—" for facts the run had actually established. Only BLANK fields are
-    # filled: wherever the DB has a value it stays authoritative. Each filled field is recorded
-    # in profile_sources so the UI can mark it web-sourced rather than passing it off as
-    # application data.
-    profile_sources: dict = {}
-    for col, pkey in (("founded_year", "founded_year"), ("funding", "funding")):
-        if str(profile.get(col, "")).strip():
-            continue
-        val = str(deep_profile.get(pkey, "")).strip()
-        if val:
-            profile[col] = val
-            profile_sources[col] = {"origin": "web",
-                                    "url": str(deep_profile.get(f"{pkey}_source", "")).strip()}
+    profile_sources = backfill_profile(profile, deep_profile)
 
     engine = "openai:" + LLM_MODEL if llm.available else "offline-fallback"
     if source == "web":

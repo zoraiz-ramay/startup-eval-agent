@@ -5,7 +5,8 @@ import re
 
 import pandas as pd
 
-from .config import WEIGHTS, THIN_PROFILE_CAP, PROGRAM_PRESTIGE_WEIGHTS, PROGRAM_PRESTIGE_CAP
+from .config import (WEIGHTS, THIN_PROFILE_CAP, PROGRAM_PRESTIGE_WEIGHTS, PROGRAM_PRESTIGE_CAP,
+                     PROGRAM_SELF_ASSERTED_FACTOR, PROGRAM_SELF_ASSERTED_CAP)
 
 # Per-route weight profiles (each sums to 1.0). The universal WEIGHTS remain the
 # backwards-compatible headline score; these drive route-specific recommendations.
@@ -96,14 +97,20 @@ def score_startup(row: pd.Series, enrichment: dict, verification: dict, fit: dic
             return conf == "corroborated"
         return str(p.get("source_url", "")).startswith("http")
 
+    def _tier_pts(p: dict) -> float:
+        return PROGRAM_PRESTIGE_WEIGHTS.get(str(p.get("prestige", "tier3")).lower(),
+                                            PROGRAM_PRESTIGE_WEIGHTS["tier3"])
+
+    # Both groups are weighted by prestige tier, so one top-tier membership still outweighs
+    # several obscure ones; the self-asserted side is discounted and capped separately, so a
+    # logo wall can never reach what independent corroboration earns.
     evidenced_programs = [p for p in programs if _corroborated(p)]
-    prestige_pts = sum(
-        PROGRAM_PRESTIGE_WEIGHTS.get(str(p.get("prestige", "tier3")).lower(),
-                                     PROGRAM_PRESTIGE_WEIGHTS["tier3"])
-        for p in evidenced_programs)
-    prestige_pts = min(prestige_pts, PROGRAM_PRESTIGE_CAP)
+    claimed_programs = [p for p in programs if not _corroborated(p)]
+    prestige_pts = min(sum(_tier_pts(p) for p in evidenced_programs), PROGRAM_PRESTIGE_CAP)
+    claimed_pts = min(PROGRAM_SELF_ASSERTED_FACTOR * sum(_tier_pts(p) for p in claimed_programs),
+                      PROGRAM_SELF_ASSERTED_CAP)
     eco = 30 + 20 * len([f for f in facts if f.method == "ddg_search" and f.verified])
-    eco += prestige_pts + 4 * min(2, len(programs) - len(evidenced_programs))
+    eco += prestige_pts + claimed_pts
     eco += 10 if str(profile.get("parent_group", "")).strip() else 0
     dims["ecosystem"] = min(100, eco)
 

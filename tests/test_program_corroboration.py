@@ -92,6 +92,34 @@ def test_self_asserted_program_cannot_earn_full_prestige_points():
     assert claimed > _eco([])          # still worth something; it is a real signal
 
 
+def _claimed(name, tier):
+    return {"name": name, "prestige": tier, "source_url": "https://acme.com",
+            "confidence": "self_asserted"}
+
+
+def test_self_asserted_points_follow_the_prestige_tier():
+    """A claimed NVIDIA Inception must outweigh a claimed generic local incubator.
+
+    Self-asserted memberships used to earn a flat 4 points each, so a logo wall of obscure
+    programs scored the same as a top-tier one.
+    """
+    assert _eco([_claimed("NVIDIA Inception", "tier1")]) > _eco([_claimed("Local Hub", "tier3")])
+
+
+def test_self_asserted_points_are_capped():
+    """A long list of self-claimed logos cannot run away with the ecosystem dimension."""
+    from core.config import PROGRAM_SELF_ASSERTED_CAP
+
+    many = _eco([_claimed(f"Program {i}", "tier1") for i in range(10)])
+    baseline = _eco([])
+    assert many - baseline <= PROGRAM_SELF_ASSERTED_CAP
+    # ...and a genuinely corroborated set of the same size still scores higher.
+    corroborated = _eco([{"name": f"Program {i}", "prestige": "tier1",
+                          "source_url": "https://news.example/acme",
+                          "confidence": "corroborated"} for i in range(10)])
+    assert corroborated > many
+
+
 def test_legacy_profiles_without_confidence_keep_the_url_heuristic():
     """Cached profiles predate the field and must not silently lose their score."""
     legacy = _eco([{"name": "NVIDIA Inception", "prestige": "tier1",
