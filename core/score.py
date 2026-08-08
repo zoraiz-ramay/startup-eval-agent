@@ -36,7 +36,11 @@ def score_startup(row: pd.Series, enrichment: dict, verification: dict, fit: dic
     # anti-gaming: verified beats partial/unverified; contradicted counts zero
     effective_traction = sum(_W.get(c.get("status", "unverified"), 0.25) for c in cust)
 
-    funding_txt = str(row.get("funding", ""))
+    # The application row is authoritative, but it is blank for most startups — and for a
+    # web-sourced company it does not exist at all. Reading only the row meant a round the
+    # research had actually established (and which the profile header already displayed) was
+    # invisible to scoring, despite being worth 20 traction points and market 70 vs 50.
+    funding_txt = str(row.get("funding", "")).strip() or str(profile.get("funding", "")).strip()
     has_funding = bool(re.search(r"[\$€£]|\bm\b|million|seed|series", funding_txt, re.I))
 
     stage_growth = str(row.get("Stage: Growth market stage (your solution is mature, and you are selling it to your main target market)", "")).strip()

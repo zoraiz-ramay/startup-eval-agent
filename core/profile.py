@@ -20,6 +20,7 @@ from .provenance import Fact
 from .web import _ddg_many
 from .llm import LLMClient
 from .config import KNOWN_PROGRAM_TIERS
+from .text import has_funding_signal
 # Known startup programs for offline detection (matched case-insensitively).
 KNOWN_PROGRAMS = {
     "siemens xcelerator": "corporate_program",
@@ -111,6 +112,17 @@ def _corpus(results: dict) -> str:
     return "\n".join(lines)
 
 
+def _clean_source_url(value) -> str:
+    """Keep a real http(s) link, otherwise ''.
+
+    Asked for a source_url, the model sometimes answers with the corpus label it read the fact
+    from ('f1, f2') rather than the link. Those reach profile_sources and the UI renders them as
+    a broken 'web-sourced' link, so anything that is not a URL is dropped — the fact is still
+    kept, just without a citation. Mirrors the guard in _clean_employee_series."""
+    url = str(value or "").strip()
+    return url if url.lower().startswith(("http://", "https://")) else ""
+
+
 def _site_hint(row: pd.Series) -> str:
     """Bare host ('phena.tech') from the row's domain/website, or '' when unknown.
 
@@ -146,9 +158,10 @@ def _queries(company: str, row: pd.Series, llm: LLMClient) -> dict:
                          f'accelerator OR incubator OR "Y Combinator" OR Techstars)',
         "parent": f"{company} subsidiary parent company acquired part of group",
         "team": f"{q} number of employees company size linkedin",
-        # Nothing searched for the founding year before, so it was only ever extracted from
-        # whatever the other queries happened to return.
+        # Nothing searched for the founding year or the funding round before, so both were
+        # only ever extracted from whatever the other queries happened to return.
         "founded": f"{q} founded year established headquarters",
+        "funding": f"{q} funding round raised investors pre-seed seed series",
         "customers": f"{company} customer case study deployment client announcement",
     }
     if llm.available:
@@ -353,10 +366,13 @@ def _llm_extract(company: str, row: pd.Series, results: dict, llm: LLMClient) ->
         "company was founded/incorporated/started. Never infer it from a copyright notice, a "
         "domain registration date, or the earliest news article.\n"
         "- funding: the most recent round as a short phrase with stage and amount when both are "
-        "evidenced (e.g. 'Seed, $2.5M (2024)' or 'Pre-seed, undisclosed'). Leave empty if the "
-        "evidence only says the company 'raised funding' with no stage or amount.\n"
-        "- founded_year_source / funding_source: the source_url of the result supporting each; "
-        "leave empty if the value came from the KNOWN block rather than a search result.\n"
+        "evidenced (e.g. 'Seed, $2.5M (2024)'). If the stage is evidenced but the amount is NOT "
+        "public — Crunchbase renders it as 'obfuscated', or the source says undisclosed — STILL "
+        "report the stage, e.g. 'Pre-Seed, amount undisclosed'. Leave empty only when the "
+        "evidence names neither a stage nor an amount, and NEVER guess an amount.\n"
+        "- founded_year_source / funding_source: the source_url of the result supporting each — a "
+        "real http link from the results, never a label; leave empty if the value came from the "
+        "KNOWN block rather than a search result.\n"
         "Also judge: is Siemens Financial Services (equipment/project financing, leasing) a relevant "
         "partnership avenue for this startup (e.g. hardware, capex-heavy, energy/infrastructure)?\n\n"
         'Return ONLY JSON:\n'
@@ -387,10 +403,12 @@ def _llm_extract(company: str, row: pd.Series, results: dict, llm: LLMClient) ->
     # a downstream consumer can treat as a number.
     fy = re.sub(r"\D", "", str(data.get("founded_year") or ""))[:4]
     prof["founded_year"] = fy if len(fy) == 4 and 1800 <= int(fy) <= 2100 else ""
-    prof["founded_year_source"] = (str(data.get("founded_year_source") or "").strip()
+    prof["founded_year_source"] = (_clean_source_url(data.get("founded_year_source"))
                                    if prof["founded_year"] else "")
-    prof["funding"] = str(data.get("funding") or "").strip()
-    prof["funding_source"] = (str(data.get("funding_source") or "").strip()
+    # Same bar as the recall net: a round must name a stage or an amount to be a usable fact.
+    funding = str(data.get("funding") or "").strip()
+    prof["funding"] = funding if has_funding_signal(funding) else ""
+    prof["funding_source"] = (_clean_source_url(data.get("funding_source"))
                               if prof["funding"] else "")
     sfs = data.get("sfs") or {}
     prof["sfs"] = {"relevant": bool(sfs.get("relevant")),
@@ -640,18 +658,19 @@ def _recheck_programs(prof: dict, row: pd.Series, company: str,
 
 
 def _recover_headline_facts(prof: dict, company: str, row: pd.Series, llm: LLMClient) -> None:
-    """Second-pass recall net for founded_year / employees, mirroring _recover_founders.
+    """Second-pass recall net for founded_year / employees / funding, like _recover_founders.
 
-    These two fields live on aggregator pages (LinkedIn "Company size 2-10 employees",
-    CB Insights "It was founded in 2026") that rank below the company's own pages and drop in
-    and out of a 5-result window between runs. The main wave therefore finds them only
-    sometimes, and an empty field is indistinguishable from "the web does not know". When
-    either is still blank, spend one focused wave plus one extraction call on them rather than
-    declaring them unavailable. Only blank fields are filled; never raises.
+    All three live on aggregator pages (LinkedIn "Company size 2-10 employees", CB Insights
+    "It was founded in 2026", Crunchbase funding profiles) that rank below the company's own
+    pages and drop in and out of a 5-result window between runs. The main wave therefore finds
+    them only sometimes, and an empty field is indistinguishable from "the web does not know".
+    When one is still blank, spend a focused wave plus one extraction call on it rather than
+    declaring it unavailable. Only blank fields are filled; never raises.
     """
     need_year = not str(prof.get("founded_year", "")).strip()
     need_emp = not str(prof.get("employees", "")).strip()
-    if not (need_year or need_emp) or not llm.available:
+    need_funding = not str(prof.get("funding", "")).strip()
+    if not (need_year or need_emp or need_funding) or not llm.available:
         return
     hint = _site_hint(row)
     q = f"{company} {hint}".strip() if hint else company
@@ -659,6 +678,8 @@ def _recover_headline_facts(prof: dict, company: str, row: pd.Series, llm: LLMCl
         "h1": f"{q} linkedin company size employees",
         "h2": f"{q} crunchbase pitchbook cbinsights company profile founded",
         "h3": f"{q} founded in year headquarters about the company",
+        "h4": f"{q} crunchbase pitchbook funding rounds total raised",
+        "h5": f"{q} pre-seed seed series A investment announcement",
     }, max_results=5, overall_timeout=25.0))
     if not corpus:
         return
@@ -670,29 +691,41 @@ def _recover_headline_facts(prof: dict, company: str, row: pd.Series, llm: LLMCl
     data = LLMClient.parse_json(llm.complete(
         f"Web results about the startup '{company}':\n\n{corpus}\n\n"
         f"THIS COMPANY IS:\nname: {company}\nwebsite: {hint or 'unknown'}\n{known}\n\n"
-        "Extract ONLY these two facts, strictly from the evidence and only from results that "
+        "Extract ONLY these facts, strictly from the evidence and only from results that "
         "match THIS company — the results contain other organisations with similar names, and "
         "a fact taken from one of those is worse than no answer:\n"
         "- founded_year: 4-digit year the company was founded/incorporated. NEVER infer it "
         "from a copyright notice, a domain registration, or the date of the earliest article.\n"
         "- employees: a number or tight range exactly as stated (e.g. '25', '2-10'), not a "
         "vague word.\n"
-        "Give the supporting source_url for each. Leave a field empty if unsupported.\n"
+        "- funding: the most recent round, stage and amount when both are evidenced (e.g. "
+        "'Seed, $2.5M (2024)'). If the stage is evidenced but the amount is NOT public — "
+        "Crunchbase renders it as 'obfuscated', or the source says undisclosed — STILL report "
+        "the stage, e.g. 'Pre-Seed, amount undisclosed'. Leave empty only when not even a "
+        "stage is evidenced, and NEVER guess an amount.\n"
+        "Give the supporting source_url (a real http link from the results, not a label) for "
+        "each. Leave a field empty if unsupported.\n"
         'Return ONLY JSON: {"founded_year":"","founded_year_source":"",'
-        '"employees":"","employees_source":""}',
+        '"employees":"","employees_source":"","funding":"","funding_source":""}',
         system="You extract structured facts strictly from supplied evidence. JSON only.",
-        max_tokens=400, reasoning="none")) or {}
+        max_tokens=500, reasoning="none")) or {}
     if need_year:
         fy = re.sub(r"\D", "", str(data.get("founded_year") or ""))[:4]
         if len(fy) == 4 and 1800 <= int(fy) <= 2100:
             prof["founded_year"] = fy
-            prof["founded_year_source"] = str(data.get("founded_year_source") or "").strip()
+            prof["founded_year_source"] = _clean_source_url(data.get("founded_year_source"))
     if need_emp:
         emp = str(data.get("employees") or "").strip()
         # A bare count or range only — the prompt asks for one, but a model can still answer
         # "a small team", which is not a fact a downstream consumer can use.
         if emp and re.fullmatch(r"[\d,]+(\s*[-–]\s*[\d,]+)?\+?", emp):
             prof["employees"] = emp
+    if need_funding:
+        fund = str(data.get("funding") or "").strip()
+        # Must name a stage or an amount; "raised funding" on its own is not a fact.
+        if fund and has_funding_signal(fund):
+            prof["funding"] = fund
+            prof["funding_source"] = _clean_source_url(data.get("funding_source"))
 
 
 def _program_tier_offline(name: str) -> str:

@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import concurrent.futures
+import contextvars
+import functools
 
 import pandas as pd
 
@@ -126,14 +128,21 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
     _step("STRUCTURE", "running")
     _step("REVIEW", "running")
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as ex:
-        f_ver   = ex.submit(verify_facts, row, enrichment, llm)
-        f_sum   = ex.submit(summarize_offering, row, enrichment["pitch_pdf"], llm)
-        f_fit   = ex.submit(match_siemens_tools, row, enrichment["pitch_pdf"], tools, llm)
+        # Pool threads start with an EMPTY context, so anything submitted plainly here loses
+        # the cache-bypass ContextVar set by evaluate() and falls back to its default (True):
+        # a forced refresh would keep replaying cached searches and completions for the whole
+        # of the profile / trend research, which is most of the run.
+        def _spawn(fn, *a):
+            return ex.submit(contextvars.copy_context().run, functools.partial(fn, *a))
+
+        f_ver   = _spawn(verify_facts, row, enrichment, llm)
+        f_sum   = _spawn(summarize_offering, row, enrichment["pitch_pdf"], llm)
+        f_fit   = _spawn(match_siemens_tools, row, enrichment["pitch_pdf"], tools, llm)
         # deep structured profile: founders / advisors / programs / parent group / SFS relevance
-        f_prof  = ex.submit(research_profile, row, llm, do_web, enrichment.get("site"))
+        f_prof  = _spawn(research_profile, row, llm, do_web, enrichment.get("site"))
         # trend uses niche keywords derived inside analyze_trend (stage 1); we pass an empty
         # list here and it derives its own terms. We kick it off early so it runs in parallel.
-        f_trend = ex.submit(analyze_trend, row, "", [], llm, do_web)
+        f_trend = _spawn(analyze_trend, row, "", [], llm, do_web)
         verification = f_ver.result()
         _step("VERIFY", "done")
         summary      = f_sum.result()

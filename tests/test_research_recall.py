@@ -15,8 +15,9 @@ import pandas as pd
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from core.profile import _queries, _site_hint, _corpus  # noqa: E402
+from core.profile import _queries, _site_hint, _corpus, _clean_source_url  # noqa: E402
 from core.pipeline import backfill_profile  # noqa: E402
+from core.score import score_startup  # noqa: E402
 
 
 class _NoLLM:
@@ -48,6 +49,72 @@ def test_founded_year_query_exists():
     q = _queries("Acme", pd.Series({"company_name": "Acme", "domain": "acme.io"}), _NoLLM())
     assert "founded" in q
     assert "founded" in q["founded"].lower()
+
+
+def test_funding_query_exists():
+    """Nothing searched for the funding round, so Crunchbase rounds were only ever found by
+    accident — makkook.ai's Pre-Seed never surfaced at all."""
+    q = _queries("Acme", pd.Series({"company_name": "Acme", "domain": "acme.io"}), _NoLLM())
+    assert "funding" in q
+    assert "acme.io" in q["funding"]
+    assert "funding" in q["funding"].lower()
+
+
+def test_clean_source_url_rejects_non_links():
+    """Asked for a source_url the model sometimes answers with the corpus label it read the
+    fact from ('f1, f2'), which the UI would render as a broken 'web-sourced' link."""
+    assert _clean_source_url("https://www.crunchbase.com/organization/makkook-ai") == \
+        "https://www.crunchbase.com/organization/makkook-ai"
+    assert _clean_source_url("http://x.io/a") == "http://x.io/a"
+    for junk in ("f1, f2", "crunchbase", "", None, "  ", "www.crunchbase.com"):
+        assert _clean_source_url(junk) == ""
+
+
+def _score_with(row_funding, profile_funding):
+    row = pd.Series({"company_name": "Acme", "funding": row_funding})
+    profile = {"founders": [], "advisors": [], "programs": [], "parent_group": "",
+               "funding": profile_funding}
+    return score_startup(row, {"facts": []}, {}, {}, profile)
+
+
+def test_researched_funding_reaches_the_score():
+    """score_startup read only the DB row, so a web-found round changed nothing — even though
+    the profile header already displayed it."""
+    blank = _score_with("", "")
+    researched = _score_with("", "Pre-Seed, amount undisclosed")
+    assert researched["dimensions"]["market"] > blank["dimensions"]["market"]
+    assert researched["dimensions"]["traction"] > blank["dimensions"]["traction"]
+
+
+def test_stage_only_funding_counts():
+    """A paywalled amount still evidences a raise; the stage alone must register."""
+    assert _score_with("", "Pre-Seed, amount undisclosed")["dimensions"]["market"] == 70
+
+
+def test_database_funding_stays_authoritative():
+    """Where the application data has a value it wins over research."""
+    row = pd.Series({"company_name": "Acme", "funding": "Series B, $30M"})
+    profile = {"founders": [], "advisors": [], "programs": [], "parent_group": "",
+               "funding": "Pre-Seed, amount undisclosed"}
+    assert score_startup(row, {"facts": []}, {}, {}, profile)["dimensions"]["market"] == 70
+
+
+def test_knowledge_gapfill_never_invents_verifiable_facts():
+    """Model-recall gap-fill must not touch facts a reader would cite.
+
+    It used to cover funding/founded_year/employees/hq/customers, and asked to recall a small
+    startup the model invents rather than declining: makkook.ai came back with a funding round
+    of 'SAR 3.75 million' that appears nowhere on the web. The marker meant to flag such values
+    never reached the row, so a guess rendered exactly like a cited fact.
+    """
+    import inspect
+
+    from core import data as data_mod
+
+    src = inspect.getsource(data_mod.web_profile_row)
+    gap = src.split("_GAP_KEYS = ")[1].split(")")[0]
+    for verifiable in ("funding", "founded_year", "employees", "hq", "customers", "website"):
+        assert verifiable not in gap, f"{verifiable} must not be filled from model memory"
 
 
 def test_queries_degrade_cleanly_without_a_domain():

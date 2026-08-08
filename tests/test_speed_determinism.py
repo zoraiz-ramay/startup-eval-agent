@@ -181,6 +181,38 @@ def test_bypass_flag_reaches_the_search_worker_threads(monkeypatch):
     assert seen and all(flag is False for flag in seen)
 
 
+def test_pipeline_executor_carries_the_bypass_flag(monkeypatch):
+    """pipeline.evaluate fans its stages out through a ThreadPoolExecutor.
+
+    Those threads start with an empty context too, so submitting plainly lost the bypass flag
+    for the profile and trend research — most of a run — and a forced refresh quietly replayed
+    cached searches and completions.
+    """
+    import concurrent.futures
+    import contextvars
+    import functools
+
+    seen = []
+
+    def stage():
+        seen.append(web._cache_enabled.get())
+
+    token = web.set_cache_enabled(False)
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+            plain = ex.submit(stage)
+            copied = ex.submit(contextvars.copy_context().run, functools.partial(stage))
+            plain.result(), copied.result()
+    finally:
+        web.reset_cache_enabled(token)
+    # The plain submit sees the default; only the context-copying one sees the real flag.
+    assert True in seen and False in seen
+
+    src = __import__("inspect").getsource(
+        __import__("core.pipeline", fromlist=["evaluate"]))
+    assert "copy_context" in src, "pipeline must copy context into its executor"
+
+
 def test_failed_search_is_not_cached(monkeypatch):
     """A transient throttle must not be pinned in place for the whole TTL."""
     store = _install_dict_cache()
