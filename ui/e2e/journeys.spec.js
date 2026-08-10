@@ -77,7 +77,9 @@ test.describe("profile", () => {
   test("PROF-02/X-01: a web-sourced value links to its real source", async ({ page }) => {
     await stubEvaluation(page);
     await page.goto("/startup/1");
-    const badge = page.getByRole("link", { name: /^web$/i }).first();
+    // Accessible name is field-specific (UI-01) so a screen reader can tell which figure this
+    // badge backs; the visible text stays the literal word "web".
+    const badge = page.getByRole("link", { name: /^web — founded year source$/i });
     await expect(badge).toHaveAttribute("href", "https://www.cbinsights.com/company/phena");
   });
 

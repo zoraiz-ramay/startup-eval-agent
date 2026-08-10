@@ -44,6 +44,57 @@ can make its own findings true, and its report stops being independent evidence.
 
 ---
 
+## 2026-08-11 · UI-01 · provenance badge accessible names
+
+**Flow**: caller-directed single-item implementation (no ui-auditor re-run this cycle; the row was
+handed over directly, already flagged as higher priority since UI-06 gave the Overview tab a
+second `WebSourced` badge with the same accessible name).
+
+**Selected**: UI-01 (`high`) — the provenance badge's accessible name was the literal string "web"
+regardless of which field it sourced. After UI-06, Employees and Founded sit adjacent in the same
+metric row, so a screen reader announced "web", "web" with no way to tell them apart. `title` is
+not exposed as the accessible name (link text wins), which was the actual bug.
+
+**Changed**
+- `ui/src/pages/Profile.jsx` — `WebSourced` now takes a `field` prop and, on the linked branch,
+  sets `aria-label={`web — ${field} source`}`. Visible text stays the literal word "web" per the
+  design constraint (dense Tracxn canvas, no room to grow the label) and per WCAG 2.5.3 Label in
+  Name — the accessible name still starts with the visible word, so speech-input users saying
+  "click web" keep matching. All three call sites updated: Employees (`field="employees"`),
+  Founded (`field="founded year"`), Funding (`field="funding"`).
+- The non-link branch (`<span className="chip">`, no URL captured) got **no aria-label**. Decision:
+  it renders no role and is never in the tab order, so it isn't a "control" a screen reader
+  presents as actionable — giving it an accessible name would announce affordance that doesn't
+  exist. Its visible "web" text plus the `title` tooltip already say everything a sighted user
+  gets; there is no interaction to name.
+- `ui/src/pages/Profile.test.jsx` — updated the two existing tests that queried
+  `getByRole("link", { name: /^web$/i })` (now field-specific), and added one new test that
+  renders Employees and Founded sourced simultaneously and asserts they resolve to two distinct
+  links by accessible name — the case a single-badge test would miss.
+- `ui/e2e/journeys.spec.js` — the PROF-02/X-01 journey queried the same generic `/^web$/i` link
+  name; updated to the new field-specific name (`web — founded year source`), matching the
+  `founded_year` fixture it actually exercises.
+- `contract/ui-backlog.md` — UI-01 → `done`.
+- `docs/ui-inventory.json` — regenerated.
+
+**Verified independently of the agent's report**: reverted the `Profile.jsx` change with the new
+tests in place — the added disambiguation test and both updated tests failed (couldn't find a link
+named `web — employees source` / `web — founded year source`, since both badges were still named
+plain "web"). Restored — all pass.
+
+**Gates**: pytest 190 passed · vitest 17 passed (16 pre-existing + 1 new) · ix_lint no new findings
+(51 known, unchanged) · ui inventory current · e2e 54 passed, 2 failed — `explore-mobile.png`
+(7617px diff) and `profile-mobile.png` (12534px diff), the same two mobile baselines already
+failing at HEAD before this change (inherited from the iX migration, unchanged pixel counts from
+the prior cycle's log). No new visual diff caused by this change.
+
+**Left for a human**: the two mobile visual baselines remain unresolved from the iX migration —
+not touched here per the harness rule against re-baselining. Also worth a second look: I chose the
+suffix "source" in the accessible name (e.g. "web — employees source") for readability; a human
+reviewing screen-reader output first-hand may prefer a shorter form.
+
+---
+
 ## 2026-08-11 · UI-06 · employees provenance badge
 
 **Flow**: `/ui-improve` → ui-implementer → gates. Audit skipped: the backlog had been audited

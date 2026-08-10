@@ -11,7 +11,7 @@ Impact: **high** = a user is misled or blocked · **med** = friction or inconsis
 
 | ID | Finding | Where | Impact | Contract | Status |
 |----|---------|-------|--------|----------|--------|
-| UI-01 | Provenance link's accessible name is just "web" — a screen-reader user hears "web" with no indication of what it sources or where it goes. The `title` is ignored because link text wins. | `ui/src/pages/Profile.jsx:38` | high | X-01, X-04 | proposed |
+| UI-01 | Provenance link's accessible name is just "web" — a screen-reader user hears "web" with no indication of what it sources or where it goes. The `title` is ignored because link text wins. | `ui/src/pages/Profile.jsx:38` | high | X-01, X-04 | done |
 | UI-02 | 47 raw colour literals outside `tokens.css`. Each is a site the iX theme cannot reach, so the token migration cannot fully land while they exist. | 12 files, see `contract/ix-lint-baseline.json` | high | X-06 | proposed |
 | UI-03 | `var(--bg)` is referenced but never declared, so it resolves to nothing and the rule silently does nothing. | `ui/src/pages/Explore.css:4` | med | — | proposed |
 | UI-04 | Three `onClick` handlers on `<div>`/`<span>` with no role — not keyboard reachable and invisible to assistive tech. | `ui/src/pages/Explore.jsx:65,246,247` | high | X-04 | proposed |

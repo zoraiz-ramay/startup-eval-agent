@@ -69,13 +69,13 @@ describe("Profile", () => {
 
   it("shows a web-sourced field with its provenance link (PROF-02, X-01)", async () => {
     await renderProfile();
-    // The badge renders as <a title="Web-sourced: …">web</a>, so its accessible name is "web".
-    // That is weak for a screen reader — logged as UI-01 in contract/ui-backlog.md — but the
-    // contract requirement being asserted here is that the link exists and resolves to the real
-    // source, which is what stops a fabricated value being presented as evidenced.
-    const link = await screen.findByRole("link", { name: /^web$/i });
+    // The badge's visible text is "web", but its accessible name is field-specific — see UI-01 —
+    // so query by that name, exactly what a screen reader exposes.
+    const link = await screen.findByRole("link", { name: /^web — founded year source$/i });
     expect(link).toHaveAttribute("href", "https://www.cbinsights.com/company/phena");
     expect(link).toHaveAttribute("rel", expect.stringContaining("noreferrer"));
+    // WCAG 2.5.3 Label in Name: the visible label ("web") must still be a prefix of the name.
+    expect(link).toHaveTextContent("web");
   });
 
   it("shows a provenance badge on the Employees metric when profile_sources.employees_count is populated (UI-06, PROF-02, X-01)", async () => {
@@ -89,8 +89,32 @@ describe("Profile", () => {
     });
     await renderProfile();
     const metric = (await screen.findByText("Employees")).closest(".metric");
-    const link = within(metric).getByRole("link", { name: /^web$/i });
+    const link = within(metric).getByRole("link", { name: /^web — employees source$/i });
     expect(link).toHaveAttribute("href", "https://www.linkedin.com/company/phena/people");
+  });
+
+  it("gives the Employees and Founded provenance badges distinguishable accessible names (UI-01, X-01, X-04)", async () => {
+    // Regression for UI-01: before the fix both badges' accessible name was the literal string
+    // "web", so a screen-reader user tabbing the metric row heard "web", "web" with no way to
+    // tell which figure each one backs. Both sources populated in one render is the point —
+    // a test that only checked one badge would still pass with both named "web".
+    const { api } = await import("../api.js");
+    api.run.mockResolvedValueOnce({
+      ...RUN,
+      profile_sources: {
+        founded_year: { origin: "web", url: "https://www.cbinsights.com/company/phena" },
+        employees_count: { origin: "web", url: "https://www.linkedin.com/company/phena/people" },
+      },
+    });
+    await renderProfile();
+    const employeesLink = await screen.findByRole("link", { name: /^web — employees source$/i });
+    const foundedLink = screen.getByRole("link", { name: /^web — founded year source$/i });
+    expect(employeesLink).not.toBe(foundedLink);
+    expect(employeesLink).toHaveAttribute("href", "https://www.linkedin.com/company/phena/people");
+    expect(foundedLink).toHaveAttribute("href", "https://www.cbinsights.com/company/phena");
+    // Visible text is identical on purpose — only the accessible name disambiguates them.
+    expect(employeesLink).toHaveTextContent("web");
+    expect(foundedLink).toHaveTextContent("web");
   });
 
   it("shows no provenance badge on the Employees metric when no source was recorded (UI-06)", async () => {

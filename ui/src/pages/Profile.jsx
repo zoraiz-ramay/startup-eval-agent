@@ -30,12 +30,21 @@ function SkeletonProfile({ name }) {
 
 /* ---------------- tab bodies ---------------- */
 /* A value the DB did not have, filled in from web research. Marked so it is never mistaken
-   for application data — the source link is the evidence for it. */
-function WebSourced({ src }) {
+   for application data — the source link is the evidence for it.
+   `field` names which metric this badge sources (e.g. "employees"), so that when several of
+   these sit in the same row a screen reader hears which figure each one backs, not just "web"
+   repeated (UI-01). The visible text stays "web" — this is a dense data canvas and the label
+   isn't meant to grow — but WCAG 2.5.3 requires the accessible name to still start with the
+   visible word, so speech-input users saying "click web" keep matching. */
+function WebSourced({ src, field }) {
   if (!src) return null;
   const title = src.url ? `Web-sourced: ${src.url}` : "Web-sourced (no direct link captured)";
+  const label = field ? `web — ${field} source` : "web";
+  // The no-URL span is inert (no href to follow, nothing to activate), so it gets no role or
+  // tabstop — giving it an aria-label would announce a "control" that does nothing. Its visible
+  // "web" text plus the title tooltip is all the non-interactive case needs.
   return src.url
-    ? <a className="chip" href={src.url} target="_blank" rel="noreferrer" title={title}>web</a>
+    ? <a className="chip" href={src.url} target="_blank" rel="noreferrer" title={title} aria-label={label}>web</a>
     : <span className="chip" title={title}>web</span>;
 }
 
@@ -85,9 +94,9 @@ function OverviewTab({ res }) {
       <div className="metric-row">
         <div className="metric"><div className="k">Fit Score</div><div className="v">{Number(sc.final_score || 0).toFixed(0)}</div></div>
         <div className="metric"><div className="k">Employees</div>
-          <div className="v">{dp.employees || p.employees_count || p.employee_band || "—"} <WebSourced src={psrc.employees_count} /></div></div>
+          <div className="v">{dp.employees || p.employees_count || p.employee_band || "—"} <WebSourced src={psrc.employees_count} field="employees" /></div></div>
         <div className="metric"><div className="k">Founded</div>
-          <div className="v">{p.founded_year || "—"} <WebSourced src={psrc.founded_year} /></div></div>
+          <div className="v">{p.founded_year || "—"} <WebSourced src={psrc.founded_year} field="founded year" /></div></div>
         <div className="metric"><div className="k">Completeness</div><div className="v">{Math.round((sc.data_completeness || 0) * 100)}%</div></div>
         <div className="metric"><div className="k">Verified customers</div><div className="v">{sc.verified_customers ?? "—"}</div></div>
         <div className="metric"><div className="k">Market signal</div><div className="v" style={{ fontSize: 13 }}>{trend.label || "—"}</div></div>
@@ -100,7 +109,7 @@ function OverviewTab({ res }) {
             <Spec k="Headquarters">{p.hq}</Spec>
             <Spec k="Stage">{p["Development stage of your solution"]}</Spec>
             <Spec k="Business model">{p["Business model"]}</Spec>
-            <Spec k="Funding">{p.funding}{p.funding && <> <WebSourced src={psrc.funding} /></>}</Spec>
+            <Spec k="Funding">{p.funding}{p.funding && <> <WebSourced src={psrc.funding} field="funding" /></>}</Spec>
             <Spec k="Website"><ExtLink href={p.website} /></Spec>
             <Spec k="LinkedIn"><ExtLink href={p.linkedin_url} /></Spec>
             {dp.parent_group && <Spec k="Part of group">{dp.parent_group}</Spec>}
