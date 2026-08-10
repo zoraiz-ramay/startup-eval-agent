@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api.js";
 import { useApp } from "../state.jsx";
+import ErrorBox from "../components/ErrorBox.jsx";
 
 /* Column registry — every explorer column in one place. */
 const COLUMNS = {
@@ -39,6 +40,17 @@ const SORTABLE = new Set(["final_score", "siemens_fit", "founded_year", "created
 
 function ColumnDrawer({ open, onClose, cols, setCols, onSaveView }) {
   const [viewName, setViewName] = useState("");
+  // Escape closes the drawer. It overlays the table behind a mask, so without a keyboard exit a
+  // keyboard-only user is trapped: the mask is a div and cannot be activated with a key.
+  // Registered before the early return below — hooks must run on every render.
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (e) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
   if (!open) return null;
   const move = (i, d) => {
     const next = [...cols];
@@ -199,7 +211,7 @@ export default function Explore() {
         </div>
       )}
 
-      {error && <div className="error-box">{error} — is the API running?</div>}
+      {error && <ErrorBox message={error} hint="is the API running?" />}
 
       <div className="toolbar">
         <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12.5 }}>

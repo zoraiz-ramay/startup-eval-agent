@@ -1,0 +1,590 @@
+{
+  "_generated_by": "scripts/ui_inventory.py",
+  "_note": "Generated from source. Do not edit by hand; run the script.",
+  "routes": [
+    {
+      "path": "/",
+      "component": "Home"
+    },
+    {
+      "path": "/explore",
+      "component": "Explore"
+    },
+    {
+      "path": "/startup/:id",
+      "component": "Profile"
+    },
+    {
+      "path": "/saved",
+      "component": "Saved"
+    },
+    {
+      "path": "/alerts",
+      "component": "Alerts"
+    },
+    {
+      "path": "/ask",
+      "component": "AskAI"
+    },
+    {
+      "path": "/settings",
+      "component": "Settings"
+    }
+  ],
+  "api_methods": [
+    {
+      "method": "health",
+      "args": []
+    },
+    {
+      "method": "search",
+      "args": [
+        "q"
+      ]
+    },
+    {
+      "method": "evaluate",
+      "args": [
+        "name",
+        "doWeb = true",
+        "refresh = false"
+      ]
+    },
+    {
+      "method": "solve",
+      "args": [
+        "problem"
+      ]
+    },
+    {
+      "method": "runs",
+      "args": []
+    },
+    {
+      "method": "run",
+      "args": [
+        "id"
+      ]
+    },
+    {
+      "method": "deleteRun",
+      "args": [
+        "id"
+      ]
+    },
+    {
+      "method": "challenges",
+      "args": []
+    },
+    {
+      "method": "ask",
+      "args": [
+        "question",
+        "runId = null"
+      ]
+    },
+    {
+      "method": "override",
+      "args": [
+        "runId",
+        "newPillar",
+        "reason",
+        "evidenceNote = \"\"",
+        "reviewer = \"\""
+      ]
+    },
+    {
+      "method": "audit",
+      "args": [
+        "runId"
+      ]
+    },
+    {
+      "method": "setChallengeStatus",
+      "args": [
+        "index",
+        "status",
+        "reviewer = \"\""
+      ]
+    }
+  ],
+  "design_tokens": [
+    "--accent",
+    "--accent-soft",
+    "--ai",
+    "--ai-soft",
+    "--border",
+    "--border-2",
+    "--canvas",
+    "--chrome-700",
+    "--chrome-800",
+    "--chrome-900",
+    "--chrome-border",
+    "--chrome-muted",
+    "--chrome-text",
+    "--danger",
+    "--danger-soft",
+    "--fs-body",
+    "--fs-meta",
+    "--fs-section",
+    "--fs-table",
+    "--fs-title",
+    "--pillar-collaborate",
+    "--pillar-connect",
+    "--pillar-empower",
+    "--pillar-pass",
+    "--radius",
+    "--rail-w",
+    "--sidenav-w",
+    "--success",
+    "--success-soft",
+    "--surface",
+    "--surface-2",
+    "--text-1",
+    "--text-2",
+    "--text-3",
+    "--topbar-h",
+    "--warning",
+    "--warning-soft"
+  ],
+  "files": [
+    {
+      "path": "ui/src/App.jsx",
+      "lines": 194,
+      "exports": [
+        "App"
+      ],
+      "css_classes": [
+        "avatar-btn",
+        "badge",
+        "brand",
+        "cmdbar",
+        "count",
+        "icon-btn",
+        "kbd",
+        "lens",
+        "name",
+        "rail",
+        "ri",
+        "rl",
+        "sidenav",
+        "snav-item",
+        "sub",
+        "suggest",
+        "suggest-item",
+        "suggest-list",
+        "top-actions",
+        "topbar"
+      ]
+    },
+    {
+      "path": "ui/src/components/AssistantDock.jsx",
+      "lines": 93,
+      "exports": [
+        "AssistantDock"
+      ],
+      "css_classes": [
+        "ai",
+        "btn",
+        "ctx",
+        "dock",
+        "dock-body",
+        "dock-head",
+        "dock-input",
+        "dock-suggest",
+        "icon-btn",
+        "input",
+        "muted",
+        "spinner",
+        "src"
+      ]
+    },
+    {
+      "path": "ui/src/components/ClaimEvidenceMatrix.jsx",
+      "lines": 130,
+      "exports": [
+        "ClaimEvidenceMatrix"
+      ],
+      "css_classes": [
+        "badge",
+        "cem",
+        "cem-error",
+        "cem-head",
+        "cem-scroll",
+        "cem-state",
+        "cem-table",
+        "sub"
+      ]
+    },
+    {
+      "path": "ui/src/components/ErrorBox.jsx",
+      "lines": 20,
+      "exports": [
+        "ErrorBox"
+      ],
+      "css_classes": [
+        "error-box"
+      ]
+    },
+    {
+      "path": "ui/src/components/ErrorBox.test.jsx",
+      "lines": 33,
+      "exports": [],
+      "css_classes": []
+    },
+    {
+      "path": "ui/src/components/FitScoreHistogram.jsx",
+      "lines": 118,
+      "exports": [
+        "FitScoreHistogram"
+      ],
+      "css_classes": [
+        "muted"
+      ]
+    },
+    {
+      "path": "ui/src/components/Loading.jsx",
+      "lines": 6,
+      "exports": [
+        "Loading"
+      ],
+      "css_classes": [
+        "loading"
+      ]
+    },
+    {
+      "path": "ui/src/components/ResultView.jsx",
+      "lines": 3,
+      "exports": [],
+      "css_classes": []
+    },
+    {
+      "path": "ui/src/components/ScoreBar.jsx",
+      "lines": 43,
+      "exports": [
+        "ScoreBar"
+      ],
+      "css_classes": [
+        "score-bar"
+      ]
+    },
+    {
+      "path": "ui/src/components/widgets.jsx",
+      "lines": 90,
+      "exports": [
+        "ExtLink",
+        "Loading",
+        "PillarPills",
+        "Radar",
+        "ScoreBar",
+        "Spec"
+      ],
+      "css_classes": [
+        "bar-fill",
+        "bar-label",
+        "bar-track",
+        "k",
+        "muted",
+        "pill",
+        "sfs",
+        "spec",
+        "spinner",
+        "v"
+      ]
+    },
+    {
+      "path": "ui/src/components/widgets.test.jsx",
+      "lines": 27,
+      "exports": [],
+      "css_classes": []
+    },
+    {
+      "path": "ui/src/main.jsx",
+      "lines": 14,
+      "exports": [],
+      "css_classes": []
+    },
+    {
+      "path": "ui/src/pages/Alerts.jsx",
+      "lines": 74,
+      "exports": [
+        "Alerts"
+      ],
+      "css_classes": [
+        "big",
+        "btn",
+        "crumb",
+        "dtable",
+        "empty",
+        "muted",
+        "num",
+        "on",
+        "page-head",
+        "page-meta",
+        "page-title",
+        "panel",
+        "secondary",
+        "star-btn",
+        "tool-btn"
+      ]
+    },
+    {
+      "path": "ui/src/pages/AskAI.jsx",
+      "lines": 27,
+      "exports": [
+        "AskAI"
+      ],
+      "css_classes": [
+        "crumb",
+        "muted",
+        "page-head",
+        "page-title",
+        "panel"
+      ]
+    },
+    {
+      "path": "ui/src/pages/Challenges.jsx",
+      "lines": 3,
+      "exports": [],
+      "css_classes": []
+    },
+    {
+      "path": "ui/src/pages/Dashboard.jsx",
+      "lines": 3,
+      "exports": [],
+      "css_classes": []
+    },
+    {
+      "path": "ui/src/pages/Evaluate.jsx",
+      "lines": 3,
+      "exports": [],
+      "css_classes": []
+    },
+    {
+      "path": "ui/src/pages/EvidenceTab.jsx",
+      "lines": 139,
+      "exports": [
+        "EvidenceTab"
+      ],
+      "css_classes": [
+        "badge",
+        "empty",
+        "evidence-tab",
+        "evidence-table",
+        "filter-container",
+        "loading",
+        "source-quality-legend"
+      ]
+    },
+    {
+      "path": "ui/src/pages/Explore.jsx",
+      "lines": 328,
+      "exports": [
+        "Explore"
+      ],
+      "css_classes": [
+        "badge",
+        "big",
+        "btn",
+        "clear-link",
+        "co-cell",
+        "crumb",
+        "desc-clip",
+        "drawer",
+        "drawer-mask",
+        "drow",
+        "empty",
+        "fchip",
+        "filter-row",
+        "grid-shell",
+        "input",
+        "k",
+        "kebab",
+        "logo-chip",
+        "muted",
+        "mv",
+        "num",
+        "page-head",
+        "page-meta",
+        "page-title",
+        "pill",
+        "secondary",
+        "sfs",
+        "skel",
+        "skel-row",
+        "spacer",
+        "stat",
+        "stats-strip",
+        "sticky-col",
+        "tool-btn",
+        "toolbar",
+        "v"
+      ]
+    },
+    {
+      "path": "ui/src/pages/Explore.test.jsx",
+      "lines": 67,
+      "exports": [],
+      "css_classes": []
+    },
+    {
+      "path": "ui/src/pages/Home.jsx",
+      "lines": 211,
+      "exports": [
+        "Home"
+      ],
+      "css_classes": [
+        "action",
+        "badge",
+        "btn",
+        "chip",
+        "crumb",
+        "grid2",
+        "input",
+        "k",
+        "list-main",
+        "list-row",
+        "logo-chip",
+        "muted",
+        "num",
+        "page-head",
+        "page-meta",
+        "page-title",
+        "panel",
+        "secondary",
+        "stat",
+        "stats-strip",
+        "tool-btn",
+        "v"
+      ]
+    },
+    {
+      "path": "ui/src/pages/Profile.jsx",
+      "lines": 581,
+      "exports": [
+        "Profile"
+      ],
+      "css_classes": [
+        "action",
+        "ai",
+        "badge",
+        "big",
+        "btn",
+        "chip",
+        "dense",
+        "done",
+        "dtable",
+        "empty",
+        "grid2",
+        "info-box",
+        "input",
+        "k",
+        "list-main",
+        "list-row",
+        "metric",
+        "metric-row",
+        "muted",
+        "num",
+        "panel",
+        "ph-actions",
+        "ph-desc",
+        "ph-logo",
+        "ph-meta",
+        "ph-row",
+        "ph-title",
+        "pill",
+        "profile-head",
+        "reason",
+        "ribbon",
+        "risk",
+        "secondary",
+        "sep",
+        "sfs",
+        "skel",
+        "spec",
+        "spinner",
+        "src",
+        "status-dot",
+        "step",
+        "sticky-header",
+        "tabs",
+        "tool-btn",
+        "v"
+      ]
+    },
+    {
+      "path": "ui/src/pages/Profile.test.jsx",
+      "lines": 88,
+      "exports": [],
+      "css_classes": []
+    },
+    {
+      "path": "ui/src/pages/RunDetail.jsx",
+      "lines": 3,
+      "exports": [],
+      "css_classes": []
+    },
+    {
+      "path": "ui/src/pages/Saved.jsx",
+      "lines": 43,
+      "exports": [
+        "Saved"
+      ],
+      "css_classes": [
+        "big",
+        "btn",
+        "crumb",
+        "danger",
+        "empty",
+        "list-main",
+        "list-row",
+        "muted",
+        "page-head",
+        "page-meta",
+        "page-title",
+        "panel",
+        "secondary"
+      ]
+    },
+    {
+      "path": "ui/src/pages/Settings.jsx",
+      "lines": 45,
+      "exports": [
+        "Settings"
+      ],
+      "css_classes": [
+        "crumb",
+        "k",
+        "muted",
+        "page-head",
+        "page-title",
+        "panel",
+        "spec",
+        "status-dot",
+        "v"
+      ]
+    },
+    {
+      "path": "ui/src/pages/Solve.jsx",
+      "lines": 3,
+      "exports": [],
+      "css_classes": []
+    },
+    {
+      "path": "ui/src/state.jsx",
+      "lines": 45,
+      "exports": [
+        "AppProvider",
+        "useApp"
+      ],
+      "css_classes": []
+    }
+  ],
+  "totals": {
+    "routes": 7,
+    "api_methods": 12,
+    "design_tokens": 37,
+    "jsx_files": 28,
+    "jsx_lines": 2434
+  }
+}

@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api.js";
 import { useApp } from "../state.jsx";
 import { ScoreBar, Radar, Spec, ExtLink } from "../components/widgets.jsx";
+import ErrorBox from "../components/ErrorBox.jsx";
 
 const STEPS = ["Input", "Enrich", "Verify", "Structure", "Score", "Review", "Route"];
 const TABS = ["Overview", "Scoring & Fit", "Market & Risk", "Evidence", "Ask"];
@@ -185,7 +186,7 @@ function OverridePanel({ runId, currentPillar }) {
             onChange={(e) => setReason(e.target.value)} />
           <input className="input" placeholder="Supporting evidence (optional)" value={note}
             onChange={(e) => setNote(e.target.value)} />
-          {error && <div className="error-box">{error}</div>}
+          {error && <ErrorBox message={error} />}
           <div style={{ display: "flex", gap: 6 }}>
             <button className="btn" disabled={busy || !pillar || reason.trim().length < 5}
               onClick={submit}>{busy ? "Saving…" : "Record override"}</button>
@@ -555,7 +556,10 @@ export default function Profile() {
           ))}
           {res.source === "web" && <span className="badge">web-sourced — verify figures</span>}
         </div>
-        <div className="tabs" role="tablist">
+        {/* sticky-header keeps the tab bar reachable while reading a long profile — the
+            Evidence tab in particular scrolls well past a screen, and losing the tabs means
+            scrolling back to the top to switch context. */}
+        <div className="tabs sticky-header" role="tablist">
           {TABS.map((t) => (
             <button key={t} role="tab" aria-selected={tab === t}
               className={"tab" + (tab === t ? " active" : "")}

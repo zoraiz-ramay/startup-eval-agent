@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { Loading } from "../components/widgets.jsx";
+import ErrorBox from "../components/ErrorBox.jsx";
 
 export default function Settings() {
   const [health, setHealth] = useState(null);
@@ -23,7 +24,7 @@ export default function Settings() {
       <div className="page-head"><h1 className="page-title">Settings</h1></div>
       <div className="panel" style={{ maxWidth: 640 }}>
         <h3>Backend status</h3>
-        {error && <div className="error-box">{error}</div>}
+        {error && <ErrorBox message={error} />}
         {!health && !error && <Loading text="Checking backend…" />}
         {health && (
           <>

@@ -77,7 +77,13 @@ export function ExtLink({ href, children }) {
 }
 
 export function Loading({ text }) {
+  // role="status" + aria-live="polite" so a screen reader announces that work started and
+  // finished. Evaluations run for tens of seconds; without this the page is silent the whole
+  // time and a non-sighted reviewer cannot tell a slow run from a broken one. The spinner is
+  // decorative and hidden, or it gets read out as meaningless content alongside the message.
   return (
-    <p className="muted"><span className="spinner" /> {text}</p>
+    <p className="muted" role="status" aria-live="polite">
+      <span className="spinner" aria-hidden="true" /> {text}
+    </p>
   );
 }
