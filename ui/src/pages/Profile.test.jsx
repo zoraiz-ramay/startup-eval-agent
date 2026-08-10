@@ -84,4 +84,37 @@ describe("Profile", () => {
     const funding = (await screen.findAllByText(/^—$/)).length;
     expect(funding).toBeGreaterThan(0);
   });
+
+  it("shows the headcount trend panel's one-line empty state when no series was cited (PROF-12, X-03)", async () => {
+    // RUN.deep_profile carries no employees_over_time key at all — the common case, since the
+    // engine returns [] (never a single-point series) whenever it can't corroborate a number.
+    // A section's empty state is a sentence, not "—" (that idiom is reserved for single fields).
+    await renderProfile();
+    expect(await screen.findByText(/no cited headcount history/i)).toBeInTheDocument();
+  });
+
+  it("renders each cited headcount point with its own source link, never batching provenance away (PROF-12, X-01)", async () => {
+    const { api } = await import("../api.js");
+    api.run.mockResolvedValueOnce({
+      ...RUN,
+      deep_profile: {
+        ...RUN.deep_profile,
+        employees_over_time: [
+          { year: 2022, count: 3, source_url: "https://crunchbase.example/acme" },
+          { year: 2024, count: 60, source_url: "https://linkedin.example/acme" },
+        ],
+      },
+    });
+    await renderProfile();
+    // The growth headline splits "3" and "60" across separate <strong> nodes for emphasis, so
+    // the default single-node text matcher can't see the combined string — match on the
+    // paragraph's full textContent instead.
+    expect(await screen.findByText(
+      (_, node) => node?.tagName === "P" && /3\s*→\s*60\s*employees/.test(node.textContent || ""),
+    )).toBeInTheDocument();
+    const link2022 = await screen.findByRole("link", { name: /source \(2022\)/i });
+    expect(link2022).toHaveAttribute("href", "https://crunchbase.example/acme");
+    const link2024 = await screen.findByRole("link", { name: /source \(2024\)/i });
+    expect(link2024).toHaveAttribute("href", "https://linkedin.example/acme");
+  });
 });

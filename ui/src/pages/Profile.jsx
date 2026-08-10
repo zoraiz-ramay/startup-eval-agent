@@ -39,6 +39,38 @@ function WebSourced({ src }) {
     : <span className="chip" title={title}>web</span>;
 }
 
+// PROF-12. `deep_profile.employees_over_time` is either [] or >=2 cited points, sorted
+// ascending by year (core/profile.py's _clean_employee_series refuses a single-dot series, and
+// every point is guaranteed an http(s) source_url). A length-1 array is a contract violation
+// upstream, not something this component needs to guard against — but it still only renders the
+// list when there's enough to call a trend, matching the engine's own bar.
+function HeadcountTrend({ points }) {
+  const pts = points || [];
+  return (
+    <div className="panel">
+      <h3>Headcount trend</h3>
+      {pts.length >= 2 ? (
+        <>
+          <p style={{ marginTop: 0 }}>
+            <strong>{pts[0].count}</strong> → <strong>{pts[pts.length - 1].count}</strong> employees
+            <span className="muted"> ({pts[0].year}–{pts[pts.length - 1].year})</span>
+          </p>
+          {pts.map((pt, i) => (
+            <div key={i} className="list-row" style={{ padding: "5px 0", fontSize: 12.5 }}>
+              <div className="list-main">{pt.year} · {pt.count} employees</div>
+              <ExtLink href={pt.source_url}>{`source (${pt.year})`}</ExtLink>
+            </div>
+          ))}
+        </>
+      ) : (
+        <p className="muted" style={{ margin: 0 }}>
+          No cited headcount history — fewer than two independently sourced data points.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function OverviewTab({ res }) {
   const p = res.profile || {}, sc = res.score || {}, dp = res.deep_profile || {};
   const trend = res.trend || {};
@@ -60,16 +92,19 @@ function OverviewTab({ res }) {
         <div className="metric"><div className="k">Market signal</div><div className="v" style={{ fontSize: 13 }}>{trend.label || "—"}</div></div>
       </div>
       <div className="grid2">
-        <div className="panel">
-          <h3>Executive summary</h3>
-          <p style={{ marginTop: 0 }}>{res.summary || <span className="muted">No summary.</span>}</p>
-          <Spec k="Headquarters">{p.hq}</Spec>
-          <Spec k="Stage">{p["Development stage of your solution"]}</Spec>
-          <Spec k="Business model">{p["Business model"]}</Spec>
-          <Spec k="Funding">{p.funding}{p.funding && <> <WebSourced src={psrc.funding} /></>}</Spec>
-          <Spec k="Website"><ExtLink href={p.website} /></Spec>
-          <Spec k="LinkedIn"><ExtLink href={p.linkedin_url} /></Spec>
-          {dp.parent_group && <Spec k="Part of group">{dp.parent_group}</Spec>}
+        <div>
+          <div className="panel">
+            <h3>Executive summary</h3>
+            <p style={{ marginTop: 0 }}>{res.summary || <span className="muted">No summary.</span>}</p>
+            <Spec k="Headquarters">{p.hq}</Spec>
+            <Spec k="Stage">{p["Development stage of your solution"]}</Spec>
+            <Spec k="Business model">{p["Business model"]}</Spec>
+            <Spec k="Funding">{p.funding}{p.funding && <> <WebSourced src={psrc.funding} /></>}</Spec>
+            <Spec k="Website"><ExtLink href={p.website} /></Spec>
+            <Spec k="LinkedIn"><ExtLink href={p.linkedin_url} /></Spec>
+            {dp.parent_group && <Spec k="Part of group">{dp.parent_group}</Spec>}
+          </div>
+          <HeadcountTrend points={dp.employees_over_time} />
         </div>
         <div>
           <div className="panel">

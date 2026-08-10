@@ -1,4 +1,4 @@
-import { expect, RUNS_FIXTURE, stabilise, stubEvaluation, stubRuns, test } from "./fixtures.js";
+import { expect, RUN_FIXTURE, RUNS_FIXTURE, stabilise, stubEvaluation, stubRuns, test } from "./fixtures.js";
 
 /**
  * The user journeys from contract/feature-inventory.md. Each test names its contract ID so a
@@ -88,6 +88,39 @@ test.describe("profile", () => {
     // overstate the evidence, which is the one thing this product must not do.
     await expect(page.getByText(/NVIDIA Inception/i).first()).toBeVisible();
     await expect(page.getByText(/claimed/i).first()).toBeVisible();
+  });
+
+  test("PROF-12: headcount trend shows its one-line empty state by default (X-03)", async ({ page }) => {
+    // RUN_FIXTURE's employees_over_time is [] — the common case, since the engine never returns
+    // a single-point series. The Overview tab is the default tab, so this must be visible on
+    // first paint without switching tabs.
+    await stubEvaluation(page);
+    await page.goto("/startup/1");
+    await expect(page.getByText(/no cited headcount history/i)).toBeVisible();
+  });
+
+  test("PROF-12: a cited headcount series renders sourced, dated points (X-01)", async ({ page }) => {
+    await page.route("**/api/evaluate", (route) =>
+      route.fulfill({ json: { ...RUN_FIXTURE, cached: false, run_id: 1 } }));
+    await page.route("**/api/runs/1", (route) =>
+      route.fulfill({
+        json: {
+          ...RUN_FIXTURE,
+          deep_profile: {
+            ...RUN_FIXTURE.deep_profile,
+            employees_over_time: [
+              { year: 2022, count: 3, source_url: "https://crunchbase.example/acme" },
+              { year: 2024, count: 60, source_url: "https://linkedin.example/acme" },
+            ],
+          },
+        },
+      }));
+    await page.route("**/api/runs/*/audit", (route) => route.fulfill({ json: { overrides: [] } }));
+    await page.goto("/startup/1");
+
+    await expect(page.getByText(/3.*60/)).toBeVisible();
+    const link = page.getByRole("link", { name: /source \(2022\)/i });
+    await expect(link).toHaveAttribute("href", "https://crunchbase.example/acme");
   });
 });
 
