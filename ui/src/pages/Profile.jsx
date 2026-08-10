@@ -84,7 +84,8 @@ function OverviewTab({ res }) {
     <div>
       <div className="metric-row">
         <div className="metric"><div className="k">Fit Score</div><div className="v">{Number(sc.final_score || 0).toFixed(0)}</div></div>
-        <div className="metric"><div className="k">Employees</div><div className="v">{dp.employees || p.employees_count || p.employee_band || "—"}</div></div>
+        <div className="metric"><div className="k">Employees</div>
+          <div className="v">{dp.employees || p.employees_count || p.employee_band || "—"} <WebSourced src={psrc.employees_count} /></div></div>
         <div className="metric"><div className="k">Founded</div>
           <div className="v">{p.founded_year || "—"} <WebSourced src={psrc.founded_year} /></div></div>
         <div className="metric"><div className="k">Completeness</div><div className="v">{Math.round((sc.data_completeness || 0) * 100)}%</div></div>

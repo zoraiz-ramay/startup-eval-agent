@@ -78,6 +78,29 @@ describe("Profile", () => {
     expect(link).toHaveAttribute("rel", expect.stringContaining("noreferrer"));
   });
 
+  it("shows a provenance badge on the Employees metric when profile_sources.employees_count is populated (UI-06, PROF-02, X-01)", async () => {
+    const { api } = await import("../api.js");
+    api.run.mockResolvedValueOnce({
+      ...RUN,
+      profile_sources: {
+        ...RUN.profile_sources,
+        employees_count: { origin: "web", url: "https://www.linkedin.com/company/phena/people" },
+      },
+    });
+    await renderProfile();
+    const metric = (await screen.findByText("Employees")).closest(".metric");
+    const link = within(metric).getByRole("link", { name: /^web$/i });
+    expect(link).toHaveAttribute("href", "https://www.linkedin.com/company/phena/people");
+  });
+
+  it("shows no provenance badge on the Employees metric when no source was recorded (UI-06)", async () => {
+    // RUN.profile_sources only carries founded_year — employees_count came straight from the DB
+    // (or wasn't backfilled), so asserting a web source there would claim evidence that isn't there.
+    await renderProfile();
+    const metric = (await screen.findByText("Employees")).closest(".metric");
+    expect(within(metric).queryByRole("link")).not.toBeInTheDocument();
+  });
+
   it("renders an unevidenced field as an em dash rather than a guess (X-02)", async () => {
     await renderProfile();
     // RUN has funding: "" — the UI must show absence, never substitute a plausible number.
