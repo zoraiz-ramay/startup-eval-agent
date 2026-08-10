@@ -300,7 +300,7 @@
     },
     {
       "path": "ui/src/main.jsx",
-      "lines": 14,
+      "lines": 17,
       "exports": [],
       "css_classes": []
     },
@@ -585,6 +585,6 @@
     "api_methods": 12,
     "design_tokens": 37,
     "jsx_files": 28,
-    "jsx_lines": 2434
+    "jsx_lines": 2437
   }
 }

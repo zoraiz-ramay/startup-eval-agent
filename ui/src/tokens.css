@@ -1,45 +1,66 @@
 /* ============================================================================
    Design tokens — single source of truth for the whole app.
-   Enterprise research-platform palette: dark slate chrome, light data canvas.
+
+   Every value here now derives from Siemens iX (@siemens/ix, classic theme). The token NAMES are
+   unchanged, so no component was touched by this migration: iX supplies the palette, the Tracxn
+   information architecture (dark chrome, light data canvas, dense evidence tables) supplies the
+   structure. This file is the single seam between the two, and the only place in ui/src where a
+   colour literal is allowed — scripts/ix_lint.mjs enforces that.
+
+   Two things are deliberate and worth knowing before changing them:
+
+   1. The app is pinned to iX's LIGHT schema (see index.html). Workspace surfaces therefore read
+      var(--theme-color-*) directly and follow the theme.
+
+   2. The product chrome is dark over that light canvas. iX has no "dark chrome in a light app"
+      construct, so the --chrome-* tokens carry iX's DARK-schema values as literals. They are iX
+      colours, just not the ones the current schema resolves to. Swapping them for
+      var(--theme-color-*) would make the rail and top bar white and collapse the Tracxn look.
    ========================================================================== */
 :root {
-  /* chrome (product shell) */
-  --chrome-900: #151b2e;        /* icon rail        */
-  --chrome-800: #1b2340;        /* top bar          */
-  --chrome-700: #242e52;        /* chrome hover     */
-  --chrome-border: #2f3a63;
-  --chrome-text: #e8ecf6;
-  --chrome-muted: #8b96b8;
+  /* chrome (product shell) — iX dark-schema palette, applied over a light workspace */
+  --chrome-900: #0f1619;        /* icon rail        — iX dark theme-color-1 */
+  --chrome-800: #283236;        /* top bar          — iX dark theme-color-2 */
+  --chrome-700: #3c484d;        /* chrome hover     — iX dark theme-color-3 */
+  --chrome-border: #4c5a60;     /*                  — iX dark theme-color-4 */
+  --chrome-text: rgba(245, 252, 255, 0.9);    /* iX dark std-text  */
+  --chrome-muted: rgba(229, 247, 255, 0.65);  /* iX dark soft-text */
 
-  /* workspace (data canvas) */
-  --canvas: #f3f5f9;
-  --surface: #ffffff;
-  --surface-2: #f8fafc;
-  --border: #e4e8ee;
-  --border-2: #cbd4e0;
+  /* workspace (data canvas) — resolved from the active iX schema */
+  --canvas: var(--theme-color-2);
+  --surface: var(--theme-color-1);
+  --surface-2: var(--theme-color-2);
+  --border: var(--theme-color-3);
+  --border-2: var(--theme-color-4);
 
   /* text */
-  --text-1: #1a2233;
-  --text-2: #5a6472;
-  --text-3: #8b95a5;
+  --text-1: var(--theme-color-std-text);
+  --text-2: var(--theme-color-soft-text);
+  --text-3: var(--theme-color-weak-text);
 
-  /* semantic */
-  --accent: #2457c5;            /* disciplined blue */
-  --accent-soft: #eaf0fb;
-  --success: #177245;
-  --success-soft: #eaf6ef;
-  --warning: #96660f;
-  --warning-soft: #fdf6e7;
-  --danger: #b3261e;
-  --danger-soft: #fdefee;
-  --ai: #6d4fc4;                /* subtle violet — AI only */
-  --ai-soft: #f2eefb;
+  /* semantic.
+     The *-soft tokens are backgrounds and the plain ones are used as TEXT, so each picks the iX
+     variant that is legible in that role: warning as text is --theme-color-warning-text (#947100),
+     never the #ffbb00 fill, which fails contrast on white. */
+  --accent: var(--theme-color-primary);
+  --accent-soft: var(--theme-color-primary-10, rgba(0, 110, 147, 0.1));
+  --success: var(--theme-color-success);
+  --success-soft: rgba(44, 133, 0, 0.1);
+  --warning: var(--theme-color-warning-text);
+  --warning-soft: var(--theme-color-warning-10, rgba(255, 187, 0, 0.1));
+  --danger: var(--theme-color-alarm-text);
+  --danger-soft: var(--theme-color-alarm-10, rgba(215, 35, 50, 0.1));
+  --ai: #7d4dff;                /* subtle violet — AI only; iX has no equivalent semantic */
+  --ai-soft: rgba(125, 77, 255, 0.1);
 
-  /* pillars (status ramp, muted) */
-  --pillar-connect: #177245;
-  --pillar-collaborate: #0e7490;
-  --pillar-empower: #2457c5;
-  --pillar-pass: #6b7480;
+  /* pillars (routing ramp).
+     Connect/Collaborate/Empower/Pass must stay visually distinct from each other AND from the
+     semantic ramp above, or a reviewer reads "Pass" as an error state. iX has no four-way
+     categorical scale, so these are drawn from its palette by hand. */
+  --pillar-connect: var(--theme-color-success);
+  --pillar-collaborate: #009999;
+  --pillar-empower: var(--theme-color-primary);
+  --pillar-pass: var(--theme-color-weak-text);
 
   /* typography scale */
   --fs-title: 23px;
@@ -48,11 +69,47 @@
   --fs-table: 12.5px;
   --fs-meta: 11.5px;
 
-  /* geometry */
+  /* geometry — Tracxn density; deliberately tighter than iX defaults, which are sized for
+     touch-capable industrial panels rather than a comparison table. */
   --radius: 6px;
   --topbar-h: 56px;
   --rail-w: 68px;
   --sidenav-w: 236px;
 
+  /* No "Siemens Sans" here on purpose. iX does not bundle it (it is licensed), so naming it would
+     render differently on machines that happen to have it installed — which makes the visual
+     baselines machine-dependent and the gate untrustworthy. Add it only together with a bundled
+     webfont, and re-baseline deliberately at that point. */
   font-family: -apple-system, "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
+}
+
+/* iX ships a Bootstrap-style reset whose `body` rule sets font-family, font-size, line-height and
+   letter-spacing. `body` outranks the `:root` stack above, so without this counter-rule the whole
+   canvas silently adopts iX's metrics — which are sized for touch-capable industrial panels and
+   cost ~2px per table row, the density Tracxn depends on.
+
+   It also names Siemens Sans, defeating the precaution documented above: the font is licensed and
+   not bundled, so machines that happen to have it installed would render different screenshots and
+   the visual gate would stop meaning anything. We take iX's colour, not its typography.
+
+   This must stay in tokens.css, not styles.css: it is part of the seam between iX and the app, and
+   it only wins because tokens.css is @imported after siemens-ix.css. */
+body {
+  font-family: -apple-system, "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
+  font-size: var(--fs-body);
+  /* `normal`, not a number: the pre-iX app declared no body line-height, so every baseline was
+     captured at the browser default. Any explicit ratio here re-introduces the drift this rule
+     exists to remove. */
+  line-height: normal;
+  letter-spacing: normal;
+}
+
+/* The same reset restyles h1–h6 directly, and no app rule sets font-family on a heading — so
+   without this every heading rendered in Arial while its surrounding body text rendered in Segoe
+   UI. `inherit` is deliberate over repeating the stack: sizes and margins are already owned by
+   .page-title / .sidenav h4 / .panel h3 / .drawer h2 / .empty h4, so this claims only the two
+   properties the app never declares. */
+h1, h2, h3, h4, h5, h6 {
+  font-family: inherit;
+  line-height: inherit;
 }

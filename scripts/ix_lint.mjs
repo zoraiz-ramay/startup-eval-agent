@@ -64,8 +64,12 @@ for (const file of files) {
     }
 
     // 2. A var() must resolve to a token that actually exists, or it silently renders nothing.
+    //    Siemens iX supplies its own variables (--theme-*, --ix-*) from siemens-ix.css; those are
+    //    declared outside this repo, so they are trusted rather than resolved here. Referencing
+    //    them is the whole point of the token migration.
     for (const m of code.matchAll(/var\(\s*(--[\w-]+)/g)) {
-      if (!tokenNames.has(m[1]) && !m[1].startsWith("--ix-")) {
+      const external = m[1].startsWith("--theme-") || m[1].startsWith("--ix-");
+      if (!tokenNames.has(m[1]) && !external) {
         add(file, line, "ix/unknown-token", `var(${m[1]}) is not declared in tokens.css`);
       }
     }
