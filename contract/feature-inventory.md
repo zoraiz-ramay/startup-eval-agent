@@ -15,7 +15,7 @@ Legend: **L** = Vitest component test · **E** = Playwright E2E · **V** = visua
 
 | ID | Behaviour | Layer |
 |---|---|---|
-| SHELL-01 | Icon rail lists Home, Explore, Saved, Alerts, Ask, Settings; the active route is marked | L, V |
+| SHELL-01 | Icon rail lists Home, Explore, **Views** (`/saved`), **Tracking** (`/alerts`), Ask AI, Settings; the active route is marked. The labels are product wording and differ from the route names — assert the labels | L, V |
 | SHELL-02 | Command bar is focusable with **Ctrl/Cmd-K** from anywhere | L, E |
 | SHELL-03 | Typing ≥1 char queries `/api/search` (debounced ~350 ms) and shows suggestions | L |
 | SHELL-04 | Enter on a query navigates to `/startup/new?name=…` | L, E |

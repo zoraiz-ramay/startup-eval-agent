@@ -21,3 +21,9 @@ ui/dist/
 
 # Keep this dataset tracked
 !siemens_tools.csv
+
+# Playwright artefacts (baselines in ui/e2e/__screenshots__ ARE committed — they are the record
+# that the layout survived; only run output is transient).
+ui/test-results/
+ui/playwright-report/
+ui/blob-report/
