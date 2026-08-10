@@ -56,11 +56,23 @@
   /* pillars (routing ramp).
      Connect/Collaborate/Empower/Pass must stay visually distinct from each other AND from the
      semantic ramp above, or a reviewer reads "Pass" as an error state. iX has no four-way
-     categorical scale, so these are drawn from its palette by hand. */
-  --pillar-connect: var(--theme-color-success);
-  --pillar-collaborate: #009999;
+     categorical scale, so these are drawn from its palette by hand.
+
+     Connect, Collaborate and Pass are literals, not var(--theme-color-*), because the plain
+     tokens fail AA as pill labels: --theme-color-success is only 4.13:1 on .pill.Connect's tint,
+     and --theme-color-weak-text — an iX token meant for de-emphasised text on the page, not a
+     label on a filled pill — was 2.69:1 on .pill.Pass. Both are hand-darkened within their
+     original hue so the ramp still reads the same story, just legibly:
+       - connect matches iX's own --theme-color-success--active (#246b00), a stronger shade of
+         the same green iX ships for "success", rather than an unrelated colour.
+       - collaborate keeps its cyan hue (was #009999) darkened to clear 4.5:1.
+       - pass moves off weak-text entirely to an opaque blue-grey — alpha-blended text can never
+         reliably hold contrast because it depends on what is drawn beneath it.
+     Empower already clears AA (4.98:1) at --theme-color-primary and is left alone. */
+  --pillar-connect: #246b00;
+  --pillar-collaborate: #006b6b;
   --pillar-empower: var(--theme-color-primary);
-  --pillar-pass: var(--theme-color-weak-text);
+  --pillar-pass: #5f6672;
 
   /* typography scale */
   --fs-title: 23px;
