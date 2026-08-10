@@ -43,6 +43,46 @@ record is what the previous agent system lacked across 59 cycles.
 
 ---
 
+## profile-evaluation-history
+
+- **Gates**: G1 ✓ · G2 ✓ (api/store.py:342-361, 414-454; api/main.py:233-250, 267-269;
+  ui/src/pages/Profile.jsx:485-495; ui/src/pages/Explore.jsx:151-163) · G3 ✓ · G4 ✓ · G5 ✓
+- **Score**: 9/10 (impact 2, readiness 2, frequency 1, trust 2, cost 2)
+- **Problem**: `save_run` always `INSERT`s and never updates (`api/store.py:342-361`), so every
+  re-evaluation — an explicit "Refresh Data" click (`Profile.jsx:485-495` → `api/main.py:233-250`)
+  or the next `EVAL_TTL_DAYS` expiry — is retained permanently. A startup that was "Pass" three
+  months ago and is "Collaborate" today has that whole trajectory in SQLite right now, and the
+  Profile page shows none of it. A reviewer cannot tell a stable verdict from a volatile one, or a
+  first-ever evaluation from a reversal — materially different situations the product currently
+  cannot distinguish.
+- **Evidence**: `list_runs` (`api/store.py:414-454`) already computes every field needed — pillar,
+  final_score, dimensions, created_at, and a per-run `overridden` flag (`:430`) — but only as an
+  unfiltered global feed capped at 100 runs across all companies, so an older run for one company
+  silently falls out of the window. No `company` filter exists (`api/main.py:267-269`).
+  `Explore.jsx:157` collapses that feed to one row per company with a comment admitting the intent
+  — *"history stays in the DB, reachable via profile"* — that was never built; `Profile.jsx` never
+  calls `api.runs()` (verified by grep). Provenance is free: `/startup/:id` resolves `id` as a
+  `run_id`, so every historical row already has an evidenced permalink.
+- **Sketch**: Panel in `ScoringTab`'s left column between "Routing rationale" and `OverridePanel`,
+  reading current recommendation → automated history → human override log. One row per prior run:
+  date, pillar pill (reusing `.pill`), final score, an "overridden" badge, each linking to
+  `/startup/{run_id}`. Renders nothing below two runs — no heading, no empty-state clutter,
+  matching how "Route scorecards" already hides itself.
+- **Contract rows**: `PROF-13` — ScoringTab renders an "Evaluation history" panel from a
+  company-scoped run list when the company has more than one stored run; each row links to its own
+  permalink; the panel is entirely absent (not "—") below two runs.
+- **Status**: proposed
+
+The scout re-examined the `route_scorecards`-for-Pass gap a second time, as instructed, and again
+declined to propose it — now with a firmer argument. Eligibility fails at a categorical gate
+(`aligned and siemens_fit >= FIT_ALIGN_THRESHOLD`, `core/route.py:25`), which the per-route
+weighted number does not represent, so showing a raw scorecard there would read as "how close"
+when the real reason is a hard gate elsewhere. Making a near-miss legible would require exposing
+threshold constants that live only as Python literals — new plumbing, not pure exposure, which
+drops it below 7.
+
+---
+
 ## Corrections to `contract/feature-rubric.md`
 
 The rubric's "Where the strongest candidates already are" table is **stale on two of its three
