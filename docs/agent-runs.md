@@ -44,6 +44,81 @@ can make its own findings true, and its report stops being independent evidence.
 
 ---
 
+## 2026-08-11 · UI-04 · drawer backdrop accessibility
+
+**Flow**: caller-directed single-item implementation (no ui-auditor re-run; the row was handed
+over directly with a binding correction already recorded in `contract/ui-backlog.md`).
+
+**Selected**: UI-04 (`high`) — as filed the row claimed three `onClick`-on-`<div>/<span>` sites
+with no role in `Explore.jsx`. Verified against current source before touching anything: only
+`Explore.jsx:65` (the column-drawer backdrop, `<div className="drawer-mask" onClick={onClose} />`)
+is real. Lines 246/247 are `<span className="fchip">` wrapping a real, already-labelled
+`<button aria-label="Clear text filter">` / `aria-label="Clear pillar filter">` — `ix_lint.mjs:84-88`
+is line-based regex and fires on any line containing both `onClick=` and `<span`, regardless of
+what's nested inside. The backlog's own correction matched the source exactly (same line numbers),
+so I fixed the one real site and left the two false positives alone, as instructed.
+
+**The accessibility decision, and why**: the reflexive fix (`role="button"` + `tabIndex={0}` on the
+backdrop) would have made a purely decorative click-outside-to-close overlay into a fake control —
+a screen reader would announce an actionable "button" with no accessible name, duplicating a close
+that was already fully keyboard-reachable. Checked first: Escape already closes the drawer
+(`Explore.jsx`'s existing `window`-level `keydown` listener, landed earlier and covered by the
+`EXP-02/08` e2e test) — that predates this cycle and needed no change. Given that, the honest fix
+is to mark the backdrop `aria-hidden="true"` (which `ix_lint`'s rule 4 explicitly treats as the
+sanctioned pattern for a non-interactive-to-AT clickable element) plus a comment recording why no
+role was added, rather than adding a tabstop that silences the linter but makes the experience
+worse.
+
+That alone left a real gap, though: nothing moved focus into the drawer when it opened (a keyboard/
+screen-reader user who activates the trigger hears nothing change — their focus stays on the
+button while a whole panel appears behind it), and nothing returned focus anywhere sensible when
+the drawer closed (Escape, backdrop click, or "Save view" would all unmount the `<aside>` and drop
+focus into `<body>`). Since the whole justification for not adding a tabstop rests on "closing is
+already fully keyboard-reachable," making that true in practice — not just in principle — is part
+of the same fix, not scope creep: added `tabIndex={-1}` + `.focus()` on the `<aside>` on open (a
+valid focus target, not a new tab stop, since it isn't itself a control), and a ref + effect in
+`Explore` that returns focus to the "Customise columns" trigger button whenever `drawer` flips from
+open to closed, regardless of which path closed it.
+
+**Changed**
+- `ui/src/pages/Explore.jsx` — `drawer-mask` div gets `aria-hidden="true"` and a comment explaining
+  why no role/tabIndex was added. `ColumnDrawer`'s `<aside>` gets a ref + `tabIndex={-1}` and
+  focuses itself on open. `Explore` gets a ref on the trigger button and an effect that focuses it
+  back when the drawer transitions from open to closed.
+- `ui/src/pages/Explore.test.jsx` — two new tests under "Explore column drawer" (X-04): the mask
+  carries `aria-hidden="true"` (existing pattern in `widgets.test.jsx` for the spinner); and
+  opening moves focus into the panel (`toHaveFocus`) while Escape returns it to the trigger.
+- `contract/ui-backlog.md` — UI-04 → `done`, row text corrected to no longer claim three sites.
+- `docs/ui-inventory.json` — regenerated.
+
+**Verified independently of the agent's report**: stashed the `Explore.jsx` change with the new
+tests in place — both new tests failed (`aria-hidden` absent; focus stayed on the trigger button
+instead of moving into the panel). Restored — all 5 tests in the file pass.
+
+**ix_lint note**: fixing the backdrop dropped raw findings from 51 to 50 — `Explore.jsx:65` no
+longer appears in `node scripts/ix_lint.mjs --json`. The gate still reports "50 known, none fixed
+yet" rather than crediting the fix, because the baseline's identity key is `file|rule|message`
+(deliberately line-number-independent per its own comment) and the two remaining `fchip` false
+positives at `Explore.jsx:267,268` produce the exact same key, so the Set collapses them. This is
+an existing quirk of the ratchet mechanism, not something I touched — did not re-baseline, per the
+hard rule against re-baselining to hide findings, and there was nothing to hide: the two remaining
+findings are the documented false positives, unfixed on purpose.
+
+**Gates**: pytest 190 passed · vitest 19 passed (17 pre-existing + 2 new) · ix_lint no new findings
+(50 known, raw count down from 51 — see note above) · ui inventory current · e2e 54 passed, 2
+failed — `explore-mobile.png` (7617px diff) and `profile-mobile.png` (12534px diff), the same two
+mobile baselines already failing at HEAD before this change, unchanged pixel counts from the
+iX-migration cycle's log. No new visual diff caused by this change.
+
+**Left for a human**: the two mobile visual baselines, unresolved since the iX migration, not
+touched here. Also worth a second look: `Explore.jsx:246,247` remain flagged by `ix_lint` as
+findings 267/268 despite being false positives (real, labelled buttons) — the backlog note already
+documents this, but the linter itself (`ix_lint.mjs:84-88`) still has no way to tell a wrapping
+`<span>` from a genuinely-interactive one; fixing the linter, not the code, is the actual next step
+if this is worth doing.
+
+---
+
 ## 2026-08-11 · UI-01 · provenance badge accessible names
 
 **Flow**: caller-directed single-item implementation (no ui-auditor re-run this cycle; the row was

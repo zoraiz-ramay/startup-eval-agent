@@ -378,7 +378,7 @@
     },
     {
       "path": "ui/src/pages/Explore.jsx",
-      "lines": 328,
+      "lines": 349,
       "exports": [
         "Explore"
       ],
@@ -423,7 +423,7 @@
     },
     {
       "path": "ui/src/pages/Explore.test.jsx",
-      "lines": 67,
+      "lines": 95,
       "exports": [],
       "css_classes": []
     },
@@ -585,6 +585,6 @@
     "api_methods": 12,
     "design_tokens": 37,
     "jsx_files": 28,
-    "jsx_lines": 2562
+    "jsx_lines": 2611
   }
 }
