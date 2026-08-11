@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api.js";
 import { useApp } from "../state.jsx";
 import { ScoreBar, ExtLink, Loading } from "../components/widgets.jsx";
+import ErrorBox from "../components/ErrorBox.jsx";
 
 const QUICK_PROMPTS = [
   "Predictive maintenance for legacy PLCs",
@@ -82,7 +83,7 @@ export default function Home() {
           <div className="stat"><span className="v">{stats.challenges}</span><span className="k">Challenges recorded</span></div>
         </div>
       )}
-      {error && <div className="error-box">{error} — is the API running?</div>}
+      {error && <ErrorBox message={error} hint="is the API running?" />}
 
       {/* scouting query composer — compact, integrated */}
       <div className="panel">

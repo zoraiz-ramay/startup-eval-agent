@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api.js";
 import { useApp } from "../state.jsx";
+import ErrorBox from "../components/ErrorBox.jsx";
 
 /* Column registry — every explorer column in one place. */
 const COLUMNS = {
@@ -39,6 +40,25 @@ const SORTABLE = new Set(["final_score", "siemens_fit", "founded_year", "created
 
 function ColumnDrawer({ open, onClose, cols, setCols, onSaveView }) {
   const [viewName, setViewName] = useState("");
+  const asideRef = useRef(null);
+  // Escape closes the drawer. It overlays the table behind a mask, so without a keyboard exit a
+  // keyboard-only user is trapped: the mask is a div and cannot be activated with a key.
+  // Registered before the early return below — hooks must run on every render.
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (e) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+  // Opening the drawer doesn't move the trigger button out of the DOM, so without this a
+  // keyboard/screen-reader user who activates it hears nothing change — their focus stays put
+  // while a whole panel appears behind them. tabIndex=-1 makes the panel a valid focus target
+  // without adding it to the normal Tab order (it isn't a control itself).
+  useEffect(() => {
+    if (open) asideRef.current?.focus();
+  }, [open]);
   if (!open) return null;
   const move = (i, d) => {
     const next = [...cols];
@@ -50,8 +70,13 @@ function ColumnDrawer({ open, onClose, cols, setCols, onSaveView }) {
   const inactive = Object.keys(COLUMNS).filter((k) => !cols.includes(k));
   return (
     <>
-      <div className="drawer-mask" onClick={onClose} />
-      <aside className="drawer" aria-label="Customise columns">
+      {/* Click-outside-to-close is a mouse convenience, not a control: closing is already fully
+          keyboard-reachable via Escape (below) and doesn't need a second, redundant path. Giving
+          this div role="button"+tabIndex would add a tab stop that a screen reader announces as
+          an actionable "button" with no real label — worse than leaving it out of the
+          accessibility tree entirely, which aria-hidden does. */}
+      <div className="drawer-mask" aria-hidden="true" onClick={onClose} />
+      <aside ref={asideRef} tabIndex={-1} className="drawer" aria-label="Customise columns">
         <h2>Customise columns</h2>
         <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>Reorder, remove, or add columns.</p>
         {cols.map((k, i) => (
@@ -102,6 +127,14 @@ export default function Explore() {
     const view = savedViews.find((v) => v.name === params.get("view"));
     return view?.columns || DEFAULT_COLS;
   });
+  const drawerTriggerRef = useRef(null);
+  const drawerWasOpen = useRef(false);
+  // Whatever path closed the drawer — Escape, backdrop click, or "Save view" — focus should land
+  // back on the control that opened it, not fall through to <body> when the panel unmounts.
+  useEffect(() => {
+    if (drawerWasOpen.current && !drawer) drawerTriggerRef.current?.focus();
+    drawerWasOpen.current = drawer;
+  }, [drawer]);
 
   const q = params.get("q") || "";
   const pillar = params.get("pillar") || "";
@@ -199,7 +232,7 @@ export default function Explore() {
         </div>
       )}
 
-      {error && <div className="error-box">{error} — is the API running?</div>}
+      {error && <ErrorBox message={error} hint="is the API running?" />}
 
       <div className="toolbar">
         <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12.5 }}>
@@ -207,7 +240,7 @@ export default function Explore() {
             onChange={() => setSelected(allSelected ? new Set() : new Set(rows.map((r) => r.id)))} />
           Select all
         </label>
-        <button className="tool-btn" onClick={() => setDrawer(true)}>⚙ Customise columns</button>
+        <button ref={drawerTriggerRef} className="tool-btn" onClick={() => setDrawer(true)}>⚙ Customise columns</button>
         <button className={"tool-btn" + (dense ? " active" : "")}
           onClick={() => setParam("density", dense ? "comfortable" : "")}>
           ☰ {dense ? "Compact" : "Comfortable"}

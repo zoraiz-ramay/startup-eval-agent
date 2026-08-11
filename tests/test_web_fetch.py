@@ -27,6 +27,33 @@ def test_strip_html_removes_tags_and_scripts():
     assert "Part of the Foo & Bar ecosystem." in text
 
 
+def test_strip_html_keeps_alt_and_title_text():
+    """Logo-wall memberships live in alt=, which naive tag-stripping deletes outright.
+
+    phena.tech publishes its NVIDIA Inception / Microsoft for Startups badges purely as
+    images, so dropping the attribute left the page with zero program names and the
+    ecosystem section came back empty.
+    """
+    html = ('<div><img src="a.webp" alt="NVIDIA Inception">'
+            "<img src='b.webp' alt='Microsoft for Startups'>"
+            '<a href="/x" title="Teknopark Izmir">logo</a>'
+            "<p>Our Supporters</p></div>")
+    text = web._strip_html(html)
+    assert "NVIDIA Inception" in text
+    assert "Microsoft for Startups" in text          # single-quoted attribute
+    assert "Teknopark Izmir" in text                 # title=, not just alt=
+    assert "Our Supporters" in text                  # ordinary text still survives
+    assert "a.webp" not in text                      # other attributes stay out
+
+
+def test_strip_html_does_not_harvest_alt_inside_scripts():
+    """script/style bodies are removed first, so markup in inline JS is never mined."""
+    html = '<script>var s = \'<img alt="SHOULD_NOT_APPEAR">\';</script><p>Acme</p>'
+    text = web._strip_html(html)
+    assert "SHOULD_NOT_APPEAR" not in text
+    assert "Acme" in text
+
+
 def test_is_public_host_rejects_loopback_and_private():
     assert web._is_public_host("127.0.0.1") is False
     assert web._is_public_host("localhost") is False
@@ -140,6 +167,42 @@ def test_fetch_site_text_dedupes_paths_resolving_to_same_page(monkeypatch):
     out = web.fetch_site_text("acme.com", paths=("", "/en"))
     assert list(out.values()) == ["Acme partners page"]
     assert len(out) == 1
+
+
+def test_fetch_site_text_applies_locale_prefix_from_root_redirect(monkeypatch):
+    """A '/en' root redirect must redirect the REMAINING paths too.
+
+    A localised SPA answers bare '/about' with its homepage, which the fingerprint dedup then
+    discards — so the genuinely distinct '/en/about' was never requested and its content was
+    invisible to enrichment.
+    """
+    calls = []
+    _patch_requests(monkeypatch, {
+        "https://acme.com": _FakeResp(301, {"Location": "/en"}),
+        "https://acme.com/en": _FakeResp(
+            200, {"Content-Type": "text/html"}, b"<p>Acme home</p>"),
+        "https://acme.com/en/about": _FakeResp(
+            200, {"Content-Type": "text/html"}, b"<p>Acme about, backed by Techstars</p>"),
+    }, calls)
+    out = web.fetch_site_text("acme.com", paths=("", "/about"))
+    assert "https://acme.com/en/about" in calls
+    assert "Acme about, backed by Techstars" in " ".join(out.values())
+    assert len(out) == 2
+
+
+def test_fetch_site_text_ignores_non_locale_redirect(monkeypatch):
+    """Only a real locale segment becomes a prefix — '/home' must not rewrite other paths."""
+    calls = []
+    _patch_requests(monkeypatch, {
+        "https://acme.com": _FakeResp(301, {"Location": "/home"}),
+        "https://acme.com/home": _FakeResp(
+            200, {"Content-Type": "text/html"}, b"<p>Acme home</p>"),
+        "https://acme.com/about": _FakeResp(
+            200, {"Content-Type": "text/html"}, b"<p>Acme about</p>"),
+    }, calls)
+    web.fetch_site_text("acme.com", paths=("", "/about"))
+    assert "https://acme.com/about" in calls
+    assert "https://acme.com/home/about" not in calls
 
 
 # ------------------------------------------------------------------ search-wave observability

@@ -3,13 +3,17 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api.js";
 import { useApp } from "../state.jsx";
 import { ScoreBar, Radar, Spec, ExtLink } from "../components/widgets.jsx";
+import ErrorBox from "../components/ErrorBox.jsx";
+import WhatIfWeights from "../components/WhatIfWeights.jsx";
+import { contributionProfile, DEFAULT_WEIGHTS, DIMENSIONS, DIMENSION_LABELS } from "../scoring/index.js";
 
 const STEPS = ["Input", "Enrich", "Verify", "Structure", "Score", "Review", "Route"];
 const TABS = ["Overview", "Scoring & Fit", "Market & Risk", "Evidence", "Ask"];
-const DIM_META = {
-  traction: "Traction (28%)", siemens_fit: "Siemens Fit (27%)", product: "Product (15%)",
-  market: "Market (12%)", founder: "Founder (10%)", ecosystem: "Ecosystem (8%)",
-};
+// Derived, not written out: these percentages used to be literals, which quietly became a claim
+// the code could contradict. They are the engine's weights and say so.
+const DIM_META = Object.fromEntries(
+  DIMENSIONS.map((k) => [k, `${DIMENSION_LABELS[k]} (${Math.round(DEFAULT_WEIGHTS[k])}%)`]),
+);
 
 function SkeletonProfile({ name }) {
   return (
@@ -29,13 +33,54 @@ function SkeletonProfile({ name }) {
 
 /* ---------------- tab bodies ---------------- */
 /* A value the DB did not have, filled in from web research. Marked so it is never mistaken
-   for application data — the source link is the evidence for it. */
-function WebSourced({ src }) {
+   for application data — the source link is the evidence for it.
+   `field` names which metric this badge sources (e.g. "employees"), so that when several of
+   these sit in the same row a screen reader hears which figure each one backs, not just "web"
+   repeated (UI-01). The visible text stays "web" — this is a dense data canvas and the label
+   isn't meant to grow — but WCAG 2.5.3 requires the accessible name to still start with the
+   visible word, so speech-input users saying "click web" keep matching. */
+function WebSourced({ src, field }) {
   if (!src) return null;
   const title = src.url ? `Web-sourced: ${src.url}` : "Web-sourced (no direct link captured)";
+  const label = field ? `web — ${field} source` : "web";
+  // The no-URL span is inert (no href to follow, nothing to activate), so it gets no role or
+  // tabstop — giving it an aria-label would announce a "control" that does nothing. Its visible
+  // "web" text plus the title tooltip is all the non-interactive case needs.
   return src.url
-    ? <a className="chip" href={src.url} target="_blank" rel="noreferrer" title={title}>web</a>
+    ? <a className="chip" href={src.url} target="_blank" rel="noreferrer" title={title} aria-label={label}>web</a>
     : <span className="chip" title={title}>web</span>;
+}
+
+// PROF-12. `deep_profile.employees_over_time` is either [] or >=2 cited points, sorted
+// ascending by year (core/profile.py's _clean_employee_series refuses a single-dot series, and
+// every point is guaranteed an http(s) source_url). A length-1 array is a contract violation
+// upstream, not something this component needs to guard against — but it still only renders the
+// list when there's enough to call a trend, matching the engine's own bar.
+function HeadcountTrend({ points }) {
+  const pts = points || [];
+  return (
+    <div className="panel">
+      <h3>Headcount trend</h3>
+      {pts.length >= 2 ? (
+        <>
+          <p style={{ marginTop: 0 }}>
+            <strong>{pts[0].count}</strong> → <strong>{pts[pts.length - 1].count}</strong> employees
+            <span className="muted"> ({pts[0].year}–{pts[pts.length - 1].year})</span>
+          </p>
+          {pts.map((pt, i) => (
+            <div key={i} className="list-row" style={{ padding: "5px 0", fontSize: 12.5 }}>
+              <div className="list-main">{pt.year} · {pt.count} employees</div>
+              <ExtLink href={pt.source_url}>{`source (${pt.year})`}</ExtLink>
+            </div>
+          ))}
+        </>
+      ) : (
+        <p className="muted" style={{ margin: 0 }}>
+          No cited headcount history — fewer than two independently sourced data points.
+        </p>
+      )}
+    </div>
+  );
 }
 
 function OverviewTab({ res }) {
@@ -51,24 +96,28 @@ function OverviewTab({ res }) {
     <div>
       <div className="metric-row">
         <div className="metric"><div className="k">Fit Score</div><div className="v">{Number(sc.final_score || 0).toFixed(0)}</div></div>
-        <div className="metric"><div className="k">Employees</div><div className="v">{dp.employees || p.employees_count || p.employee_band || "—"}</div></div>
+        <div className="metric"><div className="k">Employees</div>
+          <div className="v">{dp.employees || p.employees_count || p.employee_band || "—"} <WebSourced src={psrc.employees_count} field="employees" /></div></div>
         <div className="metric"><div className="k">Founded</div>
-          <div className="v">{p.founded_year || "—"} <WebSourced src={psrc.founded_year} /></div></div>
+          <div className="v">{p.founded_year || "—"} <WebSourced src={psrc.founded_year} field="founded year" /></div></div>
         <div className="metric"><div className="k">Completeness</div><div className="v">{Math.round((sc.data_completeness || 0) * 100)}%</div></div>
         <div className="metric"><div className="k">Verified customers</div><div className="v">{sc.verified_customers ?? "—"}</div></div>
         <div className="metric"><div className="k">Market signal</div><div className="v" style={{ fontSize: 13 }}>{trend.label || "—"}</div></div>
       </div>
       <div className="grid2">
-        <div className="panel">
-          <h3>Executive summary</h3>
-          <p style={{ marginTop: 0 }}>{res.summary || <span className="muted">No summary.</span>}</p>
-          <Spec k="Headquarters">{p.hq}</Spec>
-          <Spec k="Stage">{p["Development stage of your solution"]}</Spec>
-          <Spec k="Business model">{p["Business model"]}</Spec>
-          <Spec k="Funding">{p.funding}{p.funding && <> <WebSourced src={psrc.funding} /></>}</Spec>
-          <Spec k="Website"><ExtLink href={p.website} /></Spec>
-          <Spec k="LinkedIn"><ExtLink href={p.linkedin_url} /></Spec>
-          {dp.parent_group && <Spec k="Part of group">{dp.parent_group}</Spec>}
+        <div>
+          <div className="panel">
+            <h3>Executive summary</h3>
+            <p style={{ marginTop: 0 }}>{res.summary || <span className="muted">No summary.</span>}</p>
+            <Spec k="Headquarters">{p.hq}</Spec>
+            <Spec k="Stage">{p["Development stage of your solution"]}</Spec>
+            <Spec k="Business model">{p["Business model"]}</Spec>
+            <Spec k="Funding">{p.funding}{p.funding && <> <WebSourced src={psrc.funding} field="funding" /></>}</Spec>
+            <Spec k="Website"><ExtLink href={p.website} /></Spec>
+            <Spec k="LinkedIn"><ExtLink href={p.linkedin_url} /></Spec>
+            {dp.parent_group && <Spec k="Part of group">{dp.parent_group}</Spec>}
+          </div>
+          <HeadcountTrend points={dp.employees_over_time} />
         </div>
         <div>
           <div className="panel">
@@ -185,7 +234,7 @@ function OverridePanel({ runId, currentPillar }) {
             onChange={(e) => setReason(e.target.value)} />
           <input className="input" placeholder="Supporting evidence (optional)" value={note}
             onChange={(e) => setNote(e.target.value)} />
-          {error && <div className="error-box">{error}</div>}
+          {error && <ErrorBox message={error} />}
           <div style={{ display: "flex", gap: 6 }}>
             <button className="btn" disabled={busy || !pillar || reason.trim().length < 5}
               onClick={submit}>{busy ? "Saving…" : "Record override"}</button>
@@ -200,6 +249,12 @@ function OverridePanel({ runId, currentPillar }) {
 function ScoringTab({ res, runId }) {
   const sc = res.score || {}, fit = res.fit || {}, rt = res.routing || {};
   const dims = sc.dimensions || {};
+  const { whatIfWeights } = useApp();
+  // Lifted out of the panel so the radar overlay appears only while the panel is open. A second
+  // polygon beside a collapsed panel would be an unexplained line on the chart — exactly the
+  // mistaking-a-what-if-for-the-evaluation risk this feature has to avoid.
+  const [whatIfOpen, setWhatIfOpen] = useState(false);
+  const contribution = whatIfOpen ? contributionProfile(dims, whatIfWeights || DEFAULT_WEIGHTS) : null;
   return (
     <div className="grid2">
       <div>
@@ -214,6 +269,7 @@ function ScoringTab({ res, runId }) {
             unverified {sc.unverified_customers}).
           </p>
         </div>
+        <WhatIfWeights score={sc} fit={fit} routing={rt} open={whatIfOpen} setOpen={setWhatIfOpen} />
         <div className="panel">
           <h3>Routing rationale</h3>
           <p style={{ margin: "0 0 6px" }}>
@@ -255,8 +311,15 @@ function ScoringTab({ res, runId }) {
         <OverridePanel runId={runId} currentPillar={rt.pillar} />
       </div>
       <div>
-        <div className="panel" style={{ display: "flex", justifyContent: "center" }}>
-          <Radar dimensions={dims} />
+        <div className="panel" style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+          <Radar dimensions={dims} overlay={contribution ? contribution.values : null} />
+          {contribution && (
+            <p className="muted" style={{ fontSize: 11.5, margin: "6px 0 0", textAlign: "center" }}>
+              Solid = evidence scores · dashed = each dimension&apos;s share of the score under your
+              weighting. They coincide only when all six are weighted equally; the engine&apos;s own
+              weights lean on traction and Siemens fit.
+            </p>
+          )}
         </div>
         <div className="panel">
           <h3>Siemens portfolio fit</h3>
@@ -555,7 +618,10 @@ export default function Profile() {
           ))}
           {res.source === "web" && <span className="badge">web-sourced — verify figures</span>}
         </div>
-        <div className="tabs" role="tablist">
+        {/* sticky-header keeps the tab bar reachable while reading a long profile — the
+            Evidence tab in particular scrolls well past a screen, and losing the tabs means
+            scrolling back to the top to switch context. */}
+        <div className="tabs sticky-header" role="tablist">
           {TABS.map((t) => (
             <button key={t} role="tab" aria-selected={tab === t}
               className={"tab" + (tab === t ? " active" : "")}

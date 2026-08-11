@@ -8,6 +8,10 @@ the same search corpus, so a profile is always returned.
 """
 from __future__ import annotations
 
+import concurrent.futures
+import contextvars
+import functools
+import os
 import re
 
 import pandas as pd
@@ -16,6 +20,7 @@ from .provenance import Fact
 from .web import _ddg_many
 from .llm import LLMClient
 from .config import KNOWN_PROGRAM_TIERS
+from .text import has_funding_signal
 # Known startup programs for offline detection (matched case-insensitively).
 KNOWN_PROGRAMS = {
     "siemens xcelerator": "corporate_program",
@@ -73,15 +78,73 @@ EMPTY_PROFILE = {
 }
 
 
+_CORPUS_CHARS = int(os.getenv("PROFILE_CORPUS_CHARS", "24000"))
+
+
 def _corpus(results: dict) -> str:
-    lines = []
-    for key, hits in results.items():
-        for h in hits or []:
-            lines.append(f"[{key}] {h.get('title','')} :: {h.get('body','')} :: {h.get('href','')}")
-    return "\n".join(lines)[:9000]
+    """Flatten {query_key: hits} into the evidence block handed to the LLM.
+
+    Results are interleaved ROUND-ROBIN across query keys, with the company's own fetched
+    pages (``__site__*``) first, rather than concatenated key by key. A flat concatenation
+    spends the whole budget on whichever queries happen to come first in the dict: for a
+    typical 11-query wave the corpus ran to ~19k chars, so a 9k cap meant only the first four
+    keys ever reached the model and everything after them — headcount, founding year,
+    customers, and the site text itself — was silently dropped. That is indistinguishable
+    downstream from "the web knows nothing", and it is why researched employee counts and
+    founding years kept coming back empty even when the searches had found them.
+
+    Interleaving makes truncation cost every query roughly equally instead of erasing the
+    tail wholesale. Override the budget with PROFILE_CORPUS_CHARS.
+    """
+    ordered = sorted((results or {}).items(), key=lambda kv: not str(kv[0]).startswith("__site__"))
+    queues = [[f"[{key}] {h.get('title','')} :: {h.get('body','')} :: {h.get('href','')}"
+               for h in (hits or [])] for key, hits in ordered]
+    lines, total = [], 0
+    for rank in range(max((len(q) for q in queues), default=0)):
+        for q in queues:
+            if rank >= len(q):
+                continue
+            line = q[rank]
+            if total + len(line) + 1 > _CORPUS_CHARS:
+                return "\n".join(lines)
+            lines.append(line)
+            total += len(line) + 1
+    return "\n".join(lines)
+
+
+def _clean_source_url(value) -> str:
+    """Keep a real http(s) link, otherwise ''.
+
+    Asked for a source_url, the model sometimes answers with the corpus label it read the fact
+    from ('f1, f2') rather than the link. Those reach profile_sources and the UI renders them as
+    a broken 'web-sourced' link, so anything that is not a URL is dropped — the fact is still
+    kept, just without a citation. Mirrors the guard in _clean_employee_series."""
+    url = str(value or "").strip()
+    return url if url.lower().startswith(("http://", "https://")) else ""
+
+
+def _site_hint(row: pd.Series) -> str:
+    """Bare host ('phena.tech') from the row's domain/website, or '' when unknown.
+
+    Used to disambiguate identity-sensitive searches. A bare company name is frequently
+    ambiguous — 'Phena' collides with Tryphena, Phena International Ltd, Phena's Studio — and
+    those queries come back as noise, which downstream is indistinguishable from "the web
+    knows nothing". Pinning the query to the company's own domain is what surfaces its
+    LinkedIn ('Company size 2-10 employees') and CB Insights ('founded in 2026') entries."""
+    raw = str(row.get("domain", "") or row.get("website", "")).strip()
+    if not raw:
+        return ""
+    from urllib.parse import urlparse
+    host = urlparse(raw if "//" in raw else "https://" + raw).hostname or ""
+    return host[4:] if host.startswith("www.") else host
 
 
 def _queries(company: str, row: pd.Series, llm: LLMClient) -> dict:
+    # Only the identity-sensitive queries take the domain hint. The founder/advisor/customer
+    # searches already resolve well on the name alone, and the wave is budget-sensitive: see
+    # _ddg_many, where an oversized wave gets throttled into silently empty results.
+    hint = _site_hint(row)
+    q = f"{company} {hint}".strip() if hint else company
     base = {
         "founders": f"{company} founders co-founder CEO CTO LinkedIn",
         "founder_bg": f"{company} founder previous company career university",
@@ -91,10 +154,14 @@ def _queries(company: str, row: pd.Series, llm: LLMClient) -> dict:
         # whatever program the startup actually belongs to (YC, Techstars, Antler, ...). The
         # grounding gate (see _program_grounded) requires the program to co-occur with the
         # company in a single result, so naming programs here can't create false positives.
-        "corp_programs": f'{company} ("backed by" OR alumni OR cohort OR portfolio OR '
+        "corp_programs": f'{q} ("backed by" OR alumni OR cohort OR portfolio OR '
                          f'accelerator OR incubator OR "Y Combinator" OR Techstars)',
         "parent": f"{company} subsidiary parent company acquired part of group",
-        "team": f"{company} number of employees headcount team size",
+        "team": f"{q} number of employees company size linkedin",
+        # Nothing searched for the founding year or the funding round before, so both were
+        # only ever extracted from whatever the other queries happened to return.
+        "founded": f"{q} founded year established headquarters",
+        "funding": f"{q} funding round raised investors pre-seed seed series",
         "customers": f"{company} customer case study deployment client announcement",
     }
     if llm.available:
@@ -103,7 +170,7 @@ def _queries(company: str, row: pd.Series, llm: LLMClient) -> dict:
                   "search queries that would surface: its founders' backgrounds, scientific/industry "
                   "advisors, membership in incubators/accelerators/corporate startup programs, or a "
                   'corporate parent. Return ONLY JSON: {"queries": ["..."]}')
-        data = LLMClient.parse_json(llm.complete(prompt, max_tokens=300))
+        data = LLMClient.parse_json(llm.complete(prompt, max_tokens=300, reasoning="none"))
         if data and isinstance(data.get("queries"), list):
             # cap the extras: an oversized wave triggers DuckDuckGo throttling, which
             # silently empties the program/advisor queries
@@ -117,6 +184,25 @@ def _startup_text(row: pd.Series) -> str:
     return " ".join(str(row.get(c, "")) for c in
                     ("company_name", "short_description", "Your pitch", "Business model",
                      "customers", "Reference customers"))
+
+
+@functools.lru_cache(maxsize=512)
+def _word_match(needle: str) -> "re.Pattern":
+    """Whole-word matcher for a program name.
+
+    Plain substring matching mis-fires badly on short names: the KNOWN_PROGRAMS key for EIT is
+    written ``"eit "`` with a trailing space precisely to avoid that, but this function's
+    caller strips the name before comparing — so it degraded to a bare ``"eit" in blob`` and
+    matched inside ordinary words (Zeit, arbeit, ...). Meili Robots consequently picked up a
+    fabricated "Eit" membership, labelled *corroborated*, which inflated its ecosystem score.
+
+    ``\\b`` is unreliable next to non-word characters (``sap.io``, ``500 global``), so the
+    boundaries are asserted only on the sides that actually begin/end with a word character.
+    """
+    n = needle.strip()
+    left = r"(?<!\w)" if n[:1].isalnum() or n[:1] == "_" else ""
+    right = r"(?!\w)" if n[-1:].isalnum() or n[-1:] == "_" else ""
+    return re.compile(left + re.escape(n) + right, re.I)
 
 
 def _program_grounded(name: str, company: str, app_text: str,
@@ -147,12 +233,13 @@ def _program_grounded(name: str, company: str, app_text: str,
     n = str(name).strip().lower()
     if not n:
         return None
+    n_re = _word_match(n)
     if company:
         fallback = None
         for key, hits in results.items():
             for h in hits or []:
                 blob = (str(h.get("title", "")) + " " + str(h.get("body", ""))).lower()
-                if n in blob and company in blob:
+                if n_re.search(blob) and company in blob:
                     if str(key).startswith("__site__"):
                         # Remember, but keep scanning: a third-party hit outranks the site.
                         if fallback is None:
@@ -161,7 +248,7 @@ def _program_grounded(name: str, company: str, app_text: str,
                         return (h.get("href", "") or "", "corroborated")
         if fallback is not None:
             return (fallback, "self_asserted")
-    if n in app_text:                    # self-claim in the startup's own application text
+    if n_re.search(app_text):            # self-claim in the startup's own application text
         return ("", "self_asserted")
     return None
 
@@ -209,6 +296,40 @@ def _ground_programs(programs: list, row: pd.Series, results: dict) -> list[dict
     return out
 
 
+_PROGRAM_NOISE = re.compile(
+    r"\b(the|program|programme|accelerator|incubator|startups?|inc|ltd|gmbh)\b", re.I)
+
+
+def _program_key(name: str) -> str:
+    """Canonical identity for a program, so spelling variants collapse to one entry.
+
+    The LLM and the keyword scan name the same membership differently ('NVIDIA Inception
+    Program' vs 'Nvidia Inception'), and an exact-string dedup let both through — the profile
+    then listed one membership twice and the ecosystem score counted it twice."""
+    n = _PROGRAM_NOISE.sub(" ", str(name).lower())
+    return re.sub(r"[^a-z0-9]+", "", n)
+
+
+def _dedupe_programs(programs: list) -> list[dict]:
+    """One entry per membership, preferring the independently corroborated spelling."""
+    best: dict = {}
+    for p in programs or []:
+        if not isinstance(p, dict) or not str(p.get("name", "")).strip():
+            continue
+        key = _program_key(p["name"]) or str(p["name"]).strip().lower()
+        cur = best.get(key)
+        if cur is None:
+            best[key] = p
+            continue
+        # Corroborated beats self-asserted; otherwise keep whichever already has a source URL.
+        if (str(p.get("confidence", "")).lower() == "corroborated"
+                and str(cur.get("confidence", "")).lower() != "corroborated"):
+            best[key] = p
+        elif not str(cur.get("source_url", "")).strip() and str(p.get("source_url", "")).strip():
+            best[key] = p
+    return list(best.values())
+
+
 def _offline_extract(company: str, row: pd.Series, results: dict) -> dict:
     """Keyword-based fallback: detect known programs and SFS relevance without an LLM."""
     prof = {k: (v.copy() if isinstance(v, (list, dict)) else v) for k, v in EMPTY_PROFILE.items()}
@@ -245,10 +366,13 @@ def _llm_extract(company: str, row: pd.Series, results: dict, llm: LLMClient) ->
         "company was founded/incorporated/started. Never infer it from a copyright notice, a "
         "domain registration date, or the earliest news article.\n"
         "- funding: the most recent round as a short phrase with stage and amount when both are "
-        "evidenced (e.g. 'Seed, $2.5M (2024)' or 'Pre-seed, undisclosed'). Leave empty if the "
-        "evidence only says the company 'raised funding' with no stage or amount.\n"
-        "- founded_year_source / funding_source: the source_url of the result supporting each; "
-        "leave empty if the value came from the KNOWN block rather than a search result.\n"
+        "evidenced (e.g. 'Seed, $2.5M (2024)'). If the stage is evidenced but the amount is NOT "
+        "public — Crunchbase renders it as 'obfuscated', or the source says undisclosed — STILL "
+        "report the stage, e.g. 'Pre-Seed, amount undisclosed'. Leave empty only when the "
+        "evidence names neither a stage nor an amount, and NEVER guess an amount.\n"
+        "- founded_year_source / funding_source: the source_url of the result supporting each — a "
+        "real http link from the results, never a label; leave empty if the value came from the "
+        "KNOWN block rather than a search result.\n"
         "Also judge: is Siemens Financial Services (equipment/project financing, leasing) a relevant "
         "partnership avenue for this startup (e.g. hardware, capex-heavy, energy/infrastructure)?\n\n"
         'Return ONLY JSON:\n'
@@ -264,7 +388,7 @@ def _llm_extract(company: str, row: pd.Series, results: dict, llm: LLMClient) ->
     )
     data = LLMClient.parse_json(llm.complete(prompt, system="You extract structured company facts "
                                              "strictly from supplied evidence. JSON only.",
-                                             max_tokens=1200))
+                                             max_tokens=1200, reasoning="none"))
     if not data:
         return None
     prof = {k: (v.copy() if isinstance(v, (list, dict)) else v) for k, v in EMPTY_PROFILE.items()}
@@ -279,10 +403,12 @@ def _llm_extract(company: str, row: pd.Series, results: dict, llm: LLMClient) ->
     # a downstream consumer can treat as a number.
     fy = re.sub(r"\D", "", str(data.get("founded_year") or ""))[:4]
     prof["founded_year"] = fy if len(fy) == 4 and 1800 <= int(fy) <= 2100 else ""
-    prof["founded_year_source"] = (str(data.get("founded_year_source") or "").strip()
+    prof["founded_year_source"] = (_clean_source_url(data.get("founded_year_source"))
                                    if prof["founded_year"] else "")
-    prof["funding"] = str(data.get("funding") or "").strip()
-    prof["funding_source"] = (str(data.get("funding_source") or "").strip()
+    # Same bar as the recall net: a round must name a stage or an amount to be a usable fact.
+    funding = str(data.get("funding") or "").strip()
+    prof["funding"] = funding if has_funding_signal(funding) else ""
+    prof["funding_source"] = (_clean_source_url(data.get("funding_source"))
                               if prof["funding"] else "")
     sfs = data.get("sfs") or {}
     prof["sfs"] = {"relevant": bool(sfs.get("relevant")),
@@ -390,7 +516,7 @@ def _recover_founders(prof: dict, company: str, llm: LLMClient) -> None:
         "Never invent names; return an empty list if the results name nobody.\n"
         'Return ONLY JSON: {"founders": [{"name":"","role":"","background":"","linkedin":"","source_url":""}]}',
         system="You extract structured facts strictly from supplied evidence. JSON only.",
-        max_tokens=700)) or {}
+        max_tokens=700, reasoning="none")) or {}
     found = [f for f in data.get("founders", [])
              if isinstance(f, dict) and str(f.get("name", "")).strip()]
     if found:
@@ -416,7 +542,7 @@ def _deepen_founders(prof: dict, company: str, llm: LLMClient) -> None:
         "education/PhD), and LinkedIn URL — only what the results support; leave empty otherwise.\n"
         'Return ONLY JSON: {"founders": [{"name":"","role":"","background":"","linkedin":"","source_url":""}]}',
         system="You extract structured facts strictly from supplied evidence. JSON only.",
-        max_tokens=700)) or {}
+        max_tokens=700, reasoning="none")) or {}
     updates = {str(f.get("name", "")).strip().lower(): f
                for f in data.get("founders", []) if isinstance(f, dict) and f.get("name")}
     for f in prof["founders"]:
@@ -523,17 +649,83 @@ def _recheck_programs(prof: dict, row: pd.Series, company: str,
                 'Return ONLY JSON: {"programs":[{"name":"","type":"incubator|accelerator|'
                 'corporate_program","source_url":""}]}',
                 system="You extract structured facts strictly from supplied evidence. JSON only.",
-                max_tokens=500)) or {}
+                max_tokens=500, reasoning="none")) or {}
             found = _ground_programs(data.get("programs", []), row, combined)
     if found:
-        seen = set()
-        deduped = []
-        for p in found:
-            k = str(p.get("name", "")).strip().lower()
-            if k and k != company_l and k not in seen:
-                seen.add(k)
-                deduped.append(p)
-        prof["programs"] = deduped
+        # Drop any "membership" that is just the company's own name echoed back.
+        prof["programs"] = _dedupe_programs(
+            [p for p in found if str(p.get("name", "")).strip().lower() != company_l])
+
+
+def _recover_headline_facts(prof: dict, company: str, row: pd.Series, llm: LLMClient) -> None:
+    """Second-pass recall net for founded_year / employees / funding, like _recover_founders.
+
+    All three live on aggregator pages (LinkedIn "Company size 2-10 employees", CB Insights
+    "It was founded in 2026", Crunchbase funding profiles) that rank below the company's own
+    pages and drop in and out of a 5-result window between runs. The main wave therefore finds
+    them only sometimes, and an empty field is indistinguishable from "the web does not know".
+    When one is still blank, spend a focused wave plus one extraction call on it rather than
+    declaring it unavailable. Only blank fields are filled; never raises.
+    """
+    need_year = not str(prof.get("founded_year", "")).strip()
+    need_emp = not str(prof.get("employees", "")).strip()
+    need_funding = not str(prof.get("funding", "")).strip()
+    if not (need_year or need_emp or need_funding) or not llm.available:
+        return
+    hint = _site_hint(row)
+    q = f"{company} {hint}".strip() if hint else company
+    corpus = _corpus(_ddg_many({
+        "h1": f"{q} linkedin company size employees",
+        "h2": f"{q} crunchbase pitchbook cbinsights company profile founded",
+        "h3": f"{q} founded in year headquarters about the company",
+        "h4": f"{q} crunchbase pitchbook funding rounds total raised",
+        "h5": f"{q} pre-seed seed series A investment announcement",
+    }, max_results=5, overall_timeout=25.0))
+    if not corpus:
+        return
+    # A name-based search for a small startup returns near-namesakes (Phena -> FENA Holdings,
+    # Phenna Group, Fena Private Limited), several carrying their own headcount. Without an
+    # anchor the model either declines or picks the wrong row, so the company's own
+    # description/HQ/website go into the prompt as the identity test.
+    known = _startup_text(row)[:600]
+    data = LLMClient.parse_json(llm.complete(
+        f"Web results about the startup '{company}':\n\n{corpus}\n\n"
+        f"THIS COMPANY IS:\nname: {company}\nwebsite: {hint or 'unknown'}\n{known}\n\n"
+        "Extract ONLY these facts, strictly from the evidence and only from results that "
+        "match THIS company — the results contain other organisations with similar names, and "
+        "a fact taken from one of those is worse than no answer:\n"
+        "- founded_year: 4-digit year the company was founded/incorporated. NEVER infer it "
+        "from a copyright notice, a domain registration, or the date of the earliest article.\n"
+        "- employees: a number or tight range exactly as stated (e.g. '25', '2-10'), not a "
+        "vague word.\n"
+        "- funding: the most recent round, stage and amount when both are evidenced (e.g. "
+        "'Seed, $2.5M (2024)'). If the stage is evidenced but the amount is NOT public — "
+        "Crunchbase renders it as 'obfuscated', or the source says undisclosed — STILL report "
+        "the stage, e.g. 'Pre-Seed, amount undisclosed'. Leave empty only when not even a "
+        "stage is evidenced, and NEVER guess an amount.\n"
+        "Give the supporting source_url (a real http link from the results, not a label) for "
+        "each. Leave a field empty if unsupported.\n"
+        'Return ONLY JSON: {"founded_year":"","founded_year_source":"",'
+        '"employees":"","employees_source":"","funding":"","funding_source":""}',
+        system="You extract structured facts strictly from supplied evidence. JSON only.",
+        max_tokens=500, reasoning="none")) or {}
+    if need_year:
+        fy = re.sub(r"\D", "", str(data.get("founded_year") or ""))[:4]
+        if len(fy) == 4 and 1800 <= int(fy) <= 2100:
+            prof["founded_year"] = fy
+            prof["founded_year_source"] = _clean_source_url(data.get("founded_year_source"))
+    if need_emp:
+        emp = str(data.get("employees") or "").strip()
+        # A bare count or range only — the prompt asks for one, but a model can still answer
+        # "a small team", which is not a fact a downstream consumer can use.
+        if emp and re.fullmatch(r"[\d,]+(\s*[-–]\s*[\d,]+)?\+?", emp):
+            prof["employees"] = emp
+    if need_funding:
+        fund = str(data.get("funding") or "").strip()
+        # Must name a stage or an amount; "raised funding" on its own is not a fact.
+        if fund and has_funding_signal(fund):
+            prof["funding"] = fund
+            prof["funding_source"] = _clean_source_url(data.get("funding_source"))
 
 
 def _program_tier_offline(name: str) -> str:
@@ -573,7 +765,8 @@ def _grade_programs(programs: list, company: str, llm: LLMClient) -> None:
         "Play, Antler); tier3 = regional/generic/unknown. Judge by the program's reputation, "
         "not this company.\n"
         'Return ONLY JSON: {"tiers": {"<program name>": "tier1|tier2|tier3"}}',
-        system="You grade startup-program prestige. JSON only.", max_tokens=300)) or {}
+        system="You grade startup-program prestige. JSON only.", max_tokens=300,
+        reasoning="none")) or {}
     tiers = data.get("tiers") or {}
     if not isinstance(tiers, dict):
         return
@@ -650,7 +843,7 @@ def _employee_history(company: str, row: pd.Series, results: dict,
         "interpolate; omit any year you cannot cite. Return an empty list if none are cited.\n"
         'Return ONLY JSON: {"employees_over_time":[{"year":2023,"count":42,"source_url":""}]}',
         system="You extract structured facts strictly from supplied evidence. JSON only.",
-        max_tokens=600)) or {}
+        max_tokens=600, reasoning="none")) or {}
     return _clean_employee_series(data.get("employees_over_time", []))
 
 
@@ -668,7 +861,10 @@ def research_profile(row: pd.Series, llm: LLMClient, do_web: bool = True,
     try:
         # Uses _ddg_many's default budget, which is sized for the full wave; a tighter
         # deadline here silently empties the program/advisor queries under throttling.
-        results = _ddg_many(_queries(company, row, llm), max_results=4) if do_web else {}
+        # 5 results, not 4: the aggregator pages that actually carry headcount and founding
+        # year (LinkedIn's "Company size 2-10 employees", CB Insights) routinely rank fifth
+        # behind the company's own pages, so a 4-result window cut them off.
+        results = _ddg_many(_queries(company, row, llm), max_results=5) if do_web else {}
         # Fold the company's own site text in as pseudo-results so the grounding gate
         # (name + company must co-occur in one result) can see facts published only there.
         results = _merge_site_results(results, company, row, site)
@@ -682,11 +878,9 @@ def research_profile(row: pd.Series, llm: LLMClient, do_web: bool = True,
             # worldwide, but each membership must be tied to THIS startup), then union
             # with the KNOWN_PROGRAMS keyword scan so a known program never vanishes
             # because the LLM skipped it or the corpus was truncated.
-            prof["programs"] = _ground_programs(prof.get("programs", []), row, results)
-            seen = {p["name"].lower() for p in prof["programs"]}
-            for p in _detect_programs(row, results):
-                if p["name"].lower() not in seen:
-                    prof["programs"].append(p)
+            prof["programs"] = _dedupe_programs(
+                _ground_programs(prof.get("programs", []), row, results)
+                + _detect_programs(row, results))
         # Named-companies-only filter + grounding (a web-extracted name must co-occur with
         # the company or be self-declared), then backfill from the DB row if research found
         # none. DB-declared customers are trusted, so the backfill needs no grounding.
@@ -695,37 +889,48 @@ def research_profile(row: pd.Series, llm: LLMClient, do_web: bool = True,
         if not prof["reference_customers"]:
             raw = str(row.get("customers", "") or row.get("Reference customers", ""))
             prof["reference_customers"] = _clean_customers(re.split(r"[,\n;·|]+", raw))
-        # Employees: never leave blank when the application row already knows it.
+        # ---- second-pass recall nets ------------------------------------------------------
+        # Four independent passes, each firing its own search wave plus one extraction call:
+        # the headline facts (founded_year / employees), founder recovery, the program recheck,
+        # and the headcount series. Run sequentially they dominated the evaluation — ~29s of
+        # the ~67s profile chain — yet they touch DISJOINT profile fields, so they overlap
+        # safely and the wall time collapses to the slowest one. Each decides for itself
+        # whether it is needed (all no-op when their field is already populated), and each is
+        # individually best-effort: one failure must never cost the profile.
+        if do_web:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
+                # Pool threads start with an empty context, so each job runs inside a copy of
+                # this one — that is what carries core.web's cache-bypass flag into the search
+                # calls these passes make.
+                def _spawn(fn, *a):
+                    return ex.submit(contextvars.copy_context().run, functools.partial(fn, *a))
+
+                jobs = {
+                    "headline": _spawn(_recover_headline_facts, prof, company, row, llm),
+                    "founders": _spawn(_recover_founders, prof, company, llm),
+                    "programs": _spawn(_recheck_programs, prof, row, company, results, llm),
+                    "history": _spawn(_employee_history, company, row, results, llm),
+                }
+                for name, fut in jobs.items():
+                    try:
+                        out = fut.result()
+                    except Exception:
+                        out = None
+                    if name == "history":
+                        prof["employees_over_time"] = out or []
+        # Employees: never leave blank when the application row already knows it. After the
+        # recall net, so a researched figure still wins over the application's.
         if not str(prof.get("employees", "")).strip():
             prof["employees"] = str(row.get("employees_count", "") or row.get("employee_band", "")).strip()
-        # Headcount-over-time: dedicated, evidence-cited series (empty unless >=2 cited points).
-        if do_web:
-            try:
-                prof["employees_over_time"] = _employee_history(company, row, results, llm)
-            except Exception:
-                prof["employees_over_time"] = []
-        # Recall check: when programs come back empty, don't conclude "none" yet — run a
-        # dedicated ecosystem/program search wave (plus the site text) and re-ground before
-        # declaring the field unavailable. Best-effort; never costs the profile.
-        if do_web:
-            try:
-                _recheck_programs(prof, row, company, results, llm)
-            except Exception:
-                pass
-        # Grade the surviving (grounded) memberships by prestige tier so the ecosystem
-        # score can weight a top-tier accelerator above a generic one. In place; never
-        # adds or removes a program.
+        # Grade the surviving (grounded) memberships by prestige tier so the ecosystem score
+        # can weight a top-tier accelerator above a generic one. Must follow the program
+        # recheck — it grades whatever that found. In place; never adds or removes a program.
         try:
             _grade_programs(prof.get("programs", []), company, llm)
         except Exception:
             pass
-        # Founder recovery (when extraction found none) then deep-dive (fill thin
-        # backgrounds). Both best-effort: a failure here must never cost the profile.
+        # Founder deep-dive fills thin backgrounds, so it must follow the recovery pass above.
         if do_web:
-            try:
-                _recover_founders(prof, company, llm)
-            except Exception:
-                pass
             try:
                 _deepen_founders(prof, company, llm)
             except Exception:

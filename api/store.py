@@ -17,7 +17,7 @@ import pathlib
 import shutil
 import sqlite3
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from core.config import BASE_DIR
 
@@ -161,8 +161,15 @@ CREATE TABLE IF NOT EXISTS tool_matches (
     tool       TEXT NOT NULL,
     division   TEXT, relation TEXT, confidence REAL, rationale TEXT
 );
+CREATE TABLE IF NOT EXISTS web_cache (
+    key        TEXT PRIMARY KEY,
+    kind       TEXT NOT NULL,
+    payload    TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS idx_people_company ON people(company_id);
 CREATE INDEX IF NOT EXISTS idx_facts_run ON evidence_facts(run_id);
+CREATE INDEX IF NOT EXISTS idx_web_cache_created ON web_cache(created_at);
 """
 
 
@@ -176,7 +183,86 @@ def _conn() -> sqlite3.Connection:
             con.execute(f"ALTER TABLE runs ADD COLUMN {col} {typ}")
         except sqlite3.OperationalError:
             pass
+    # Verified reviewer identity, added when the app moved to Entra ID sign-in. These stay
+    # NULL on rows written before that, which is the honest record: the `reviewer` string
+    # on those rows was free text the client supplied and nothing checked it. Backfilling
+    # them would make unverified history indistinguishable from verified history, which is
+    # the one thing an audit trail must never do.
+    for col in ("reviewer_oid", "reviewer_upn", "reviewer_tid", "reviewer_source"):
+        try:
+            con.execute(f"ALTER TABLE overrides ADD COLUMN {col} TEXT")
+        except sqlite3.OperationalError:
+            pass
     return con
+
+
+# ---------------------------------------------------------------------- web cache
+# Search results and fetched site pages are cached so a re-evaluation is both fast and
+# REPRODUCIBLE: DuckDuckGo returns a different mix of results run to run, which is the main
+# reason two evaluations of the same startup used to disagree.
+#
+# Cache writes deliberately DO NOT call _upload_to_s3(): that ships the whole runs.db in a
+# background thread and would fire dozens of times per evaluation (~41 searches). The rows are
+# written locally and ride along on the next save_run upload, which sends the entire file
+# anyway.
+WEB_CACHE_TTL_DAYS = float(os.getenv("WEB_CACHE_TTL_DAYS", "7"))
+_cache_lock = threading.Lock()
+
+
+def _cache_conn() -> sqlite3.Connection:
+    """Short-lived connection for cache access.
+
+    Searches run in _ddg_many's daemon threads, so every cache call may come from a different
+    thread; sqlite3 connections are not shareable across threads. WAL lets the readers proceed
+    while a writer holds the lock."""
+    con = _conn()
+    try:
+        con.execute("PRAGMA journal_mode=WAL")
+        con.execute("PRAGMA busy_timeout=5000")
+    except sqlite3.OperationalError:
+        pass
+    return con
+
+
+def cache_get(kind: str, key: str) -> "object | None":
+    """Cached payload for this key, or None when absent or older than the TTL."""
+    try:
+        with _cache_lock, _cache_conn() as con:
+            row = con.execute(
+                "SELECT payload, created_at FROM web_cache WHERE key=? AND kind=?",
+                (key, kind)).fetchone()
+        if not row:
+            return None
+        age = (datetime.now(timezone.utc)
+               - datetime.fromisoformat(row[1])).total_seconds() / 86400
+        if age > WEB_CACHE_TTL_DAYS or age < 0:
+            return None
+        return json.loads(row[0])
+    except Exception:
+        return None            # a cache fault must never break an evaluation
+
+
+def cache_put(kind: str, key: str, payload) -> None:
+    try:
+        with _cache_lock, _cache_conn() as con:
+            con.execute(
+                "INSERT OR REPLACE INTO web_cache (key, kind, payload, created_at) "
+                "VALUES (?,?,?,?)",
+                (key, kind, json.dumps(payload), _now()))
+    except Exception:
+        pass
+
+
+def cache_purge_expired() -> int:
+    """Drop rows past the TTL; returns how many were removed."""
+    cutoff = (datetime.now(timezone.utc)
+              - timedelta(days=WEB_CACHE_TTL_DAYS)).isoformat(timespec="seconds")
+    try:
+        with _cache_lock, _cache_conn() as con:
+            return int(con.execute("DELETE FROM web_cache WHERE created_at < ?",
+                                   (cutoff,)).rowcount or 0)
+    except Exception:
+        return 0
 
 
 def _now() -> str:
@@ -417,9 +503,16 @@ def delete_run(run_id: int) -> bool:
 
 # ----------------------------------------------------------------- reviewer overrides
 def add_override(run_id: int, new_pillar: str, reason: str,
-                 evidence_note: str = "", reviewer: str = "") -> dict | None:
+                 evidence_note: str = "", *, reviewer: dict | None = None) -> dict | None:
     """Record a reviewer override of the routing decision. The automated result stays
-    untouched in result_json (auditability); the runs row reflects the effective pillar."""
+    untouched in result_json (auditability); the runs row reflects the effective pillar.
+
+    `reviewer` is the authenticated principal (see api/auth.py), not a name the caller
+    chose. It is keyword-only and optional so the scripts and tests that drive the engine
+    without a web request keep working; those rows are then indistinguishable from the
+    pre-SSO ones, which is correct — nobody verified them either.
+    """
+    r = reviewer or {}
     with _conn() as con:
         row = con.execute("SELECT pillar FROM runs WHERE id=?", (run_id,)).fetchone()
         if row is None:
@@ -428,20 +521,28 @@ def add_override(run_id: int, new_pillar: str, reason: str,
         ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
         con.execute(
             "INSERT INTO overrides (run_id, prev_pillar, new_pillar, reason, evidence_note, "
-            "reviewer, created_at) VALUES (?,?,?,?,?,?,?)",
-            (run_id, prev, new_pillar, reason, evidence_note, reviewer, ts))
+            "reviewer, reviewer_oid, reviewer_upn, reviewer_tid, reviewer_source, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (run_id, prev, new_pillar, reason, evidence_note, r.get("name", ""),
+             r.get("oid"), r.get("upn"), r.get("tid"), r.get("source"), ts))
         con.execute("UPDATE runs SET pillar=? WHERE id=?", (new_pillar, run_id))
     _upload_to_s3()
     return {"run_id": run_id, "prev_pillar": prev, "new_pillar": new_pillar,
             "reason": reason, "evidence_note": evidence_note,
-            "reviewer": reviewer, "created_at": ts}
+            "reviewer": r.get("name", ""), "verified": r.get("source") == "entra",
+            "created_at": ts}
 
 
 def list_overrides(run_id: int) -> list[dict]:
     with _conn() as con:
         rows = con.execute(
-            "SELECT prev_pillar, new_pillar, reason, evidence_note, reviewer, created_at "
-            "FROM overrides WHERE run_id=? ORDER BY id", (run_id,)).fetchall()
+            "SELECT prev_pillar, new_pillar, reason, evidence_note, reviewer, created_at, "
+            "reviewer_oid, reviewer_source FROM overrides WHERE run_id=? ORDER BY id",
+            (run_id,)).fetchall()
     return [{"prev_pillar": r[0], "new_pillar": r[1], "reason": r[2],
-             "evidence_note": r[3] or "", "reviewer": r[4] or "", "created_at": r[5]}
+             "evidence_note": r[3] or "", "reviewer": r[4] or "", "created_at": r[5],
+             "reviewer_oid": r[6] or "",
+             # Only an Entra-issued identity counts as verified. Rows written by the stub,
+             # by a script, or before sign-in existed all read as unverified.
+             "verified": r[7] == "entra"}
             for r in rows]
