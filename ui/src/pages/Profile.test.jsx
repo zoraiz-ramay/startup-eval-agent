@@ -1,6 +1,6 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppProvider } from "../state.jsx";
 
 /**
@@ -51,6 +51,10 @@ async function renderProfile() {
     </MemoryRouter>,
   );
 }
+
+// The what-if weighting persists to localStorage, so without this one test's weighting leaks into
+// the next and the failures point at the wrong place.
+beforeEach(() => localStorage.clear());
 
 describe("Profile", () => {
   it("renders the tab bar as a tablist with a selected tab", async () => {
@@ -163,5 +167,168 @@ describe("Profile", () => {
     expect(link2022).toHaveAttribute("href", "https://crunchbase.example/acme");
     const link2024 = await screen.findByRole("link", { name: /source \(2024\)/i });
     expect(link2024).toHaveAttribute("href", "https://linkedin.example/acme");
+  });
+});
+
+/**
+ * PROF-14 — the browser-local what-if weighting.
+ *
+ * The risk this feature carries is that a re-weighted number gets mistaken for the evaluation
+ * result, so the assertions below are as much about what does NOT change (the stored score, on
+ * every other surface) as about what does.
+ */
+const SCORED_RUN = {
+  ...RUN,
+  score: {
+    ...RUN.score,
+    final_score: 40.0,
+    raw_score: 64.0,
+    data_completeness: 0.25,
+    data_confidence: 0.62,
+    dimensions: { traction: 60, siemens_fit: 70, product: 80, market: 50, founder: 55, ecosystem: 65 },
+  },
+};
+
+async function openScoringTab() {
+  fireEvent.click(await screen.findByRole("tab", { name: /scoring & fit/i }));
+}
+
+async function openWhatIf() {
+  await openScoringTab();
+  const toggle = await screen.findByRole("button", { name: /what-if weights/i });
+  fireEvent.click(toggle);
+  return toggle;
+}
+
+describe("what-if weights (PROF-14)", () => {
+  it("stays collapsed until asked for, leaving the stored score alone", async () => {
+    const { api } = await import("../api.js");
+    api.run.mockResolvedValueOnce(SCORED_RUN);
+    await renderProfile();
+    await openScoringTab();
+
+    const toggle = await screen.findByRole("button", { name: /what-if weights/i });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("re-weighting changes the what-if figure but never the stored score", async () => {
+    const { api } = await import("../api.js");
+    api.run.mockResolvedValueOnce(SCORED_RUN);
+    await renderProfile();
+    await openWhatIf();
+
+    const storedRow = () => screen.getByText(/engine score \(stored\)/i).closest(".spec");
+    const before = (await screen.findByRole("status")).textContent;
+    const storedBefore = within(storedRow()).getByText("40");
+
+    fireEvent.change(screen.getByLabelText(/^siemens fit$/i), { target: { value: "60" } });
+
+    const after = (await screen.findByRole("status")).textContent;
+    expect(after).not.toEqual(before);
+    // The engine's score is unmoved, and it sits inside this panel beside the what-if — so no
+    // screenshot crop can capture the what-if without also capturing what it is being compared to.
+    expect(within(storedRow()).getByText("40")).toBe(storedBefore);
+    expect(screen.getByText(/not the evaluation result/i)).toBeInTheDocument();
+  });
+
+  it("resets back to the engine's weighting in one action", async () => {
+    const { api } = await import("../api.js");
+    api.run.mockResolvedValueOnce(SCORED_RUN);
+    await renderProfile();
+    await openWhatIf();
+
+    const original = (await screen.findByRole("status")).textContent;
+    fireEvent.change(screen.getByLabelText(/^product$/i), { target: { value: "70" } });
+    expect((await screen.findByRole("status")).textContent).not.toEqual(original);
+
+    fireEvent.click(screen.getByRole("button", { name: /reset to engine weights/i }));
+    expect((await screen.findByRole("status")).textContent).toEqual(original);
+    expect(localStorage.getItem("se.whatIfWeights.v1")).toBe("null");
+  });
+
+  it("says so plainly when a run has no dimensions to re-weight", async () => {
+    const { api } = await import("../api.js");
+    api.run.mockResolvedValueOnce(RUN);   // dimensions: {}
+    await renderProfile();
+    await openWhatIf();
+
+    expect(await screen.findByText(/no recorded dimension scores/i)).toBeInTheDocument();
+    // The point of the empty state: no number at all, rather than NaN.
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * PROF-15 — the what-if routing derivation.
+ *
+ * The failure mode this guards is a reviewer reading a what-if pillar as the evaluation's verdict.
+ * A wrong score is bad; a wrong pillar drives a wrong partnership call. So these assert the engine's
+ * pillar stays put and stays visible as much as they assert the what-if is derived correctly.
+ */
+const ALIGNED_RUN = {
+  ...SCORED_RUN,
+  fit: { aligned: true, matches: [] },
+  routing: { pillar: "Empower", secondary: [] },
+  score: { ...SCORED_RUN.score, route_scorecards: { Connect: 60, Collaborate: 58, Empower: 62 } },
+};
+
+describe("what-if routing (PROF-15)", () => {
+  it("explains every gate, including the ones that pass", async () => {
+    const { api } = await import("../api.js");
+    api.run.mockResolvedValueOnce(ALIGNED_RUN);
+    await renderProfile();
+    await openWhatIf();
+
+    expect(await screen.findByText(/what-if routing/i)).toBeInTheDocument();
+    // All four rows, always — a reviewer looking at a blocked pillar needs the whole reason,
+    // and an empty state would be the least useful thing to show them.
+    expect(screen.getByText(/portfolio alignment/i)).toBeInTheDocument();
+    for (const route of ["Connect", "Collaborate", "Empower"]) {
+      expect(screen.getAllByText(route).length).toBeGreaterThan(0);
+    }
+    // Empower's row states the absence of a gate rather than inventing a threshold for symmetry.
+    expect(screen.getByText(/no score gate/i)).toBeInTheDocument();
+  });
+
+  it("marks the clauses no weighting can move, so a blocked pillar is not read as 'nearly there'", async () => {
+    const { api } = await import("../api.js");
+    api.run.mockResolvedValueOnce(ALIGNED_RUN);
+    await renderProfile();
+    await openWhatIf();
+    expect(screen.getAllByText(/not affected by your weighting/i).length).toBeGreaterThan(0);
+  });
+
+  it("says a verdict cannot change when that is provable, rather than merely that it did not", async () => {
+    // RUN's fit has no `aligned`, so the alignment gate fails — and it reads the raw dimension,
+    // which no weighting touches. "Cannot" is the honest word here.
+    const { api } = await import("../api.js");
+    api.run.mockResolvedValueOnce({ ...SCORED_RUN, fit: { matches: [] } });
+    await renderProfile();
+    await openWhatIf();
+    expect(await screen.findByText(/cannot change this/i)).toBeInTheDocument();
+  });
+
+  it("leaves the header pillar untouched while the what-if is on screen", async () => {
+    const { api } = await import("../api.js");
+    api.run.mockResolvedValueOnce(ALIGNED_RUN);
+    const { container } = await renderProfile();
+    await openWhatIf();
+    fireEvent.change(screen.getByLabelText(/^ecosystem$/i), { target: { value: "100" } });
+
+    // The canonical pillar lives in the profile header and must be unmoved by anything here.
+    const headerPill = container.querySelector(".ph-title .pill, .ph-head .pill") ||
+      container.querySelector(".pill");
+    expect(headerPill.textContent).toBe("Empower");
+  });
+
+  it("keeps exactly one live region on the tab", async () => {
+    // Two polite regions announce in unpredictable order, and every existing assertion selects
+    // this one unqualified.
+    const { api } = await import("../api.js");
+    api.run.mockResolvedValueOnce(ALIGNED_RUN);
+    await renderProfile();
+    await openWhatIf();
+    expect(screen.getAllByRole("status")).toHaveLength(1);
   });
 });

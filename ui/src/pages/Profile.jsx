@@ -4,13 +4,16 @@ import { api } from "../api.js";
 import { useApp } from "../state.jsx";
 import { ScoreBar, Radar, Spec, ExtLink } from "../components/widgets.jsx";
 import ErrorBox from "../components/ErrorBox.jsx";
+import WhatIfWeights from "../components/WhatIfWeights.jsx";
+import { contributionProfile, DEFAULT_WEIGHTS, DIMENSIONS, DIMENSION_LABELS } from "../scoring/index.js";
 
 const STEPS = ["Input", "Enrich", "Verify", "Structure", "Score", "Review", "Route"];
 const TABS = ["Overview", "Scoring & Fit", "Market & Risk", "Evidence", "Ask"];
-const DIM_META = {
-  traction: "Traction (28%)", siemens_fit: "Siemens Fit (27%)", product: "Product (15%)",
-  market: "Market (12%)", founder: "Founder (10%)", ecosystem: "Ecosystem (8%)",
-};
+// Derived, not written out: these percentages used to be literals, which quietly became a claim
+// the code could contradict. They are the engine's weights and say so.
+const DIM_META = Object.fromEntries(
+  DIMENSIONS.map((k) => [k, `${DIMENSION_LABELS[k]} (${Math.round(DEFAULT_WEIGHTS[k])}%)`]),
+);
 
 function SkeletonProfile({ name }) {
   return (
@@ -246,6 +249,12 @@ function OverridePanel({ runId, currentPillar }) {
 function ScoringTab({ res, runId }) {
   const sc = res.score || {}, fit = res.fit || {}, rt = res.routing || {};
   const dims = sc.dimensions || {};
+  const { whatIfWeights } = useApp();
+  // Lifted out of the panel so the radar overlay appears only while the panel is open. A second
+  // polygon beside a collapsed panel would be an unexplained line on the chart — exactly the
+  // mistaking-a-what-if-for-the-evaluation risk this feature has to avoid.
+  const [whatIfOpen, setWhatIfOpen] = useState(false);
+  const contribution = whatIfOpen ? contributionProfile(dims, whatIfWeights || DEFAULT_WEIGHTS) : null;
   return (
     <div className="grid2">
       <div>
@@ -260,6 +269,7 @@ function ScoringTab({ res, runId }) {
             unverified {sc.unverified_customers}).
           </p>
         </div>
+        <WhatIfWeights score={sc} fit={fit} routing={rt} open={whatIfOpen} setOpen={setWhatIfOpen} />
         <div className="panel">
           <h3>Routing rationale</h3>
           <p style={{ margin: "0 0 6px" }}>
@@ -301,8 +311,15 @@ function ScoringTab({ res, runId }) {
         <OverridePanel runId={runId} currentPillar={rt.pillar} />
       </div>
       <div>
-        <div className="panel" style={{ display: "flex", justifyContent: "center" }}>
-          <Radar dimensions={dims} />
+        <div className="panel" style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+          <Radar dimensions={dims} overlay={contribution ? contribution.values : null} />
+          {contribution && (
+            <p className="muted" style={{ fontSize: 11.5, margin: "6px 0 0", textAlign: "center" }}>
+              Solid = evidence scores · dashed = each dimension&apos;s share of the score under your
+              weighting. They coincide only when all six are weighted equally; the engine&apos;s own
+              weights lean on traction and Siemens fit.
+            </p>
+          )}
         </div>
         <div className="panel">
           <h3>Siemens portfolio fit</h3>
