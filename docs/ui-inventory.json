@@ -269,8 +269,28 @@
       ]
     },
     {
+      "path": "ui/src/components/WhatIfWeights.jsx",
+      "lines": 235,
+      "exports": [
+        "WhatIfWeights"
+      ],
+      "css_classes": [
+        "badge",
+        "btn",
+        "grid2",
+        "input",
+        "k",
+        "muted",
+        "panel",
+        "secondary",
+        "spec",
+        "tool-btn",
+        "v"
+      ]
+    },
+    {
       "path": "ui/src/components/widgets.jsx",
-      "lines": 90,
+      "lines": 107,
       "exports": [
         "ExtLink",
         "Loading",
@@ -294,7 +314,7 @@
     },
     {
       "path": "ui/src/components/widgets.test.jsx",
-      "lines": 27,
+      "lines": 85,
       "exports": [],
       "css_classes": []
     },
@@ -460,7 +480,7 @@
     },
     {
       "path": "ui/src/pages/Profile.jsx",
-      "lines": 626,
+      "lines": 643,
       "exports": [
         "Profile"
       ],
@@ -514,7 +534,7 @@
     },
     {
       "path": "ui/src/pages/Profile.test.jsx",
-      "lines": 168,
+      "lines": 335,
       "exports": [],
       "css_classes": []
     },
@@ -572,7 +592,7 @@
     },
     {
       "path": "ui/src/state.jsx",
-      "lines": 45,
+      "lines": 51,
       "exports": [
         "AppProvider",
         "useApp"
@@ -584,7 +604,7 @@
     "routes": 7,
     "api_methods": 12,
     "design_tokens": 37,
-    "jsx_files": 28,
-    "jsx_lines": 2611
+    "jsx_files": 29,
+    "jsx_lines": 3111
   }
 }

@@ -113,6 +113,39 @@ export async function stubRuns(page) {
 }
 
 /** Stub the slow, non-deterministic endpoints so a journey is about the UI, not the network. */
+/**
+ * A run that actually routes, for exercising the what-if routing derivation (PROF-15).
+ *
+ * Separate from RUN_FIXTURE on purpose: that one backs the visual baselines, and it is also not
+ * engine-consistent (its recorded final_score does not match what its own dimensions imply), so it
+ * cannot support an assertion about derived routing.
+ *
+ * These numbers ARE engine-consistent — the scorecards are ROUTE_WEIGHTS x dimensions x data
+ * confidence, and the pillar is what core/route.py's gates produce from them. Raising ecosystem to
+ * 100 drops the Collaborate card from 67.3 to 46.3, under its 55 gate, so the pillar demotes to
+ * Empower. An 8.7-point margin, from a single field edit.
+ */
+export const ROUTABLE_RUN_FIXTURE = {
+  ...RUN_FIXTURE,
+  company: "Routable Robotics",
+  score: {
+    ...RUN_FIXTURE.score,
+    final_score: 62.5,
+    raw_score: 66.7,
+    data_completeness: 0.875,
+    data_confidence: 0.94,
+    dimensions: { traction: 55, siemens_fit: 78, product: 85, market: 70, founder: 75, ecosystem: 20 },
+    route_scorecards: { Connect: 63.0, Collaborate: 67.3, Empower: 64.1 },
+  },
+  routing: { pillar: "Collaborate", secondary: ["Empower"], rationale: "Strong portfolio fit." },
+  fit: { aligned: true, matches: [{ tool: "Simcenter", confidence: 80 }], challenge_match: {} },
+};
+
+export async function stubRoutableRun(page) {
+  await page.route("**/api/runs/2", (route) => route.fulfill({ json: ROUTABLE_RUN_FIXTURE }));
+  await page.route("**/api/runs/*/audit", (route) => route.fulfill({ json: { overrides: [] } }));
+}
+
 export async function stubEvaluation(page) {
   await page.route("**/api/evaluate", (route) =>
     route.fulfill({ json: { ...RUN_FIXTURE, cached: false, run_id: 1 } }));

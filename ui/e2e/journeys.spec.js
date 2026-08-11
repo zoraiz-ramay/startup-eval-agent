@@ -1,4 +1,4 @@
-import { expect, RUN_FIXTURE, RUNS_FIXTURE, stabilise, stubEvaluation, stubRuns, test } from "./fixtures.js";
+import { expect, RUN_FIXTURE, RUNS_FIXTURE, stabilise, stubEvaluation, stubRoutableRun, stubRuns, test } from "./fixtures.js";
 
 /**
  * The user journeys from contract/feature-inventory.md. Each test names its contract ID so a
@@ -90,6 +90,54 @@ test.describe("profile", () => {
     // overstate the evidence, which is the one thing this product must not do.
     await expect(page.getByText(/NVIDIA Inception/i).first()).toBeVisible();
     await expect(page.getByText(/claimed/i).first()).toBeVisible();
+  });
+
+  test("PROF-14: a what-if weighting moves only the what-if figure, never the stored score", async ({ page }) => {
+    await stubEvaluation(page);
+    await page.goto("/startup/1");
+    await page.getByRole("tab", { name: /scoring & fit/i }).click();
+    await page.getByRole("button", { name: /what-if weights/i }).click();
+
+    // The profile header's score — the canonical one, rendered straight from the stored run.
+    const headline = page.locator(".ph-meta span", { hasText: /^Score / }).first();
+    const storedBefore = await headline.textContent();
+    const whatIf = page.getByRole("status");
+    const before = await whatIf.textContent();
+
+    await page.getByLabel(/^siemens fit$/i).fill("60");
+    await expect(whatIf).not.toHaveText(before);
+    // Deliberately asserts change and non-change, never equality between the two numbers:
+    // RUN_FIXTURE's recorded final_score does not match what its own dimensions imply.
+    await expect(headline).toHaveText(storedBefore);
+
+    // The whole point is that this never becomes the shared answer — it survives a reload as a
+    // local preference while the stored score is re-fetched from the API unchanged.
+    await page.reload();
+    await expect(page.locator(".ph-meta span", { hasText: /^Score / }).first()).toHaveText(storedBefore);
+  });
+
+  test("PROF-15: a weighting can demote the pillar without touching the stored one", async ({ page }) => {
+    await stubRoutableRun(page);
+    await page.goto("/startup/2");
+    await page.getByRole("tab", { name: /scoring & fit/i }).click();
+    await page.getByRole("button", { name: /what-if weights/i }).click();
+
+    const headerPill = page.locator(".ph-title .pill").first();
+    await expect(page.getByText(/still/i).first()).toBeVisible();
+
+    // One edit. Collaborate's card falls 67.3 -> 46.3, under its own 55 gate, so only the ungated
+    // Empower survives. Asserting the transition rather than a bare number keeps this readable
+    // when the fixture is retuned.
+    await page.getByLabel(/^ecosystem$/i).fill("100");
+
+    await expect(page.getByText(/not the evaluation result/i).first()).toBeVisible();
+    await expect(page.getByText(/46\.3/).first()).toBeVisible();
+    await expect(page.getByText(/needs ≥ 55/).first()).toBeVisible();
+
+    // The decision itself is untouched — that is the whole contract of a what-if.
+    await expect(headerPill).toHaveText("Collaborate");
+    await page.reload();
+    await expect(page.locator(".ph-title .pill").first()).toHaveText("Collaborate");
   });
 
   test("PROF-12: headcount trend shows its one-line empty state by default (X-03)", async ({ page }) => {

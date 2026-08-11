@@ -23,6 +23,11 @@ export function AppProvider({ children }) {
   const [watchlist, setWatchlist] = usePersistent("se.watchlist.v2", []);   // company names (stable across re-evaluations)
   const [savedViews, setSavedViews] = usePersistent("se.savedViews", []);   // {name, columns, filters}
   const [pins, setPins] = usePersistent("se.pins", ["Explore startups", "Solve a problem"]);
+  // Local what-if weighting for the six scoring dimensions, as points out of 100. null means the
+  // reviewer has not overridden anything, which is what makes "reset" a single assignment rather
+  // than a float comparison. Never sent to the API: the engine's score is the shared truth and
+  // this is one person's sandbox.
+  const [whatIfWeights, setWhatIfWeights] = usePersistent("se.whatIfWeights.v1", null);
   const [dockOpen, setDockOpen] = useState(false);
   const [dockCtx, setDockCtx] = useState(null);                             // {runId, company}
 
@@ -34,6 +39,7 @@ export function AppProvider({ children }) {
       watchlist, toggleWatch,
       savedViews, setSavedViews,
       pins, setPins,
+      whatIfWeights, setWhatIfWeights,
       dockOpen, setDockOpen, dockCtx, setDockCtx,
     }}>
       {children}

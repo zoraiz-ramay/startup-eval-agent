@@ -1,4 +1,5 @@
 import React from "react";
+import { DIMENSIONS, DIMENSION_LABELS } from "../scoring/index.js";
 
 export function PillarPills({ routing }) {
   if (!routing) return null;
@@ -25,32 +26,48 @@ export function ScoreBar({ label, value }) {
   );
 }
 
-const DIM_LABELS = {
-  traction: "Traction", siemens_fit: "Siemens Fit", product: "Product",
-  market: "Market", founder: "Founder", ecosystem: "Ecosystem",
-};
-
-export function Radar({ dimensions, size = 260 }) {
-  const keys = Object.keys(DIM_LABELS).filter((k) => k in (dimensions || {}));
+export function Radar({ dimensions, overlay = null, overlayLabel = "", size = 260 }) {
+  // Axis order comes from the shared registry so the radar and the score breakdown cannot end up
+  // listing the dimensions differently.
+  const keys = DIMENSIONS.filter((k) => k in (dimensions || {}));
   if (!keys.length) return null;
   const cx = size / 2, cy = size / 2, r = size / 2 - 34;
   const pt = (i, val) => {
     const a = (Math.PI * 2 * i) / keys.length - Math.PI / 2;
     return [cx + Math.cos(a) * r * (val / 100), cy + Math.sin(a) * r * (val / 100)];
   };
-  const poly = keys.map((k, i) => pt(i, dimensions[k]).join(",")).join(" ");
+  // Plotted values are pinned to the outer ring. A contribution can exceed 100 (an emphasised
+  // dimension carries more than its even share), and without this it would be drawn outside the
+  // viewport as a shape that reads as broken rather than as "off the scale".
+  const plot = (i, val) => pt(i, Math.min(100, val));
+  const shape = (vals) => keys.map((k, i) => plot(i, vals[k]).join(",")).join(" ");
   const ring = (frac) => keys.map((_, i) => pt(i, frac * 100).join(",")).join(" ");
+
+  const overlayKeys = overlay ? keys.filter((k) => typeof overlay[k] === "number") : [];
+  const hasOverlay = overlayKeys.length === keys.length;
+  const clamped = keys.filter((k) => dimensions[k] > 100 || (hasOverlay && overlay[k] > 100));
+  const label = "Score radar. " + (hasOverlay
+    ? `Solid outline: evidence scores. Dashed outline: ${overlayLabel || "contribution under your what-if weighting"}. `
+    : "") + (clamped.length
+    ? `${clamped.map((k) => DIMENSION_LABELS[k]).join(" and ")} reach past the outer ring and are drawn at the edge.`
+    : "");
+
   return (
-    <svg width={size} height={size} role="img" aria-label="Score radar">
+    <svg width={size} height={size} role="img" aria-label={label.trim()}>
       {[0.33, 0.66, 1].map((f) => (
         <polygon key={f} points={ring(f)} fill="none" stroke="var(--border, #e4e8ee)" strokeWidth="1" />
       ))}
-      <polygon points={poly} fill="rgba(36,87,197,.15)" stroke="var(--accent, #2457c5)" strokeWidth="2" />
+      <polygon points={shape(dimensions)} fill="rgba(36,87,197,.15)" stroke="var(--accent, #2457c5)" strokeWidth="2" />
+      {hasOverlay && (
+        // Dashed rather than a second colour: it needs no new token, adds no ix_lint finding, and
+        // distinguishes the series without relying on colour vision.
+        <polygon points={shape(overlay)} fill="none" stroke="var(--text-2)" strokeWidth="2" strokeDasharray="4 3" />
+      )}
       {keys.map((k, i) => {
         const [x, y] = pt(i, 118);
         return (
           <text key={k} x={x} y={y} fill="var(--text-2, #5a6472)" fontSize="11" textAnchor="middle">
-            {DIM_LABELS[k]}
+            {DIMENSION_LABELS[k]}
           </text>
         );
       })}

@@ -1,0 +1,13 @@
+{
+  "_comment": "Mirror of core/config.py. Pinned by tests/test_whatif_weight_parity.py -- do not edit by hand.",
+  "weights": {
+    "traction": 0.28,
+    "siemens_fit": 0.27,
+    "product": 0.15,
+    "market": 0.12,
+    "founder": 0.1,
+    "ecosystem": 0.08
+  },
+  "thin_profile_cap": 75.0,
+  "completeness_denominator": 8
+}
