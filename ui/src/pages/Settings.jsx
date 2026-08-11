@@ -1,13 +1,17 @@
 import React, { useEffect, useState } from "react";
 import { api } from "../api.js";
+import { useAuth } from "../state.jsx";
 import { Loading } from "../components/widgets.jsx";
 import ErrorBox from "../components/ErrorBox.jsx";
 
 export default function Settings() {
   const [health, setHealth] = useState(null);
   const [error, setError] = useState("");
+  const { user, mode, signOut } = useAuth();
   useEffect(() => {
-    api.health().then(setHealth).catch((e) => setError(e.message));
+    // /health is public and now reports nothing but liveness; the diagnostics below live
+    // behind the session guard.
+    api.status().then(setHealth).catch((e) => setError(e.message));
   }, []);
   const Row = ({ k, ok, val }) => (
     <div className="spec">
@@ -22,6 +26,22 @@ export default function Settings() {
     <div>
       <div className="crumb">Workspace &gt; Settings</div>
       <div className="page-head"><h1 className="page-title">Settings</h1></div>
+      <div className="panel" style={{ maxWidth: 640 }}>
+        <h3>Account</h3>
+        {user && (
+          <>
+            <Row k="Signed in as" ok val={user.name} />
+            <Row k="Email" ok val={user.email} />
+          </>
+        )}
+        {mode === "stub" && (
+          <ErrorBox message="Stubbed sign-in"
+            hint="This session is a fixed test identity, not a real one. Overrides recorded now are marked unverified." />
+        )}
+        <button className="btn secondary" onClick={signOut} style={{ marginTop: 8 }}>
+          Sign out
+        </button>
+      </div>
       <div className="panel" style={{ maxWidth: 640 }}>
         <h3>Backend status</h3>
         {error && <ErrorBox message={error} />}
