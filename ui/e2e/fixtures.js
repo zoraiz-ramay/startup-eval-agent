@@ -69,15 +69,41 @@ export const RUN_FIXTURE = {
 };
 
 export const test = base.extend({
-  // Fails fast and legibly when the API is not running.
+  // Fails fast and legibly when the API is not running, then signs in.
   page: async ({ page, baseURL }, use) => {
     const health = await page.request.get("http://localhost:8000/health").catch(() => null);
     if (!health || !health.ok()) {
       throw new Error(
         "Backend not reachable on :8000 — start it with:\n" +
-        "  py -3 -m uvicorn api.main:app --port 8000",
+        "  AUTH_MODE=stub SESSION_BACKEND=memory py -3 -m uvicorn api.main:app --port 8000",
       );
     }
+
+    // Every journey below starts from a bare page.goto() and would otherwise land on the
+    // sign-in screen. Signing in here, once, is what keeps those journeys unchanged.
+    //
+    // Conditional Access at ACP 3 requires a compliant device on a trusted network, so no
+    // CI runner can ever complete a real Entra sign-in. AUTH_MODE=stub replaces only the
+    // round-trip to Entra: the cookies, the CSRF token, the session store and the guard
+    // that reads them are all the production code paths, so these journeys still prove the
+    // guard works rather than proving it was switched off.
+    //
+    // Relative URL on purpose — it goes through the vite proxy so the cookie is set on the
+    // page's own origin. page.request.get() uses a separate context and the browser would
+    // never see the cookie.
+    await page.goto("/api/auth/login?next=/");
+    // Checked from inside the page for the same reason the login above is a page.goto:
+    // page.request has its own cookie jar and would report "signed out" no matter what.
+    const body = await page.evaluate(() =>
+      fetch("/api/auth/me", { credentials: "same-origin" }).then((r) => r.json()).catch(() => ({})));
+    if (!body.authenticated) {
+      throw new Error(
+        "Signed-in fixture failed. The backend must run in stub mode for e2e:\n" +
+        "  AUTH_MODE=stub SESSION_BACKEND=memory py -3 -m uvicorn api.main:app --port 8000\n" +
+        "(single process — the in-memory session store splits under gunicorn workers)",
+      );
+    }
+
     await use(page);
   },
 });
@@ -165,6 +191,11 @@ export async function stabilise(page) {
     content: `
       *, *::before, *::after { transition: none !important; animation: none !important; }
       .spinner { visibility: hidden !important; }
+      /* The stubbed-auth banner exists only under AUTH_MODE=stub, which is to say only
+         here — production can never render it (api/auth.py refuses to start). It is not
+         part of the layout these baselines record, so it would be noise in the diff.
+         That it appears at all is asserted in src/App.test.jsx instead. */
+      .stub-banner { display: none !important; }
     `,
   });
   await page.evaluate(() => document.fonts?.ready);

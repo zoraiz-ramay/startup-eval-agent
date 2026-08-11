@@ -337,3 +337,18 @@ a:hover { text-decoration: underline; }
 .list-row { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--border); }
 .list-row:last-child { border-bottom: none; }
 .list-main { flex: 1; min-width: 0; }
+
+/* ---------------- sign-in ---------------- */
+/* Full-bleed and outside .content, which offsets itself by the icon rail — a sign-in
+   screen indented past a rail that isn't rendered would look broken. */
+.signin { min-height: 100vh; display: grid; place-items: center;
+  background: var(--canvas); padding: 24px; }
+.signin-card { max-width: 420px; width: 100%; margin-bottom: 0; padding: 28px; }
+.signin-title { font-size: var(--fs-title); margin: 0 0 6px; color: var(--text-1); }
+.signin-lede { font-size: var(--fs-body); margin: 0 0 20px; }
+.signin-foot { font-size: var(--fs-meta); margin: 16px 0 0; }
+.signin .btn { width: 100%; justify-content: center; }
+/* Loud by design: the stubbed sign-in must be impossible to mistake for the real thing. */
+.stub-banner { position: fixed; inset: 0 0 auto 0; z-index: 100; text-align: center;
+  padding: 5px 12px; font-size: var(--fs-meta); font-weight: 700;
+  background: var(--danger); color: #fff; }

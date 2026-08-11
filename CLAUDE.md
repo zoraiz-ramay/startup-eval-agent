@@ -39,14 +39,42 @@ result cache is injected the other way round: `api/main.py` calls `core.web.inst
 Pipeline: `core/pipeline.py::evaluate` → `enrich` → (verify ‖ summarize ‖ fit ‖ profile ‖ trend,
 concurrent) → `score` → `route`.
 
+## Authentication
+
+Sign-in is Microsoft Entra ID, as a **backend-for-frontend**: `api/auth.py` is the confidential
+client, does the code exchange, and keeps every token server-side. The browser gets an opaque
+session id in an httpOnly cookie and never sees a token — which is what lets `ui/src/api.js` keep
+its "no tokens in the browser bundle" stance. Sessions live in Redis (db 1), not in a signed cookie
+(that would put the payload in the browser) and not in SQLite (`api/store.py` uploads the whole DB
+file to S3 after every write).
+
+Entra is behind a Conditional Access policy requiring a compliant device on a trusted location, so
+**no CI runner can ever complete a real sign-in.** `AUTH_MODE=stub` replaces only the round trip to
+Entra; cookies, CSRF, the session store and the guard are all production code. It is sealed twice —
+`APP_ENV=production` (baked into the `Dockerfile`) and a gunicorn check — and the process exits
+rather than starting with auth stubbed. Do not add a third mode, and do not add a "not configured,
+so allow" branch anywhere: fail-closed is the point.
+
+The guard lives in `SecurityMiddleware.dispatch()`, so **a new `/api` route is protected by
+default** and has to be named in `PUBLIC_PATHS` to opt out. Identity reaches the three routes that
+need it via `Depends(current_user)`.
+
+`overrides.reviewer` used to be free text a client chose. It is now the authenticated principal,
+alongside `reviewer_oid/upn/tid/source`. Those are **NULL on pre-SSO rows and are never backfilled**
+— promoting unverified history to verified is the one thing an audit trail must not do.
+
 ## Running it
 
 ```bash
-py -3 -m uvicorn api.main:app --port 8000      # backend
+AUTH_MODE=stub SESSION_BACKEND=memory \
+  py -3 -m uvicorn api.main:app --port 8000    # backend (single process — see below)
 cd ui && npm run dev                           # frontend on :5173
 py -3 -m pytest tests/ -q                      # backend tests
 bash scripts/gates.sh                          # ALL gates (run before finishing any change)
 ```
+
+The e2e suite needs the backend in stub mode, and in **one** process: `SESSION_BACKEND=memory`
+splits across gunicorn workers, so a request landing on the other worker looks signed out.
 
 The backend serves the API only — `/` returns 404 by design. The UI is `:5173` in dev.
 

@@ -1,8 +1,10 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Routes, Route, NavLink, useNavigate, useLocation } from "react-router-dom";
 import { api } from "./api.js";
-import { AppProvider, useApp } from "./state.jsx";
+import { AppProvider, AuthProvider, useApp, useAuth } from "./state.jsx";
 import AssistantDock from "./components/AssistantDock.jsx";
+import { Loading } from "./components/widgets.jsx";
+import SignIn from "./pages/SignIn.jsx";
 import Home from "./pages/Home.jsx";
 import Explore from "./pages/Explore.jsx";
 import Profile from "./pages/Profile.jsx";
@@ -184,10 +186,47 @@ function Shell() {
   );
 }
 
+/**
+ * Decides whether anyone is signed in before the shell exists.
+ *
+ * The gate has to sit above <Shell/>, not inside it: CommandBar starts searching on a
+ * debounce as soon as it mounts, so a shell rendered for an unauthenticated visitor fires
+ * an API call that is guaranteed to 401. Keeping Shell unmounted until `status === "in"`
+ * is what makes that impossible rather than merely unlikely.
+ */
+function AuthGate() {
+  const { status, mode } = useAuth();
+  if (status === "loading") {
+    return (
+      <div className="signin">
+        <Loading text="Checking your session…" />
+      </div>
+    );
+  }
+  if (status !== "in") return <SignIn />;
+  return (
+    <>
+      {/* If the stubbed sign-in ever reaches a real environment, it should be obvious in
+          one second rather than after an incident review. */}
+      {/* No live-region role on the banner: the text is present from first paint and never
+          changes, so it reads in document order like any other content. role="status" would
+          both misdescribe it and add a second live region to pages that already have one. */}
+      {mode === "stub" && (
+        <div className="stub-banner">
+          Authentication is stubbed — this is not a real identity.
+        </div>
+      )}
+      <Shell />
+    </>
+  );
+}
+
 export default function App() {
   return (
-    <AppProvider>
-      <Shell />
-    </AppProvider>
+    <AuthProvider>
+      <AppProvider>
+        <AuthGate />
+      </AppProvider>
+    </AuthProvider>
   );
 }

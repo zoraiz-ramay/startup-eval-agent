@@ -1,7 +1,7 @@
 // Single API client: request timeouts, JSON handling, normalized errors.
 // SECURITY: no tokens in the browser bundle — Vite exposes all VITE_* variables in
-// client source. Auth (if enabled) is enforced server-side; the browser reaches the
-// API only through the same-origin nginx proxy.
+// client source. Sign-in happens entirely server-side (Entra ID via api/auth.py) and the
+// browser holds nothing but an httpOnly session cookie it cannot read.
 const BASE = import.meta.env.VITE_API_BASE || "";
 
 class ApiError extends Error {
@@ -11,6 +11,22 @@ class ApiError extends Error {
   }
 }
 
+function readCookie(name) {
+  return document.cookie
+    .split("; ")
+    .find((row) => row.startsWith(`${name}=`))
+    ?.split("=")[1] ?? "";
+}
+
+// Set by AuthProvider. Kept as a module-level hook rather than a redirect inside request()
+// because a 401 must NOT navigate: an evaluation runs for up to four minutes, and bouncing
+// the whole page to the sign-in flow mid-request would discard whatever the reviewer was
+// doing. Flipping React state instead lets the app swap to the sign-in screen in place.
+let onUnauthorized = () => {};
+export function setUnauthorizedHandler(fn) {
+  onUnauthorized = typeof fn === "function" ? fn : () => {};
+}
+
 async function request(path, { method = "GET", body, timeoutMs = 30000 } = {}) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -18,12 +34,20 @@ async function request(path, { method = "GET", body, timeoutMs = 30000 } = {}) {
     const res = await fetch(`${BASE}${path}`, {
       method,
       signal: ctrl.signal,
+      credentials: "same-origin",
       headers: {
         ...(body ? { "Content-Type": "application/json" } : {}),
+        // Double-submit half of the CSRF defence. Reads are exempt; the server checks this
+        // against the token it stored at sign-in, not against the cookie.
+        ...(method === "GET" ? {} : { "X-CSRF-Token": readCookie("sea_csrf") }),
       },
       body: body ? JSON.stringify(body) : undefined,
     });
     const data = await res.json().catch(() => ({}));
+    if (res.status === 401) {
+      onUnauthorized();
+      throw new ApiError(data.detail || "Your session has ended.", 401);
+    }
     if (!res.ok) throw new ApiError(data.detail || `Request failed (${res.status})`, res.status);
     return data;
   } catch (e) {
@@ -47,15 +71,20 @@ export const api = {
   challenges: () => request("/api/challenges"),
   ask: (question, runId = null) =>
     request("/api/ask", { method: "POST", body: { question, run_id: runId }, timeoutMs: 120000 }),
-  override: (runId, newPillar, reason, evidenceNote = "", reviewer = "") =>
+  // No reviewer argument on either of these: the server takes it from the session, so a
+  // client cannot decide who gets credited for a routing change.
+  override: (runId, newPillar, reason, evidenceNote = "") =>
     request(`/api/runs/${encodeURIComponent(runId)}/override`, {
       method: "POST",
-      body: { new_pillar: newPillar, reason, evidence_note: evidenceNote, reviewer },
+      body: { new_pillar: newPillar, reason, evidence_note: evidenceNote },
     }),
   audit: (runId) => request(`/api/runs/${encodeURIComponent(runId)}/audit`),
-  setChallengeStatus: (index, status, reviewer = "") =>
+  setChallengeStatus: (index, status) =>
     request(`/api/challenges/${encodeURIComponent(index)}`, {
-      method: "PATCH", body: { status, reviewer },
+      method: "PATCH", body: { status },
     }),
+  me: () => request("/api/auth/me"),
+  logout: () => request("/api/auth/logout", { method: "POST" }),
+  status: () => request("/api/status"),
 };
 export { ApiError };

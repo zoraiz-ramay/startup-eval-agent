@@ -89,8 +89,7 @@
         "runId",
         "newPillar",
         "reason",
-        "evidenceNote = \"\"",
-        "reviewer = \"\""
+        "evidenceNote = \"\""
       ]
     },
     {
@@ -103,9 +102,20 @@
       "method": "setChallengeStatus",
       "args": [
         "index",
-        "status",
-        "reviewer = \"\""
+        "status"
       ]
+    },
+    {
+      "method": "me",
+      "args": []
+    },
+    {
+      "method": "logout",
+      "args": []
+    },
+    {
+      "method": "status",
+      "args": []
     }
   ],
   "design_tokens": [
@@ -150,7 +160,7 @@
   "files": [
     {
       "path": "ui/src/App.jsx",
-      "lines": 194,
+      "lines": 233,
       "exports": [
         "App"
       ],
@@ -168,7 +178,9 @@
         "ri",
         "rl",
         "sidenav",
+        "signin",
         "snav-item",
+        "stub-banner",
         "sub",
         "suggest",
         "suggest-item",
@@ -176,6 +188,12 @@
         "top-actions",
         "topbar"
       ]
+    },
+    {
+      "path": "ui/src/App.test.jsx",
+      "lines": 62,
+      "exports": [],
+      "css_classes": []
     },
     {
       "path": "ui/src/components/AssistantDock.jsx",
@@ -568,21 +586,46 @@
     },
     {
       "path": "ui/src/pages/Settings.jsx",
-      "lines": 45,
+      "lines": 65,
       "exports": [
         "Settings"
       ],
       "css_classes": [
+        "btn",
         "crumb",
         "k",
         "muted",
         "page-head",
         "page-title",
         "panel",
+        "secondary",
         "spec",
         "status-dot",
         "v"
       ]
+    },
+    {
+      "path": "ui/src/pages/SignIn.jsx",
+      "lines": 100,
+      "exports": [
+        "SignIn"
+      ],
+      "css_classes": [
+        "btn",
+        "muted",
+        "panel",
+        "signin",
+        "signin-card",
+        "signin-foot",
+        "signin-lede",
+        "signin-title"
+      ]
+    },
+    {
+      "path": "ui/src/pages/SignIn.test.jsx",
+      "lines": 79,
+      "exports": [],
+      "css_classes": []
     },
     {
       "path": "ui/src/pages/Solve.jsx",
@@ -592,19 +635,21 @@
     },
     {
       "path": "ui/src/state.jsx",
-      "lines": 51,
+      "lines": 91,
       "exports": [
         "AppProvider",
-        "useApp"
+        "AuthProvider",
+        "useApp",
+        "useAuth"
       ],
       "css_classes": []
     }
   ],
   "totals": {
     "routes": 7,
-    "api_methods": 12,
+    "api_methods": 15,
     "design_tokens": 37,
-    "jsx_files": 29,
-    "jsx_lines": 3111
+    "jsx_files": 32,
+    "jsx_lines": 3451
   }
 }
