@@ -15,7 +15,7 @@ import pathlib
 # Ensure the project root is importable when launched as `uvicorn api.main:app`.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import Depends, FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -29,6 +29,8 @@ import core
 from core.solve import solve_problem, load_challenges, set_challenge_status
 from core import s3 as _s3
 from api import store
+from api.auth import Principal, current_user, settings as auth_settings
+from api.auth import router as auth_router
 from api.security import SecurityMiddleware
 from api.routes_evidence import router as evidence_router
 
@@ -96,7 +98,16 @@ _origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:3000,
 app.add_middleware(SecurityMiddleware)
 app.add_middleware(CORSMiddleware, allow_origins=_origins, allow_credentials=True,
                    allow_methods=["GET", "POST", "PATCH", "DELETE"],
-                   allow_headers=["Authorization", "Content-Type"])
+                   allow_headers=["Authorization", "Content-Type", "X-CSRF-Token"])
+
+# Build and validate auth config here rather than at import of api.auth: this runs after
+# `import core` has loaded .env, and it is where a missing client secret should stop the
+# process — not on the first sign-in attempt.
+auth_settings()
+
+# Registered before the SPA catch-all at the bottom of this file, which would otherwise
+# swallow /api/auth/* and serve index.html instead.
+app.include_router(auth_router)
 app.include_router(evidence_router)
 
 
@@ -118,16 +129,19 @@ class AskBody(BaseModel):
     run_id: int | None = Field(None, description="Ground the answer in this evaluated run")
 
 
+# Neither of the two bodies below carries a `reviewer` any more: it is taken from the
+# session. Pydantic ignores unknown fields by default, so a stale client still sending one
+# is silently disregarded rather than rejected — which is exactly right, since the whole
+# point is that a client cannot choose who gets credited. Do not add extra="forbid" here;
+# that would turn a harmless old browser tab into a hard 422.
 class OverrideBody(BaseModel):
     new_pillar: str = Field(..., pattern="^(Connect|Collaborate|Empower|Pass)$")
     reason: str = Field(..., min_length=5, max_length=1000)
     evidence_note: str = Field("", max_length=2000)
-    reviewer: str = Field("", max_length=120)
 
 
 class ChallengeStatusBody(BaseModel):
     status: str = Field(..., pattern="^(pending|approved|rejected)$")
-    reviewer: str = Field("", max_length=120)
 
 
 def _gd_key() -> bool:
@@ -136,6 +150,24 @@ def _gd_key() -> bool:
 
 @app.get("/health")
 def health() -> dict:
+    """Liveness only, and deliberately empty of detail.
+
+    This endpoint is unauthenticated because the Docker healthcheck and the load balancer
+    both need it, which also means it is reachable from outside. It used to report the S3
+    bucket name, the LLM provider and model, and which API keys were configured — a free
+    reconnaissance summary for anyone who found the hostname. The diagnostics moved to
+    /api/status, behind the session guard.
+    """
+    return {"status": "ok"}
+
+
+@app.get("/api/status")
+def status(user: Principal = Depends(current_user)) -> dict:
+    """What /health used to say, for signed-in reviewers.
+
+    The S3 bucket name is not repeated here: it is a target rather than something a
+    reviewer can act on, and Settings never displayed it.
+    """
     _llm = core.LLMClient()
     return {"status": "ok",
             "llm": _llm.available,
@@ -145,7 +177,6 @@ def health() -> dict:
             "data_source": "glassdollar_api",
             "applications_file": os.path.basename(_LOCAL_XLSX) if _LOCAL_XLSX else "",
             "applications_count": int(len(_get_local_df())) if _LOCAL_XLSX else 0,
-            "s3_bucket": _s3.S3_BUCKET,
             "s3_available": _s3._available()}
 
 
@@ -291,11 +322,16 @@ def run_delete(run_id: int) -> dict:
 
 
 @app.post("/api/runs/{run_id}/override")
-def override_run(run_id: int, body: OverrideBody) -> dict:
+def override_run(run_id: int, body: OverrideBody,
+                 user: Principal = Depends(current_user)) -> dict:
     """Reviewer override of the routing decision. The automated result is preserved;
-    the change, its reason, and supporting evidence are logged for audit."""
+    the change, its reason, and supporting evidence are logged for audit.
+
+    The reviewer comes from the session, never from the body. This used to be a free-text
+    field, which meant a partnership decision could be attributed to anyone who had not
+    made it."""
     rec = store.add_override(run_id, body.new_pillar, body.reason,
-                             body.evidence_note, body.reviewer)
+                             body.evidence_note, reviewer=user.as_reviewer())
     if rec is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found.")
     return rec
@@ -312,9 +348,11 @@ def challenges() -> dict:
 
 
 @app.patch("/api/challenges/{index}")
-def challenge_status(index: int, body: ChallengeStatusBody) -> dict:
+def challenge_status(index: int, body: ChallengeStatusBody,
+                     user: Principal = Depends(current_user)) -> dict:
     """Innovation-team approval control over submitted problems."""
-    rec = set_challenge_status(index, body.status, body.reviewer)
+    rec = set_challenge_status(index, body.status, user.name,
+                               reviewer_oid=user.oid)
     if rec is None:
         raise HTTPException(status_code=404, detail=f"Challenge {index} not found.")
     return rec
