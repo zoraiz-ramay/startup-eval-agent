@@ -37,11 +37,17 @@ readiness* because the hard part is done — verified against the current source
 | Data | Computed in | Shown? | Why it matters |
 |---|---|---|---|
 | `employees_over_time` | `core/profile.py::_employee_history` | **no** | Evidence-cited headcount series, every point carrying a source URL. Growth trajectory is a routing signal, and the series is discarded today. |
-| `route_scorecards` | `core/score.py` | **no** | The same startup re-scored under Connect / Collaborate / Empower weights. A reviewer choosing a pillar currently cannot see how the alternatives score. |
-| `search_stats` (`timed_out`) | `core/enrich.py` | **no** | Records how much of the web wave was abandoned. Without it, a throttled partial run is indistinguishable from a genuinely thin company — the user reads a thin profile as fact. |
+| `route_scorecards` | `core/score.py` | **partly** | Already reaches the UI: `core/route.py:57-67` turns it into `routing.route_recommendations`, rendered at `ui/src/pages/Profile.jsx:228-231`. Only *eligible* routes are included (`route.py:24-34`), so a Pass-routed startup still sees zero or one card. Narrow completion gap, not a fresh feature. |
+| `search_stats` (`timed_out`) | `core/enrich.py` | **yes** | Already surfaced: `core/pipeline.py:177-180` appends `"· N/M web queries timed out"` to `engine`, rendered at `ui/src/pages/Profile.jsx:520`. Under-emphasised (muted text, absent from Explore where many companies are scanned) — a presentation fix for `contract/ui-backlog.md`, not a feature. |
 
 Anything scoring ≥ 7 that is *not* in this table needs a stronger `G2` citation, because the
 cheapest real value in this product is currently sitting unexposed.
+
+**Verify this table against source before citing it.** Two of its three rows were stale by the
+first scouting run (2026-08-10) — they described work that had since shipped. A scout that trusts
+the table blindly proposes something already built, which is exactly the churn this rubric exists
+to prevent. Re-check and correct it as part of scouting; the correction is worth more than the
+proposal.
 
 ## Rejected patterns (do not re-propose)
 

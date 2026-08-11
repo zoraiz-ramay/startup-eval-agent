@@ -63,4 +63,32 @@ describe("Explore column drawer", () => {
     expect(screen.getAllByRole("button", { name: /move down/i }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("checkbox", { name: /^(remove|add) /i }).length).toBeGreaterThan(0);
   });
+
+  it("X-04: the click-outside backdrop is hidden from assistive tech rather than a fake unlabelled button", async () => {
+    const user = userEvent.setup();
+    const { container } = renderExplore();
+    await user.click(await screen.findByRole("button", { name: /customise columns/i }));
+
+    // The mask has no accessible name and duplicates a close that Escape already provides — it
+    // must not be exposed to the accessibility tree as an actionable, unlabelled element.
+    const mask = container.querySelector(".drawer-mask");
+    expect(mask).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("X-04: opening the drawer moves focus into it, and closing it with Escape returns focus to the trigger", async () => {
+    const user = userEvent.setup();
+    renderExplore();
+    const trigger = await screen.findByRole("button", { name: /customise columns/i });
+    await user.click(trigger);
+
+    // A screen-reader user who activates the trigger needs their focus — and so their announced
+    // context — to actually move into the panel that just appeared, not stay behind on the button.
+    const panel = screen.getByRole("complementary", { name: /customise columns/i });
+    expect(panel).toHaveFocus();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("complementary", { name: /customise columns/i })).toBeNull();
+    // Closing must not drop focus into <body> — it belongs back on the control that opened it.
+    expect(trigger).toHaveFocus();
+  });
 });
