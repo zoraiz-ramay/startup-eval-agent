@@ -188,9 +188,14 @@ def status(user: Principal = Depends(current_user)) -> dict:
 
 @app.get("/api/search")
 def search(q: str, limit: int = 10) -> dict:
-    """Name search — always queries the local applications xlsx first, then the
-    GlassDollar API (when a key is set). Results are merged and deduplicated so
-    local applicants appear even when a live API key is configured."""
+    """Name search — GlassDollar API first, then the local applications xlsx.
+
+    GlassDollar leads because it is the live, curated record: it spans far more companies
+    than the 429-row export and its fields are the ones the pipeline would otherwise
+    reconstruct from DuckDuckGo. The xlsx stays as the second source rather than being
+    dropped — it carries pitch-form answers (business model, development stage, the Siemens
+    function selections, the deck) that the API does not expose — and it is the only source
+    at all when no key is configured."""
     q, limit = q[:200], max(1, min(limit, 25))
     if not q.strip():
         return {"results": []}
@@ -198,7 +203,25 @@ def search(q: str, limit: int = 10) -> dict:
     results: list = []
     seen_names: set = set()
 
-    # 1. Local xlsx — always available, no key needed.
+    if _gd_key():
+        try:
+            df = core.search_glassdollar(q.strip(), limit=limit)
+            for row in df.to_dict("records"):
+                name = str(row.get("company_name", "")).strip()
+                if not name or name.lower() in seen_names:
+                    continue
+                seen_names.add(name.lower())
+                results.append({
+                    "company_name": name,
+                    "hq": str(row.get("hq", "")),
+                    "website": str(row.get("website", "")),
+                    "source": "glassdollar",
+                })
+        except Exception:
+            # Don't fail the whole search if the API is down — local results still show.
+            pass
+
+    # Local xlsx — always available, no key needed.
     # Results are sorted so "starts with" matches appear before "contains" matches.
     local = _get_local_df()
     if local is not None:
@@ -221,25 +244,6 @@ def search(q: str, limit: int = 10) -> dict:
                 "website": str(row.get("website", "")),
                 "source": "applications",
             })
-
-    # 2. GlassDollar API — live results appended after local ones.
-    if _gd_key():
-        try:
-            df = core.search_glassdollar(q.strip(), limit=limit)
-            for row in df.to_dict("records"):
-                name = str(row.get("company_name", "")).strip()
-                if not name or name.lower() in seen_names:
-                    continue
-                seen_names.add(name.lower())
-                results.append({
-                    "company_name": name,
-                    "hq": str(row.get("hq", "")),
-                    "website": str(row.get("website", "")),
-                    "source": "glassdollar",
-                })
-        except Exception as e:
-            # Don't fail the whole search if the API is down — local results still show.
-            pass
 
     return {"results": results[:limit]}
 

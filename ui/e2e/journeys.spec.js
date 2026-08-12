@@ -125,13 +125,14 @@ test.describe("profile", () => {
     const headerPill = page.locator(".ph-title .pill").first();
     await expect(page.getByText(/still/i).first()).toBeVisible();
 
-    // One edit. Collaborate's card falls 67.3 -> 46.3, under its own 55 gate, so only the ungated
-    // Empower survives. Asserting the transition rather than a bare number keeps this readable
-    // when the fixture is retuned.
-    await page.getByLabel(/^ecosystem$/i).fill("100");
+    // One edit. Ecosystem to 52% of the weighting drops Collaborate's card 67.3 -> 46.4, under
+    // its own 55 gate, so only the ungated Empower survives. The control is a share slider now,
+    // so the value is the share directly rather than a raw point count normalised afterwards —
+    // 52% is the same weighting the old "ecosystem = 100 points" produced (100/192).
+    await page.getByLabel(/^ecosystem$/i).fill("52");
 
     await expect(page.getByText(/not the evaluation result/i).first()).toBeVisible();
-    await expect(page.getByText(/46\.3/).first()).toBeVisible();
+    await expect(page.getByText(/46\.4/).first()).toBeVisible();
     await expect(page.getByText(/needs ≥ 55/).first()).toBeVisible();
 
     // The decision itself is untouched — that is the whole contract of a what-if.
@@ -190,7 +191,7 @@ test.describe("accessibility", () => {
     const runs = {
       runs: [...RUNS_FIXTURE.runs, { ...RUNS_FIXTURE.runs[0], id: 4, company: "Fourth Pillar Co", pillar: "Pass" }],
     };
-    await page.route("**/api/runs", (route) => route.fulfill({ json: runs }));
+    await page.route("**/api/my/searches", (route) => route.fulfill({ json: runs }));
     await page.goto("/explore");
     await expect(page.locator(".pill.Pass").first()).toBeVisible();
 
