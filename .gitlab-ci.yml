@@ -25,6 +25,9 @@ variables:
   # AWS Secrets Manager
   AWS_SECRET_NAME: "docker-apps/startup-evaluation-agent-hydra"
 
+  # Disable WAF to allow global access (including Israel office)
+  ATTACH_WAF: "false"
+
   # AWS Resource Tags
   AWS_TAGS: '[{"name":"created_by","value":"claude"},{"name":"type","value":"app"}]'
 
@@ -63,7 +66,7 @@ trigger_ci_hub:
         -F "variables[AWS_TAGS]=$AWS_TAGS" \
         -F "variables[ATTACH_WAF]=${ATTACH_WAF:-true}" \
         -F "variables[GIT_DEPTH]=1" \
-        -F "variables[APP_GIT_REF]=latest" \
+        -F "variables[APP_GIT_REF]=$CI_COMMIT_BRANCH" \
         "$TRIGGER_URL" 2>&1 || echo "$RESPONSE")
       
       echo "Response: $RESPONSE"
@@ -84,7 +87,7 @@ trigger_ci_hub:
         exit 1
       fi
   rules:
-    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "latest" || $CI_COMMIT_BRANCH == "main"
       when: always
     - if: $CI_PIPELINE_SOURCE == "web"
       when: manual

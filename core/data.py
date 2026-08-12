@@ -8,9 +8,10 @@ from typing import Optional
 import pandas as pd
 
 from .config import PDF_DIR, GLASSDOLLAR_API_KEY
-from .text import _norm
+from .text import _norm, has_funding_signal
 from .web import _ddg_many
 from .llm import LLMClient
+from . import s3 as _s3
 
 
 def load_glassdollar(path: str = None) -> pd.DataFrame:
@@ -93,6 +94,7 @@ def web_profile_row(name: str, llm: "LLMClient" = None, max_results: int = 4) ->
         f"{name} funding raised investors valuation",
         f"{name} headquarters location founded year",
         f"{name} customers clients case study",
+        f"{name} crunchbase founded funding stage",
     ]
     results = _ddg_many({str(i): q for i, q in enumerate(queries)}, max_results=max_results)
     hits: list[dict] = []
@@ -154,11 +156,22 @@ def web_profile_row(name: str, llm: "LLMClient" = None, max_results: int = 4) ->
             return ", ".join(_flat(x) for x in v if x)
         return str(v or "").strip()
 
-    # Gap-fill: any column the web results left empty gets ONE more LLM call against
-    # model knowledge (marked unverified) so profiles never ship with blank fields.
+    # Gap-fill from MODEL KNOWLEDGE is deliberately limited to descriptive fields.
+    #
+    # It used to cover the verifiable ones too (hq, founded_year, funding, employees,
+    # customers) so a profile never shipped with blanks. Asked to recall a small startup the
+    # model does not simply decline — it invents: makkook.ai came back with a funding round of
+    # "SAR 3.75 million" that appears nowhere on the web, and the same prompt style produced
+    # three different fabricated founder names across three calls. The `_knowledge_filled`
+    # marker never reached the row, so a guess rendered exactly like a cited fact, and once
+    # funding started feeding the score a fabrication moved the numbers too.
+    #
+    # Those fields are now left blank here and filled by the research pipeline instead, which
+    # grounds each one in a real source (see profile._recover_headline_facts). Business model
+    # and stage stay: they are characterisations of the description already in hand rather than
+    # falsifiable facts a reader would cite.
     if llm and llm.available:
-        _GAP_KEYS = ("hq", "founded_year", "funding", "employees", "customers",
-                     "business_model", "stage", "website")
+        _GAP_KEYS = ("business_model", "stage")
         missing = [k for k in _GAP_KEYS if not str(fields.get(k) or "").strip()]
         if missing:
             gap = LLMClient.parse_json(llm.complete(
@@ -171,19 +184,31 @@ def web_profile_row(name: str, llm: "LLMClient" = None, max_results: int = 4) ->
                     fields[k] = gap[k]
             fields["_knowledge_filled"] = missing
 
+    site = (_flat(fields.get("website")) or website)
+    # Derive the bare host. Downstream research pins its identity-sensitive searches to the
+    # company's domain (profile._site_hint), and leaving this blank silently disabled that for
+    # exactly the companies that need it most — the ones NOT in the database, whose names the
+    # web knows least. Makkook.AI's searches drifted onto an unrelated "AI Seed" fund until
+    # the queries carried makkook.ai.
+    from urllib.parse import urlparse
+    host = urlparse(site if "//" in site else "https://" + site).hostname or "" if site else ""
     row = {
         "company_name": (_flat(fields.get("company_name")) or name),
-        "website": (_flat(fields.get("website")) or website),
+        "website": site,
         "hq": _flat(fields.get("hq")),
         "founded_year": _flat(fields.get("founded_year")),
-        "funding": _flat(fields.get("funding")),
+        # Same bar as the research pipeline: a value naming neither stage nor amount
+        # ("Unfunded") is dropped so the sourced round can fill the field instead.
+        "funding": (_flat(fields.get("funding"))
+                    if has_funding_signal(_flat(fields.get("funding"))) else ""),
         "employees_count": _flat(fields.get("employees")),
         "customers": _flat(fields.get("customers")),
         "short_description": desc,
         "Your pitch": desc,
         "Business model": _flat(fields.get("business_model")),
         "Development stage of your solution": _flat(fields.get("stage")),
-        "domain": "", "has_pdf": "", "linkedin_url": "", "crunchbase_url": "",
+        "domain": host[4:] if host.startswith("www.") else host,
+        "has_pdf": "", "linkedin_url": "", "crunchbase_url": "",
     }
     return pd.Series(row)
 
@@ -228,8 +253,8 @@ def load_siemens_tools(path: str) -> list[dict]:
 # ----------------------------------------------------------------------------- pdf
 def _resolve_pdf(path_field: str, pdf_dir: str = PDF_DIR) -> str:
     """Resolve a row's pdf_local_path (which may list several "; "-joined paths) to a
-    real file inside the pdfs folder. Tries the stored path first, then falls back to the
-    basename inside pdf_dir so it works regardless of the launch directory."""
+    real file inside the pdfs folder. Tries the stored path first, falls back to the
+    basename inside pdf_dir, and finally fetches from S3 if still not found."""
     for raw in str(path_field).split(";"):
         raw = raw.strip().strip('"')
         if not raw:
@@ -238,6 +263,11 @@ def _resolve_pdf(path_field: str, pdf_dir: str = PDF_DIR) -> str:
         for cand in (raw, os.path.join(pdf_dir, basename)):
             if cand and os.path.exists(cand):
                 return cand
+        # Fall back to S3
+        if basename:
+            local = _s3.fetch_pdf(basename)
+            if local:
+                return local
     return ""
 
 

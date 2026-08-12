@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import concurrent.futures
+import contextvars
+import functools
 
 import pandas as pd
 
+from . import web
 from .config import LLM_MODEL
 from .llm import LLMClient
 from .data import load_glassdollar, find_startup, web_profile_row, load_siemens_tools
@@ -18,8 +21,53 @@ from .route import route
 from .profile import research_profile
 
 
+# Headline fields the DB leaves blank but web research can establish, mapped to their key in
+# the researched deep profile.
+_BACKFILL_FIELDS = (("founded_year", "founded_year"), ("funding", "funding"),
+                    ("employees_count", "employees"))
+
+
+def backfill_profile(profile: dict, deep_profile: dict) -> dict:
+    """Fill BLANK profile fields from web research, in place; return the provenance map.
+
+    GlassDollar's export frequently omits founded_year, funding and headcount, and the
+    researched values otherwise exist only as evidence Facts — visible in the Evidence tab but
+    never in the profile header, so the UI showed "—" for facts the run had actually
+    established. Only blank fields are filled: wherever the DB has a value it stays
+    authoritative. Every filled field is recorded in the returned ``profile_sources`` so the UI
+    can mark it web-sourced rather than passing it off as application data.
+    """
+    sources: dict = {}
+    for col, pkey in _BACKFILL_FIELDS:
+        if str(profile.get(col, "")).strip():
+            continue
+        val = str(deep_profile.get(pkey, "")).strip()
+        if val:
+            profile[col] = val
+            # Not every researched field carries a source URL (headcount has no *_source key),
+            # so the origin is recorded even when the URL is unknown.
+            sources[col] = {"origin": "web",
+                            "url": str(deep_profile.get(f"{pkey}_source", "")).strip()}
+    return sources
+
+
 def evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = True,
-             df: "pd.DataFrame" = None, on_step=None) -> dict:
+             df: "pd.DataFrame" = None, on_step=None, use_web_cache: bool = True) -> dict:
+    """Run the full pipeline for one startup.
+
+    ``use_web_cache=False`` forces every search and site fetch to hit the network. A forced
+    re-evaluation must not replay cached results, or "Re-evaluate" would hand back the same
+    week-old evidence it was asked to refresh.
+    """
+    token = web.set_cache_enabled(use_web_cache)
+    try:
+        return _evaluate(name, glassdollar_path, tools_path, do_web, df, on_step)
+    finally:
+        web.reset_cache_enabled(token)
+
+
+def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = True,
+              df: "pd.DataFrame" = None, on_step=None) -> dict:
     # Optional progress callback: on_step(step_label, status) where status is one of
     # "running" | "done" | "error". Reporting must never break the evaluation itself.
     def _step(label: str, status: str = "running") -> None:
@@ -80,14 +128,21 @@ def evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = T
     _step("STRUCTURE", "running")
     _step("REVIEW", "running")
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as ex:
-        f_ver   = ex.submit(verify_facts, row, enrichment, llm)
-        f_sum   = ex.submit(summarize_offering, row, enrichment["pitch_pdf"], llm)
-        f_fit   = ex.submit(match_siemens_tools, row, enrichment["pitch_pdf"], tools, llm)
+        # Pool threads start with an EMPTY context, so anything submitted plainly here loses
+        # the cache-bypass ContextVar set by evaluate() and falls back to its default (True):
+        # a forced refresh would keep replaying cached searches and completions for the whole
+        # of the profile / trend research, which is most of the run.
+        def _spawn(fn, *a):
+            return ex.submit(contextvars.copy_context().run, functools.partial(fn, *a))
+
+        f_ver   = _spawn(verify_facts, row, enrichment, llm)
+        f_sum   = _spawn(summarize_offering, row, enrichment["pitch_pdf"], llm)
+        f_fit   = _spawn(match_siemens_tools, row, enrichment["pitch_pdf"], tools, llm)
         # deep structured profile: founders / advisors / programs / parent group / SFS relevance
-        f_prof  = ex.submit(research_profile, row, llm, do_web)
+        f_prof  = _spawn(research_profile, row, llm, do_web, enrichment.get("site"))
         # trend uses niche keywords derived inside analyze_trend (stage 1); we pass an empty
         # list here and it derives its own terms. We kick it off early so it runs in parallel.
-        f_trend = ex.submit(analyze_trend, row, "", [], llm, do_web)
+        f_trend = _spawn(analyze_trend, row, "", [], llm, do_web)
         verification = f_ver.result()
         _step("VERIFY", "done")
         summary      = f_sum.result()
@@ -114,9 +169,15 @@ def evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = T
     else:                       # web row: keep only the fields we actually populated
         profile = {c: str(row.get(c, "")) for c in profile_cols if str(row.get(c, "")).strip()}
 
+    profile_sources = backfill_profile(profile, deep_profile)
+
     engine = "openai:" + LLM_MODEL if llm.available else "offline-fallback"
     if source == "web":
         engine += " · web-sourced"
+    stats = enrichment.get("search_stats") or {}
+    if stats.get("timed_out"):
+        # Surface partial coverage instead of letting it look like a complete run.
+        engine += f" · {stats['timed_out']}/{stats.get('requested', 0)} web queries timed out"
 
     return {
         "found": True,
@@ -124,6 +185,7 @@ def evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = T
         "engine": engine,
         "company": str(row.get("company_name", "")) or name,
         "profile": profile,
+        "profile_sources": profile_sources,
         "summary": summary,
         "facts": [f.as_dict() for f in enrichment["facts"]],
         "verification": verification,

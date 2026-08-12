@@ -1,19 +1,93 @@
-"""SQLite persistence for evaluation runs (replaces session-only history).
+"""SQLite persistence for evaluation runs with S3 backup.
 
 Stored per run: summary columns for fast listing + the full result JSON blob.
 DB lives at DATA_DIR/runs.db (override with RUNS_DB).
+
+On first connection the DB is restored from S3 if a remote copy exists and no
+local file is present. After every write (save_run, delete_run, add_override)
+the DB is uploaded back to S3 in a background thread so it survives container
+restarts and redeployments.
 """
 from __future__ import annotations
 
 import json
+import logging
 import os
 import pathlib
+import shutil
 import sqlite3
-from datetime import datetime, timezone
+import threading
+from datetime import datetime, timedelta, timezone
 
 from core.config import BASE_DIR
 
+log = logging.getLogger(__name__)
+
 DB_PATH = os.getenv("RUNS_DB", str(pathlib.Path(BASE_DIR) / "runs.db"))
+
+# ----------------------------------------------------------------- S3 sync
+_S3_DB_KEY = "data/runs.db"
+_s3_lock = threading.Lock()
+_restored = False
+
+
+def _s3_client():
+    import boto3
+    return boto3.client(
+        "s3",
+        region_name=os.getenv("AWS_REGION", "us-west-2"),
+        aws_access_key_id=os.environ.get("HYDRA_DATA_AWS_ACCESS_KEY_ID"),
+        aws_secret_access_key=os.environ.get("HYDRA_DATA_AWS_SECRET_ACCESS_KEY"),
+    )
+
+
+def _s3_available() -> bool:
+    return bool(
+        os.environ.get("HYDRA_DATA_AWS_ACCESS_KEY_ID")
+        and os.environ.get("HYDRA_DATA_AWS_SECRET_ACCESS_KEY")
+    )
+
+
+def _s3_bucket() -> str:
+    return os.getenv("S3_BUCKET", "hydra-data-app-startup-evaluation-agent-hydra-pdfs")
+
+
+def _restore_from_s3() -> None:
+    """Download runs.db from S3 if no local copy exists yet."""
+    global _restored
+    if _restored or not _s3_available():
+        _restored = True
+        return
+    _restored = True
+    if os.path.exists(DB_PATH):
+        log.info("[store] Local DB already exists at %s, skipping S3 restore", DB_PATH)
+        return
+    try:
+        os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
+        tmp = DB_PATH + ".s3tmp"
+        _s3_client().download_file(_s3_bucket(), _S3_DB_KEY, tmp)
+        shutil.move(tmp, DB_PATH)
+        log.info("[store] Restored DB from s3://%s/%s -> %s", _s3_bucket(), _S3_DB_KEY, DB_PATH)
+    except Exception as exc:
+        log.info("[store] No DB in S3 (starting fresh): %s", exc)
+        if os.path.exists(DB_PATH + ".s3tmp"):
+            os.remove(DB_PATH + ".s3tmp")
+
+
+def _upload_to_s3() -> None:
+    """Upload the current runs.db to S3 in a background thread."""
+    if not _s3_available():
+        return
+
+    def _do_upload():
+        with _s3_lock:
+            try:
+                _s3_client().upload_file(DB_PATH, _s3_bucket(), _S3_DB_KEY)
+                log.debug("[store] Synced DB to s3://%s/%s", _s3_bucket(), _S3_DB_KEY)
+            except Exception as exc:
+                log.warning("[store] S3 upload failed: %s", exc)
+
+    threading.Thread(target=_do_upload, daemon=True).start()
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
@@ -87,22 +161,108 @@ CREATE TABLE IF NOT EXISTS tool_matches (
     tool       TEXT NOT NULL,
     division   TEXT, relation TEXT, confidence REAL, rationale TEXT
 );
+CREATE TABLE IF NOT EXISTS web_cache (
+    key        TEXT PRIMARY KEY,
+    kind       TEXT NOT NULL,
+    payload    TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS idx_people_company ON people(company_id);
 CREATE INDEX IF NOT EXISTS idx_facts_run ON evidence_facts(run_id);
+CREATE INDEX IF NOT EXISTS idx_web_cache_created ON web_cache(created_at);
 """
 
 
 def _conn() -> sqlite3.Connection:
+    _restore_from_s3()
     os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
     con = sqlite3.connect(DB_PATH)
     con.executescript(_SCHEMA)
-    # lightweight migrations for DBs created before these columns existed
     for col, typ in (("summary", "TEXT"), ("parent_group", "TEXT"), ("company_id", "INTEGER")):
         try:
             con.execute(f"ALTER TABLE runs ADD COLUMN {col} {typ}")
         except sqlite3.OperationalError:
-            pass                                   # column already present
+            pass
+    # Verified reviewer identity, added when the app moved to Entra ID sign-in. These stay
+    # NULL on rows written before that, which is the honest record: the `reviewer` string
+    # on those rows was free text the client supplied and nothing checked it. Backfilling
+    # them would make unverified history indistinguishable from verified history, which is
+    # the one thing an audit trail must never do.
+    for col in ("reviewer_oid", "reviewer_upn", "reviewer_tid", "reviewer_source"):
+        try:
+            con.execute(f"ALTER TABLE overrides ADD COLUMN {col} TEXT")
+        except sqlite3.OperationalError:
+            pass
     return con
+
+
+# ---------------------------------------------------------------------- web cache
+# Search results and fetched site pages are cached so a re-evaluation is both fast and
+# REPRODUCIBLE: DuckDuckGo returns a different mix of results run to run, which is the main
+# reason two evaluations of the same startup used to disagree.
+#
+# Cache writes deliberately DO NOT call _upload_to_s3(): that ships the whole runs.db in a
+# background thread and would fire dozens of times per evaluation (~41 searches). The rows are
+# written locally and ride along on the next save_run upload, which sends the entire file
+# anyway.
+WEB_CACHE_TTL_DAYS = float(os.getenv("WEB_CACHE_TTL_DAYS", "7"))
+_cache_lock = threading.Lock()
+
+
+def _cache_conn() -> sqlite3.Connection:
+    """Short-lived connection for cache access.
+
+    Searches run in _ddg_many's daemon threads, so every cache call may come from a different
+    thread; sqlite3 connections are not shareable across threads. WAL lets the readers proceed
+    while a writer holds the lock."""
+    con = _conn()
+    try:
+        con.execute("PRAGMA journal_mode=WAL")
+        con.execute("PRAGMA busy_timeout=5000")
+    except sqlite3.OperationalError:
+        pass
+    return con
+
+
+def cache_get(kind: str, key: str) -> "object | None":
+    """Cached payload for this key, or None when absent or older than the TTL."""
+    try:
+        with _cache_lock, _cache_conn() as con:
+            row = con.execute(
+                "SELECT payload, created_at FROM web_cache WHERE key=? AND kind=?",
+                (key, kind)).fetchone()
+        if not row:
+            return None
+        age = (datetime.now(timezone.utc)
+               - datetime.fromisoformat(row[1])).total_seconds() / 86400
+        if age > WEB_CACHE_TTL_DAYS or age < 0:
+            return None
+        return json.loads(row[0])
+    except Exception:
+        return None            # a cache fault must never break an evaluation
+
+
+def cache_put(kind: str, key: str, payload) -> None:
+    try:
+        with _cache_lock, _cache_conn() as con:
+            con.execute(
+                "INSERT OR REPLACE INTO web_cache (key, kind, payload, created_at) "
+                "VALUES (?,?,?,?)",
+                (key, kind, json.dumps(payload), _now()))
+    except Exception:
+        pass
+
+
+def cache_purge_expired() -> int:
+    """Drop rows past the TTL; returns how many were removed."""
+    cutoff = (datetime.now(timezone.utc)
+              - timedelta(days=WEB_CACHE_TTL_DAYS)).isoformat(timespec="seconds")
+    try:
+        with _cache_lock, _cache_conn() as con:
+            return int(con.execute("DELETE FROM web_cache WHERE created_at < ?",
+                                   (cutoff,)).rowcount or 0)
+    except Exception:
+        return 0
 
 
 def _now() -> str:
@@ -204,11 +364,11 @@ def save_run(result: dict) -> int:
              json.dumps(result, default=str),
              str(result.get("summary", ""))[:300], str(dp.get("parent_group", ""))[:120]))
         run_id = int(cur.lastrowid)
-        # normalized persistence of everything the pipeline fetched
         cid = _upsert_company(con, result, run_id)
         con.execute("UPDATE runs SET company_id=? WHERE id=?", (cid, run_id))
         _replace_children(con, cid, run_id, result)
-        return run_id
+    _upload_to_s3()
+    return run_id
 
 
 def backfill_entities() -> int:
@@ -335,14 +495,24 @@ def latest_run_for_company(company: str) -> dict | None:
 def delete_run(run_id: int) -> bool:
     with _conn() as con:
         cur = con.execute("DELETE FROM runs WHERE id=?", (run_id,))
-        return cur.rowcount > 0
+        deleted = cur.rowcount > 0
+    if deleted:
+        _upload_to_s3()
+    return deleted
 
 
 # ----------------------------------------------------------------- reviewer overrides
 def add_override(run_id: int, new_pillar: str, reason: str,
-                 evidence_note: str = "", reviewer: str = "") -> dict | None:
+                 evidence_note: str = "", *, reviewer: dict | None = None) -> dict | None:
     """Record a reviewer override of the routing decision. The automated result stays
-    untouched in result_json (auditability); the runs row reflects the effective pillar."""
+    untouched in result_json (auditability); the runs row reflects the effective pillar.
+
+    `reviewer` is the authenticated principal (see api/auth.py), not a name the caller
+    chose. It is keyword-only and optional so the scripts and tests that drive the engine
+    without a web request keep working; those rows are then indistinguishable from the
+    pre-SSO ones, which is correct — nobody verified them either.
+    """
+    r = reviewer or {}
     with _conn() as con:
         row = con.execute("SELECT pillar FROM runs WHERE id=?", (run_id,)).fetchone()
         if row is None:
@@ -351,19 +521,28 @@ def add_override(run_id: int, new_pillar: str, reason: str,
         ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
         con.execute(
             "INSERT INTO overrides (run_id, prev_pillar, new_pillar, reason, evidence_note, "
-            "reviewer, created_at) VALUES (?,?,?,?,?,?,?)",
-            (run_id, prev, new_pillar, reason, evidence_note, reviewer, ts))
+            "reviewer, reviewer_oid, reviewer_upn, reviewer_tid, reviewer_source, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (run_id, prev, new_pillar, reason, evidence_note, r.get("name", ""),
+             r.get("oid"), r.get("upn"), r.get("tid"), r.get("source"), ts))
         con.execute("UPDATE runs SET pillar=? WHERE id=?", (new_pillar, run_id))
+    _upload_to_s3()
     return {"run_id": run_id, "prev_pillar": prev, "new_pillar": new_pillar,
             "reason": reason, "evidence_note": evidence_note,
-            "reviewer": reviewer, "created_at": ts}
+            "reviewer": r.get("name", ""), "verified": r.get("source") == "entra",
+            "created_at": ts}
 
 
 def list_overrides(run_id: int) -> list[dict]:
     with _conn() as con:
         rows = con.execute(
-            "SELECT prev_pillar, new_pillar, reason, evidence_note, reviewer, created_at "
-            "FROM overrides WHERE run_id=? ORDER BY id", (run_id,)).fetchall()
+            "SELECT prev_pillar, new_pillar, reason, evidence_note, reviewer, created_at, "
+            "reviewer_oid, reviewer_source FROM overrides WHERE run_id=? ORDER BY id",
+            (run_id,)).fetchall()
     return [{"prev_pillar": r[0], "new_pillar": r[1], "reason": r[2],
-             "evidence_note": r[3] or "", "reviewer": r[4] or "", "created_at": r[5]}
+             "evidence_note": r[3] or "", "reviewer": r[4] or "", "created_at": r[5],
+             "reviewer_oid": r[6] or "",
+             # Only an Entra-issued identity counts as verified. Rows written by the stub,
+             # by a script, or before sign-in existed all read as unverified.
+             "verified": r[7] == "entra"}
             for r in rows]

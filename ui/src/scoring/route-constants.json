@@ -1,0 +1,47 @@
+{
+  "_comment": "Mirror of core/score.py ROUTE_WEIGHTS and core/route.py inline eligibility literals. Pinned by tests/test_whatif_route_parity.py -- do not edit by hand.",
+  "route_weights": {
+    "Connect": {
+      "traction": 0.35,
+      "siemens_fit": 0.3,
+      "product": 0.15,
+      "market": 0.1,
+      "founder": 0.05,
+      "ecosystem": 0.05
+    },
+    "Collaborate": {
+      "siemens_fit": 0.35,
+      "product": 0.2,
+      "traction": 0.15,
+      "founder": 0.15,
+      "market": 0.1,
+      "ecosystem": 0.05
+    },
+    "Empower": {
+      "product": 0.25,
+      "founder": 0.25,
+      "siemens_fit": 0.2,
+      "ecosystem": 0.15,
+      "market": 0.1,
+      "traction": 0.05
+    }
+  },
+  "fit_align_threshold": 50.0,
+  "pillars": [
+    "Connect",
+    "Collaborate",
+    "Empower",
+    "Pass"
+  ],
+  "gates": {
+    "Connect": {
+      "route_score": 70,
+      "traction": 60
+    },
+    "Collaborate": {
+      "route_score": 55,
+      "traction": 35
+    },
+    "Empower": {}
+  }
+}

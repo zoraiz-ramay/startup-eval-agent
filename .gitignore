@@ -1,3 +1,29 @@
-
 .env
+.env.*
+.venv/
+ui/node_modules/
+__pycache__/
+py-env/
+data/pdfs/
+data/runs.db
+# WAL sidecars — the cache enables journal_mode=WAL, which creates these next to the DB.
+data/runs.db-wal
+data/runs.db-shm
+*.DS_Store
+.DS_Store
+ui/dist/
 
+# Ignore spreadsheet-like files by default
+*.csv
+*.xls
+*.xlsx
+*.xlsm
+
+# Keep this dataset tracked
+!siemens_tools.csv
+
+# Playwright artefacts (baselines in ui/e2e/__screenshots__ ARE committed — they are the record
+# that the layout survived; only run output is transient).
+ui/test-results/
+ui/playwright-report/
+ui/blob-report/

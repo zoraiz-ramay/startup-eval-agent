@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api.js";
 import { useApp } from "../state.jsx";
+import ErrorBox from "../components/ErrorBox.jsx";
 
 export default function Alerts() {
   const nav = useNavigate();
@@ -28,7 +29,7 @@ export default function Alerts() {
       <div className="crumb">Workspace &gt; Tracking</div>
       <div className="page-head"><h1 className="page-title">Tracking</h1>
         <span className="page-meta">{watched.length} companies watched</span></div>
-      {error && <div className="error-box">{error}</div>}
+      {error && <ErrorBox message={error} />}
       {runs && watched.length === 0 && (
         <div className="empty">
           <div className="big">◉</div>
