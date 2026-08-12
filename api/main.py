@@ -425,7 +425,9 @@ def pdf_url(filename: str) -> dict:
 # ── Static file serving (single-container production mode) ───────────────────
 _STATIC_DIR = pathlib.Path(__file__).resolve().parent.parent / "static"
 if _STATIC_DIR.is_dir():
-    app.mount("/assets", StaticFiles(directory=str(_STATIC_DIR / "assets")), name="assets")
+    _ASSETS_DIR = _STATIC_DIR / "assets"
+    if _ASSETS_DIR.is_dir():
+        app.mount("/assets", StaticFiles(directory=str(_ASSETS_DIR)), name="assets")
 
     @app.get("/{full_path:path}")
     def spa_fallback(full_path: str):
