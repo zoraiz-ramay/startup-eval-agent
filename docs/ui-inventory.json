@@ -29,6 +29,10 @@
     {
       "path": "/settings",
       "component": "Settings"
+    },
+    {
+      "path": "/admin",
+      "component": "Admin"
     }
   ],
   "api_methods": [
@@ -57,6 +61,10 @@
       ]
     },
     {
+      "method": "myRuns",
+      "args": []
+    },
+    {
       "method": "runs",
       "args": []
     },
@@ -64,6 +72,32 @@
       "method": "run",
       "args": [
         "id"
+      ]
+    },
+    {
+      "method": "adminOverview",
+      "args": []
+    },
+    {
+      "method": "adminSearches",
+      "args": []
+    },
+    {
+      "method": "views",
+      "args": []
+    },
+    {
+      "method": "saveView",
+      "args": [
+        "name",
+        "columns",
+        "filters"
+      ]
+    },
+    {
+      "method": "deleteView",
+      "args": [
+        "name"
       ]
     },
     {
@@ -160,18 +194,21 @@
   "files": [
     {
       "path": "ui/src/App.jsx",
-      "lines": 233,
+      "lines": 263,
       "exports": [
         "App"
       ],
       "css_classes": [
+        "ai",
         "avatar-btn",
         "badge",
         "brand",
         "cmdbar",
         "count",
+        "dot",
         "icon-btn",
         "kbd",
+        "label",
         "lens",
         "name",
         "rail",
@@ -191,7 +228,7 @@
     },
     {
       "path": "ui/src/App.test.jsx",
-      "lines": 62,
+      "lines": 63,
       "exports": [],
       "css_classes": []
     },
@@ -259,6 +296,14 @@
       "css_classes": [
         "muted"
       ]
+    },
+    {
+      "path": "ui/src/components/Icon.jsx",
+      "lines": 42,
+      "exports": [
+        "Icon"
+      ],
+      "css_classes": []
     },
     {
       "path": "ui/src/components/Loading.jsx",
@@ -341,6 +386,32 @@
       "lines": 17,
       "exports": [],
       "css_classes": []
+    },
+    {
+      "path": "ui/src/pages/Admin.jsx",
+      "lines": 211,
+      "exports": [
+        "Admin"
+      ],
+      "css_classes": [
+        "badge",
+        "btn",
+        "crumb",
+        "dense",
+        "dtable",
+        "empty",
+        "grid2",
+        "k",
+        "muted",
+        "page-head",
+        "page-meta",
+        "page-title",
+        "panel",
+        "secondary",
+        "stat",
+        "stats-strip",
+        "v"
+      ]
     },
     {
       "path": "ui/src/pages/Alerts.jsx",
@@ -461,7 +532,7 @@
     },
     {
       "path": "ui/src/pages/Explore.test.jsx",
-      "lines": 95,
+      "lines": 97,
       "exports": [],
       "css_classes": []
     },
@@ -646,10 +717,10 @@
     }
   ],
   "totals": {
-    "routes": 7,
-    "api_methods": 15,
+    "routes": 8,
+    "api_methods": 21,
     "design_tokens": 37,
-    "jsx_files": 32,
-    "jsx_lines": 3451
+    "jsx_files": 34,
+    "jsx_lines": 3737
   }
 }
