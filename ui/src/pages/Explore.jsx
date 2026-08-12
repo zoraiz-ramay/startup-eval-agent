@@ -149,7 +149,7 @@ export default function Explore() {
   };
 
   useEffect(() => {
-    api.runs().then((d) => setRuns(d.runs)).catch((e) => setError(e.message));
+    api.myRuns().then((d) => setRuns(d.runs)).catch((e) => setError(e.message));
   }, []);
 
   const rows = useMemo(() => {

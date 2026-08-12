@@ -371,6 +371,16 @@ def create_session(principal: Principal) -> tuple[str, str]:
     sessions().put(f"sess:{sid}",
                    {"user": principal.as_dict(), "csrf": csrf, "created_at": time.time()},
                    settings().session_ttl)
+    # Durable sign-in record for the admin dashboard. Redis holds only *live* sessions (they
+    # expire after SESSION_TTL), so it can say who is online but never how many sessions
+    # there have been. Imported here rather than at module scope to keep the auth module
+    # importable without the persistence layer, and best-effort: a full disk must not be
+    # able to stop people signing in.
+    try:
+        from api import store
+        store.record_session(principal.as_reviewer())
+    except Exception as exc:
+        log.warning("Could not record sign-in for the admin log: %s", exc)
     return sid, csrf
 
 
@@ -391,6 +401,37 @@ def current_user(request: Request) -> Principal:
     user = request.scope.get("state", {}).get("user")
     if not isinstance(user, Principal):
         raise HTTPException(status_code=401, detail="Not signed in.")
+    return user
+
+
+def admin_upns() -> frozenset[str]:
+    """The UPNs allowed into the admin dashboard, from ADMIN_UPNS (comma-separated).
+
+    Read per call rather than captured at import so a deployment can change the list by
+    restarting the process without a code change, and so tests can set it with monkeypatch.
+    """
+    raw = os.getenv("ADMIN_UPNS", "")
+    return frozenset(u.strip().lower() for u in raw.split(",") if u.strip())
+
+
+def is_admin(user: Principal) -> bool:
+    """Membership is by UPN, which is the tenant-unique sign-in name.
+
+    Fail-closed, like everything else in this module: an unset or empty ADMIN_UPNS means
+    NOBODY is an admin. There is deliberately no "not configured, so allow" branch — the
+    admin surface exposes every reviewer's activity, so getting that default wrong is worse
+    than locking the owner out of their own dashboard until they set the variable.
+    """
+    upn = (getattr(user, "upn", "") or "").strip().lower()
+    return bool(upn) and upn in admin_upns()
+
+
+def require_admin(user: Principal = Depends(current_user)) -> Principal:
+    """Sibling of current_user for the /api/admin routes. 403, not 404: the caller is
+    authenticated and the route exists — hiding that adds nothing an attacker cannot infer
+    from the SPA bundle, and it makes a misconfigured ADMIN_UPNS impossible to diagnose."""
+    if not is_admin(user):
+        raise HTTPException(status_code=403, detail="Administrator access required.")
     return user
 
 
@@ -565,4 +606,8 @@ def me(request: Request):
         return {"authenticated": False, "mode": cfg.mode}
     return {"authenticated": True, "mode": cfg.mode,
             "user": {"name": user.name, "email": user.email or user.upn,
-                     "initials": user.initials, "oid": user.oid}}
+                     "initials": user.initials, "oid": user.oid,
+                     # Only decides whether the SPA renders the admin nav entry. Every
+                     # /api/admin route re-checks with require_admin, so a client that
+                     # flips this flag gains nothing.
+                     "is_admin": is_admin(user)}}

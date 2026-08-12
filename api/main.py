@@ -29,7 +29,7 @@ import core
 from core.solve import solve_problem, load_challenges, set_challenge_status
 from core import s3 as _s3
 from api import store
-from api.auth import Principal, current_user, settings as auth_settings
+from api.auth import Principal, current_user, require_admin, settings as auth_settings
 from api.auth import router as auth_router
 from api.security import SecurityMiddleware
 from api.routes_evidence import router as evidence_router
@@ -144,6 +144,12 @@ class ChallengeStatusBody(BaseModel):
     status: str = Field(..., pattern="^(pending|approved|rejected)$")
 
 
+class SavedViewBody(BaseModel):
+    name: str = Field(..., min_length=1, max_length=80)
+    columns: list[str] = Field(default_factory=list, max_length=40)
+    filters: dict = Field(default_factory=dict)
+
+
 def _gd_key() -> bool:
     return bool(core.GLASSDOLLAR_API_KEY or os.getenv("GLASSDOLLAR_API_KEY", ""))
 
@@ -255,20 +261,28 @@ def _freshness(created_at: str) -> dict:
 
 
 @app.post("/api/evaluate")
-def evaluate(body: EvaluateBody) -> dict:
+def evaluate(body: EvaluateBody, user: Principal = Depends(current_user)) -> dict:
     """Cache-first full pipeline run. Returns the stored evaluation when one exists and
     is younger than EVAL_TTL_DAYS; refresh=true forces a new run (old runs are retained
     for audit/history). Uses the GlassDollar API when a key is set; otherwise the local
-    applications file serves as the dev/test company source."""
+    applications file serves as the dev/test company source.
+
+    The evaluation itself is shared — one company is evaluated once for the whole team —
+    but the *search* is recorded against the caller, which is what gives each reviewer
+    their own list without duplicating any of the expensive work.
+    """
     name = body.name.strip()
+    principal = user.as_reviewer()
     if not body.refresh:
         # Any stored evaluation is served from the DB — regardless of age. Fresh external
         # calls happen ONLY on explicit refresh (Re-evaluate / Refresh Data buttons).
         # Freshness metadata tells the UI how old the data is.
-        cached = store.latest_run_for_company(name)
+        cached = store.latest_run_for_alias(name)
         if cached:
             cached["cached"] = True
             cached["freshness"] = _freshness(cached.get("run_created_at", ""))
+            store.record_search(principal, name, company_name=str(cached.get("company", "")),
+                                run_id=cached.get("run_id"), served_from="cache")
             return cached
     df = None if _gd_key() else _get_local_df()
     # An explicit refresh must re-search: serving cached hits would replay the very evidence
@@ -278,12 +292,46 @@ def evaluate(body: EvaluateBody) -> dict:
     if not res.get("found"):
         raise HTTPException(status_code=404, detail=f"No match for '{body.name}' in GlassDollar or on the web.")
     if body.save:
-        res["run_id"] = store.save_run(res)
+        # The typed query is filed as an alias so the next reviewer who types it the same
+        # way is served from the database instead of re-running the pipeline.
+        res["run_id"] = store.save_run(res, aliases=[name])
+    store.record_search(principal, name, company_name=str(res.get("company", "")),
+                        run_id=res.get("run_id"), served_from="fresh")
     from datetime import datetime, timezone
     res["cached"] = False
     res["run_created_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     res["freshness"] = _freshness(res["run_created_at"])
     return res
+
+
+@app.get("/api/my/searches")
+def my_searches(limit: int = 200, user: Principal = Depends(current_user)) -> dict:
+    """The startups THIS reviewer has searched. Explore's data source.
+
+    Lists are private: there is no parameter that widens this to another principal. The
+    team-wide view lives at /api/admin/searches behind require_admin.
+    """
+    return {"runs": store.list_user_runs(user.oid, limit=max(1, min(limit, 500)))}
+
+
+@app.get("/api/my/views")
+def my_views(user: Principal = Depends(current_user)) -> dict:
+    return {"views": store.list_views(user.oid)}
+
+
+@app.post("/api/my/views")
+def my_view_save(body: SavedViewBody, user: Principal = Depends(current_user)) -> dict:
+    """Upsert one grid view. Views used to live in localStorage, so they were per-browser
+    rather than per-person; keying them on the Entra oid is what makes them follow a
+    reviewer between machines."""
+    return store.save_view(user.oid, body.name, body.columns, body.filters)
+
+
+@app.delete("/api/my/views/{name}")
+def my_view_delete(name: str, user: Principal = Depends(current_user)) -> dict:
+    if not store.delete_view(user.oid, name):
+        raise HTTPException(status_code=404, detail=f"No saved view named {name!r}.")
+    return {"deleted": name}
 
 
 @app.post("/api/solve")
@@ -296,8 +344,22 @@ def solve(body: SolveBody) -> dict:
 
 
 @app.get("/api/runs")
-def runs(limit: int = 100) -> dict:
+def runs(limit: int = 100, user: Principal = Depends(require_admin)) -> dict:
+    """Every run from every reviewer. Admin-only since lists became private — reviewers
+    read their own via /api/my/searches, which returns rows of exactly this shape."""
     return {"runs": store.list_runs(limit=limit)}
+
+
+@app.get("/api/admin/overview")
+def admin_overview(days: int = 30, user: Principal = Depends(require_admin)) -> dict:
+    """Usage metrics: sessions, searches, distinct users, cache-hit rate, busiest companies."""
+    return store.admin_overview(recent_days=max(1, min(days, 365)))
+
+
+@app.get("/api/admin/searches")
+def admin_searches(limit: int = 200, user: Principal = Depends(require_admin)) -> dict:
+    """The raw activity log — who searched what, when, and whether it hit the cache."""
+    return {"searches": store.list_searches(limit=limit)}
 
 
 @app.get("/api/companies")

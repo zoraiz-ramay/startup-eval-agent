@@ -15,8 +15,10 @@ import { AppProvider } from "../state.jsx";
  */
 vi.mock("../api.js", () => ({
   api: {
-    runs: vi.fn(async () => ({ runs: [] })),
+    myRuns: vi.fn(async () => ({ runs: [] })),
     search: vi.fn(async () => ({ results: [] })),
+    saveView: vi.fn(async (name, columns, filters) => ({ name, columns, filters })),
+    deleteView: vi.fn(async () => ({ deleted: true })),
   },
 }));
 

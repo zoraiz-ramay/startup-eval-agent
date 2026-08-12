@@ -11,7 +11,7 @@ export default function Alerts() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    api.runs().then((d) => setRuns(d.runs)).catch((e) => setError(e.message));
+    api.myRuns().then((d) => setRuns(d.runs)).catch((e) => setError(e.message));
   }, []);
 
   // watchlist is keyed by company; show the LATEST run per watched company

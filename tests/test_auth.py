@@ -63,7 +63,9 @@ def test_me_answers_200_when_signed_out(anon):
 
 
 def test_sign_in_then_read(signed_in):
-    assert signed_in.get("/api/runs").status_code == 200
+    # /api/my/searches, not /api/runs: the latter is now admin-only, so it would 403 for an
+    # ordinary reviewer and stop testing what this test is about.
+    assert signed_in.get("/api/my/searches").status_code == 200
     body = signed_in.get("/api/auth/me").json()
     assert body["authenticated"] is True
     assert body["user"]["initials"] == "ER"
@@ -72,7 +74,7 @@ def test_sign_in_then_read(signed_in):
 def test_logout_ends_the_session(signed_in):
     csrf = signed_in.cookies.get("sea_csrf")
     assert signed_in.post("/api/auth/logout", headers={"X-CSRF-Token": csrf}).status_code == 200
-    assert signed_in.get("/api/runs").status_code == 401
+    assert signed_in.get("/api/my/searches").status_code == 401
 
 
 def test_docs_are_gated(anon):
@@ -98,7 +100,7 @@ def test_write_with_wrong_csrf_token_is_refused(signed_in):
 
 
 def test_reads_do_not_need_a_csrf_token(signed_in):
-    assert signed_in.get("/api/runs").status_code == 200
+    assert signed_in.get("/api/my/searches").status_code == 200
 
 
 # ----------------------------------------------------------------- claims

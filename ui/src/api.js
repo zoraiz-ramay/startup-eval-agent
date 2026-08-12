@@ -65,8 +65,18 @@ export const api = {
     request("/api/evaluate", { method: "POST", body: { name, do_web: doWeb, refresh }, timeoutMs: 240000 }),
   solve: (problem) =>
     request("/api/solve", { method: "POST", body: { problem }, timeoutMs: 180000 }),
+  // The reviewer's own list. `runs` is the same row shape but spans everyone, so it is
+  // admin-only — a non-admin calling it gets a 403, by design.
+  myRuns: () => request("/api/my/searches"),
   runs: () => request("/api/runs"),
   run: (id) => request(`/api/runs/${encodeURIComponent(id)}`),
+  adminOverview: () => request("/api/admin/overview"),
+  adminSearches: () => request("/api/admin/searches"),
+  views: () => request("/api/my/views"),
+  saveView: (name, columns, filters) =>
+    request("/api/my/views", { method: "POST", body: { name, columns, filters } }),
+  deleteView: (name) =>
+    request(`/api/my/views/${encodeURIComponent(name)}`, { method: "DELETE" }),
   deleteRun: (id) => request(`/api/runs/${encodeURIComponent(id)}`, { method: "DELETE" }),
   challenges: () => request("/api/challenges"),
   ask: (question, runId = null) =>

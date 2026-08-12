@@ -7,7 +7,8 @@ vi.mock("./api.js", () => ({
   api: {
     me: vi.fn(),
     search: vi.fn(async () => ({ results: [] })),
-    runs: vi.fn(async () => ({ runs: [] })),
+    myRuns: vi.fn(async () => ({ runs: [] })),
+    views: vi.fn(async () => ({ views: [] })),
     challenges: vi.fn(async () => ({ challenges: [] })),
     logout: vi.fn(async () => ({ ok: true })),
   },
@@ -37,7 +38,7 @@ describe("authentication gate", () => {
     renderApp();
     await screen.findByRole("button", { name: /sign in with siemens/i });
     expect(api.search).not.toHaveBeenCalled();
-    expect(api.runs).not.toHaveBeenCalled();
+    expect(api.myRuns).not.toHaveBeenCalled();
   });
 
   it("renders the app shell once signed in", async () => {

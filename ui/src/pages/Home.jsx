@@ -25,7 +25,7 @@ export default function Home() {
   const composeRef = useRef(null);
 
   useEffect(() => {
-    api.runs().then((d) => setRuns(d.runs)).catch((e) => setError(e.message));
+    api.myRuns().then((d) => setRuns(d.runs)).catch((e) => setError(e.message));
     api.challenges().then((d) => setChallenges(d.challenges || [])).catch(() => {});
   }, []);
   useEffect(() => {
