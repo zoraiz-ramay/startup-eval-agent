@@ -332,16 +332,28 @@
       ]
     },
     {
+      "path": "ui/src/components/WeightSliders.jsx",
+      "lines": 74,
+      "exports": [
+        "WeightSliders",
+        "useWeighting"
+      ],
+      "css_classes": [
+        "k",
+        "spec",
+        "v",
+        "wslider"
+      ]
+    },
+    {
       "path": "ui/src/components/WhatIfWeights.jsx",
-      "lines": 235,
+      "lines": 247,
       "exports": [
         "WhatIfWeights"
       ],
       "css_classes": [
         "badge",
         "btn",
-        "grid2",
-        "input",
         "k",
         "muted",
         "panel",
@@ -487,7 +499,7 @@
     },
     {
       "path": "ui/src/pages/Explore.jsx",
-      "lines": 400,
+      "lines": 502,
       "exports": [
         "Explore"
       ],
@@ -516,6 +528,7 @@
         "page-head",
         "page-meta",
         "page-title",
+        "panel",
         "pill",
         "secondary",
         "sfs",
@@ -532,7 +545,7 @@
     },
     {
       "path": "ui/src/pages/Explore.test.jsx",
-      "lines": 174,
+      "lines": 236,
       "exports": [],
       "css_classes": []
     },
@@ -720,7 +733,7 @@
     "routes": 8,
     "api_methods": 21,
     "design_tokens": 37,
-    "jsx_files": 34,
-    "jsx_lines": 3912
+    "jsx_files": 35,
+    "jsx_lines": 4162
   }
 }

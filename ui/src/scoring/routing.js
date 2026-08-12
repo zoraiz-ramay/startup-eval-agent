@@ -163,3 +163,103 @@ export function whatIfRouting(score, fit, weights) {
     invariant,
   };
 }
+
+/* ---------------------------------------------------------------- breakeven sensitivity */
+
+// 0.5pp steps. Fine enough to report a breakeven to the nearest percentage point, and cheap:
+// each probe is six multiplications per route, so a full sweep is a few thousand flops.
+const SWEEP_STEP = 0.005;
+
+/**
+ * The reviewer's weighting with one dimension pinned to `share`, the other five keeping their
+ * relative proportions inside the remaining 1 - share.
+ */
+export function weightsWithShare(weights, dimension, share) {
+  const { weights: w, ok } = normaliseWeights(weights);
+  if (!ok) return null;
+  const restSum = DIMENSIONS.reduce((s, k) => (k === dimension ? s : s + w[k]), 0);
+  const out = {};
+  for (const k of DIMENSIONS) {
+    if (k === dimension) out[k] = share;
+    // All the weight was on this dimension already, so there are no proportions to preserve:
+    // spread what is left evenly rather than dividing by zero.
+    else out[k] = restSum > 0 ? (w[k] / restSum) * (1 - share) : (1 - share) / (DIMENSIONS.length - 1);
+  }
+  return out;
+}
+
+/**
+ * How much a single dimension's weight would have to move for a route to become eligible.
+ *
+ * "Connect is 6.2 points short" is not a decision — it does not say whether that gap is one
+ * the reviewer's own priorities could close. This answers that directly: the band of weights
+ * for `dimension` over which `route` is eligible, with the other five held in proportion.
+ *
+ * Swept rather than bisected. Bisection assumes eligibility is monotone in the weight, and it
+ * is not guaranteed to be: routeWeightsFor clips each shifted weight at zero, so the route's
+ * own profile changes shape as the deviation grows. A sweep finds the real band, including
+ * the case where raising a weight past some point loses the route again.
+ *
+ * Returns null only when the run cannot be re-scored at all. `reachable: false` means no
+ * weight for THIS dimension reaches the route with the other five held in proportion — it is
+ * not a claim about every possible weighting, and the panel must not phrase it as one. The
+ * only genuinely universal answers are `invariant`, which whatIfRouting proves.
+ */
+export function breakevenWeight(score, fit, dimension, route, weights = DEFAULT_WEIGHTS) {
+  if (!DIMENSIONS.includes(dimension) || !ROUTES.includes(route)) return null;
+  const { weights: w, ok } = normaliseWeights(weights);
+  if (!ok) return null;
+  const at = whatIfRouting(score, fit, weights);
+  if (!at) return null;
+
+  const current = w[dimension];
+  const base = {
+    dimension,
+    route,
+    current,
+    currentlyEligible: Boolean(at.gates[route]?.eligible),
+    // The alignment gate reads fit.aligned and the RAW siemens_fit dimension, neither of which
+    // any weighting touches, so no sweep can move it. Say that instead of sweeping 201 probes
+    // to report "no".
+    invariant: at.invariant,
+  };
+  if (at.invariant === "alignment") {
+    return { ...base, band: null, reachable: false };
+  }
+
+  const passing = [];
+  for (let i = 0; i * SWEEP_STEP <= 1 + 1e-9; i += 1) {
+    const share = Math.min(1, i * SWEEP_STEP);
+    const probe = weightsWithShare(w, dimension, share);
+    const r = probe && whatIfRouting(score, fit, probe);
+    passing.push(Boolean(r?.gates[route]?.eligible));
+  }
+  if (!passing.some(Boolean)) return { ...base, band: null, reachable: false };
+
+  // The contiguous run that contains the current weight, or failing that the nearest one —
+  // the reviewer is asking "how far do I have to move from here", so a band on the far side
+  // of a gap is the wrong answer even though it also passes.
+  const runs = [];
+  for (let i = 0; i < passing.length; i += 1) {
+    if (!passing[i]) continue;
+    const start = i;
+    while (i + 1 < passing.length && passing[i + 1]) i += 1;
+    runs.push([start * SWEEP_STEP, Math.min(1, i * SWEEP_STEP)]);
+  }
+  const chosen = runs.find(([a, b]) => current >= a - 1e-9 && current <= b + 1e-9)
+    || runs.reduce((best, r) => {
+      const d = current < r[0] ? r[0] - current : current - r[1];
+      const bd = current < best[0] ? best[0] - current : current - best[1];
+      return d < bd ? r : best;
+    });
+
+  return {
+    ...base,
+    reachable: true,
+    band: { from: chosen[0], to: chosen[1] },
+    // What the reviewer actually has to do: the signed move to the nearest edge of the band,
+    // or 0 when they are already inside it.
+    delta: current < chosen[0] ? chosen[0] - current
+      : current > chosen[1] ? chosen[1] - current : 0,
+  };
+}

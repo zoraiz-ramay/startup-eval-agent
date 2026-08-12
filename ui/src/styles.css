@@ -54,6 +54,10 @@ a:hover { text-decoration: underline; }
   font-size: 9.5px; font-weight: 700; line-height: 15px; text-align: center;
 }
 
+/* What-if weight sliders. accent-color paints the native control from the design tokens
+   instead of rebuilding it, which keeps its keyboard behaviour intact. */
+.wslider { flex: 1; min-width: 90px; accent-color: var(--accent); cursor: pointer; }
+
 /* ---------------- iX icons ----------------
    The iX SVGs declare fill='none' on their outer group and expect the host to paint them —
    this is the override <ix-icon> applies after inlining. Only `fill` is touched: some

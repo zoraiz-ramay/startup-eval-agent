@@ -545,6 +545,13 @@ def list_runs(limit: int = 100) -> list[dict]:
                 "founders": ", ".join(f.get("name", "") for f in
                                       (res.get("deep_profile", {}) or {}).get("founders", [])
                                       if isinstance(f, dict))[:120],
+                # Everything the browser needs to re-score this row under a reviewer's own
+                # weighting (ui/src/scoring). Eight numbers, parsed from JSON already being
+                # read here, so the grid can answer "who would we be talking to under my
+                # priorities" without a round trip per row.
+                "dimensions": {k: v for k, v in dims.items() if isinstance(v, (int, float))},
+                "data_completeness": sc.get("data_completeness", 0),
+                "fit_aligned": bool((res.get("fit", {}) or {}).get("aligned")),
             })
         except Exception:
             pass
@@ -657,9 +664,14 @@ def list_user_runs(user_oid: str, limit: int = 200) -> list[dict]:
     order = {str(r[0]).lower(): i for i, r in enumerate(rows)}
     searched_at = {str(r[0]).lower(): r[1] for r in rows}
     mine = []
+    seen = set()
+    # list_runs is per-RUN and a re-evaluated company has several; this list is per-company, so
+    # take the first (newest — list_runs is id DESC) and drop the rest. History stays in the DB
+    # and is still reachable from the profile.
     for item in list_runs(limit=max(limit * 5, 500)):
         k = str(item.get("company", "")).lower()
-        if k in order:
+        if k in order and k not in seen:
+            seen.add(k)
             item["searched_at"] = searched_at[k]
             mine.append(item)
     mine.sort(key=lambda i: order[str(i["company"]).lower()])

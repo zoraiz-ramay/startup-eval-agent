@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Link, MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
@@ -169,5 +169,67 @@ describe("Explore saved views", () => {
 
     await user.click(await screen.findByRole("button", { name: /close the view munich/i }));
     expect(screen.queryByText(/View: Munich/)).toBeNull();
+  });
+});
+
+/**
+ * Portfolio re-weighting.
+ *
+ * The point is not that the arithmetic is right — ui/src/scoring/routing.test.js pins that
+ * against real recorded runs. It is that the table applies it without ever presenting the
+ * result as the evaluation: the engine's stored score has to stay on screen beside it.
+ */
+describe("Explore portfolio weighting", () => {
+  const ROW = {
+    id: 1, company: "Aeroview", pillar: "Pass", secondary: [], final_score: 40,
+    sfs_relevant: false, created_at: "2026-08-01T00:00:00+00:00", summary: "", hq: "Munich",
+    dimensions: { traction: 43.8, siemens_fit: 66.5, product: 85, market: 50, founder: 70, ecosystem: 100 },
+    data_completeness: 0.25, fit_aligned: true,
+  };
+
+  function render1(runs = [ROW]) {
+    api.myRuns.mockResolvedValueOnce({ runs });
+    api.views.mockResolvedValueOnce({ views: [] });
+    return render(
+      <MemoryRouter initialEntries={["/explore"]}>
+        <AppProvider><Explore /></AppProvider>
+      </MemoryRouter>,
+    );
+  }
+
+  it("leaves the grid on the engine's numbers until a weight is actually moved", async () => {
+    const user = userEvent.setup();
+    render1();
+    await user.click(await screen.findByRole("button", { name: /weighting/i }));
+
+    expect(screen.getByText(/move a slider to see what changes/i)).toBeInTheDocument();
+    // No "(engine NN)" annotation yet: nothing has been re-weighted, so there is nothing to
+    // distinguish it from.
+    expect(screen.queryByText(/\(engine 40\)/)).toBeNull();
+  });
+
+  it("re-scores the table but keeps the engine's stored score on screen", async () => {
+    const user = userEvent.setup();
+    render1();
+    await user.click(await screen.findByRole("button", { name: /weighting/i }));
+
+    const slider = screen.getByLabelText("Product");
+    fireEvent.change(slider, { target: { value: "80" } });
+
+    // The re-weighted figure is shown WITH the stored one, never instead of it — this row's
+    // engine score is 40 and must remain visible and labelled as the engine's.
+    expect(await screen.findByText(/\(engine 40\)/)).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(/companies change pillar|No companies change pillar/);
+  });
+
+  it("resets back to the engine weighting", async () => {
+    const user = userEvent.setup();
+    render1();
+    await user.click(await screen.findByRole("button", { name: /weighting/i }));
+    fireEvent.change(screen.getByLabelText("Product"), { target: { value: "80" } });
+    await screen.findByText(/\(engine 40\)/);
+
+    await user.click(screen.getByRole("button", { name: /reset to engine weights/i }));
+    expect(screen.queryByText(/\(engine 40\)/)).toBeNull();
   });
 });

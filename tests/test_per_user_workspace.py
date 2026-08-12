@@ -102,6 +102,26 @@ def test_a_cached_hit_still_lands_on_the_second_reviewers_list(db):
     assert store.admin_overview()["cache_hit_rate"] == 0.5
 
 
+def test_a_re_evaluated_company_appears_once(db):
+    """The list is per-company, not per-run: list_runs holds every historical run and a
+    company that has been re-evaluated three times must still be one row in the grid."""
+    for _ in range(3):
+        store.save_run(_result("Aeroview"))
+    store.record_search({"oid": "oid-alice", "upn": "a@x"}, "aeroview", company_name="Aeroview")
+    assert [r["company"] for r in store.list_user_runs("oid-alice")] == ["Aeroview"]
+
+
+def test_the_grid_payload_carries_what_the_browser_needs_to_re_score(db):
+    """Explore's portfolio weighting re-scores rows client-side; without these it silently
+    falls back to the engine's numbers and the control looks broken rather than absent."""
+    store.save_run(_result("Aeroview"))
+    store.record_search({"oid": "oid-alice", "upn": "a@x"}, "aeroview", company_name="Aeroview")
+    row = store.list_user_runs("oid-alice")[0]
+    assert row["dimensions"] == {"traction": 60.0}
+    assert row["data_completeness"] == 0.75
+    assert row["fit_aligned"] is True
+
+
 def test_searches_without_a_principal_are_not_recorded(db):
     """Defensive: an oid-less caller must not create rows attributable to nobody."""
     store.record_search({}, "ghost", company_name="Ghost")

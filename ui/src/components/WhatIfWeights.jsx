@@ -1,9 +1,9 @@
-import React from "react";
-import { useApp } from "../state.jsx";
-import {
-  DEFAULT_WEIGHTS, DIMENSIONS, DIMENSION_LABELS, isDefaultWeights, normaliseWeights, reweight,
-} from "../scoring/index.js";
-import { ROUTES, whatIfRouting } from "../scoring/routing.js";
+import React, { useMemo } from "react";
+import { DEFAULT_WEIGHTS, DIMENSIONS, DIMENSION_LABELS, reweight } from "../scoring/index.js";
+import { ROUTES, breakevenWeight, whatIfRouting } from "../scoring/routing.js";
+import WeightSliders, { useWeighting } from "./WeightSliders.jsx";
+
+const pp = (x) => `${Math.round(x * 100)}%`;
 
 /**
  * Lets a reviewer ask "what would this score be if my department weighted the dimensions
@@ -17,11 +17,7 @@ import { ROUTES, whatIfRouting } from "../scoring/routing.js";
  * default so it costs nothing to reviewers who never open it.
  */
 export default function WhatIfWeights({ score, fit, routing, open, setOpen }) {
-  const { whatIfWeights, setWhatIfWeights } = useApp();
-
-  const modified = !isDefaultWeights(whatIfWeights);
-  const active = whatIfWeights || DEFAULT_WEIGHTS;
-  const { sum, ok } = normaliseWeights(active);
+  const { active, ok, modified, reset } = useWeighting();
 
   const atDefault = reweight(score, DEFAULT_WEIGHTS);
   const whatIf = reweight(score, active);
@@ -41,11 +37,25 @@ export default function WhatIfWeights({ score, fit, routing, open, setOpen }) {
   const baseline = baseRouting ? baseRouting.pillar : enginePillar;
   const pillarChanged = Boolean(wRouting && wRouting.pillar !== baseline);
 
-  const setDim = (k, raw) => {
-    const n = Number(raw);
-    if (!Number.isFinite(n) || n < 0) return;
-    setWhatIfWeights({ ...active, [k]: n });
-  };
+  /* For each route the run does not currently qualify for, the smallest single weight change
+   * that would get there. "Short by 6.2 points" is not a decision — it does not say whether
+   * the gap is one this reviewer's own priorities could close. Memoised because finding it
+   * sweeps six dimensions across the full weight range. */
+  const paths = useMemo(() => {
+    if (!score || !wRouting) return {};
+    const out = {};
+    for (const route of ROUTES) {
+      if (wRouting.gates[route]?.eligible) continue;
+      let best = null;
+      for (const d of DIMENSIONS) {
+        const bw = breakevenWeight(score, fit, d, route, active);
+        if (!bw || !bw.reachable || bw.delta === 0) continue;
+        if (!best || Math.abs(bw.delta) < Math.abs(best.delta)) best = bw;
+      }
+      out[route] = best;                      // null = no single dimension gets there alone
+    }
+    return out;
+  }, [score, fit, active, wRouting]);
 
   return (
     <div className="panel">
@@ -72,35 +82,11 @@ export default function WhatIfWeights({ score, fit, routing, open, setOpen }) {
             </p>
           ) : (
             <>
-              <div className="grid2" style={{ gap: 4 }}>
-                {DIMENSIONS.map((k) => (
-                  <div key={k} className="spec" style={{ alignItems: "center" }}>
-                    <div className="k">
-                      <label htmlFor={`whatif-${k}`}>{DIMENSION_LABELS[k]}</label>
-                    </div>
-                    <div className="v">
-                      <input
-                        id={`whatif-${k}`}
-                        className="input"
-                        type="number"
-                        min="0"
-                        max="100"
-                        step="1"
-                        value={active[k]}
-                        onChange={(e) => setDim(k, e.target.value)}
-                        style={{ width: 70 }}
-                      />
-                      <span className="muted" style={{ marginLeft: 8, fontSize: 12 }}>
-                        {ok ? `→ ${Math.round((active[k] / sum) * 100)}%` : "—"}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <WeightSliders idPrefix="whatif" />
 
               <p className="muted" style={{ fontSize: 11.5, margin: "6px 0 10px" }}>
                 {ok
-                  ? `Sum ${Math.round(sum)} — normalised to 100 before scoring.`
+                  ? "Moving one dimension rebalances the other five, so these are the shares the score actually uses."
                   : "Set at least one weight above zero."}
               </p>
 
@@ -210,6 +196,32 @@ export default function WhatIfWeights({ score, fit, routing, open, setOpen }) {
                             )}
                           </span>
                         ))}
+                        {/* The shortfall says how far off the route is; this says whether the
+                            reviewer's own weighting can close it, which is the actual question. */}
+                        {route in paths && (
+                          <div className="muted" style={{ marginTop: 2 }}>
+                            {wRouting.invariant ? (
+                              "No weighting reaches this."
+                            ) : paths[route] ? (
+                              <>
+                                Reachable: move{" "}
+                                <strong>{DIMENSION_LABELS[paths[route].dimension]}</strong>{" "}
+                                from {pp(paths[route].current)} to{" "}
+                                <strong>
+                                  {pp(paths[route].delta > 0
+                                    ? paths[route].band.from
+                                    : paths[route].band.to)}
+                                </strong>{" "}
+                                ({paths[route].delta > 0 ? "+" : "−"}
+                                {Math.abs(Math.round(paths[route].delta * 100))}pp)
+                                {paths[route].band.to < 0.999
+                                  && ` — holds to ${pp(paths[route].band.to)}`}.
+                              </>
+                            ) : (
+                              "No single dimension's weight reaches this on its own."
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -221,7 +233,7 @@ export default function WhatIfWeights({ score, fit, routing, open, setOpen }) {
                 className="btn secondary"
                 style={{ marginTop: 10 }}
                 disabled={!modified}
-                onClick={() => setWhatIfWeights(null)}
+                onClick={reset}
               >
                 Reset to engine weights
               </button>

@@ -3,10 +3,31 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api.js";
 import { useApp } from "../state.jsx";
 import ErrorBox from "../components/ErrorBox.jsx";
+import WeightSliders, { useWeighting } from "../components/WeightSliders.jsx";
+import { DEFAULT_WEIGHTS, reweight } from "../scoring/index.js";
+import { whatIfRouting } from "../scoring/routing.js";
 
-/* Column registry — every explorer column in one place. */
+/* Column registry — every explorer column in one place.
+ *
+ * `render(row, weighted)` — `weighted` is the row's re-scored figures when the reviewer has a
+ * portfolio weighting applied, and undefined otherwise. Only two columns care; the rest ignore
+ * the second argument. The engine's stored value stays on screen next to the re-weighted one
+ * rather than being replaced by it: they are not the same claim, and only one of them is what
+ * the database holds. */
 const COLUMNS = {
-  final_score: { label: "Fit Score", render: (r) => <span className="num">{Number(r.final_score || 0).toFixed(0)}</span> },
+  final_score: {
+    label: "Fit Score",
+    render: (r, w) => (
+      <span>
+        <span className="num">{Number((w ? w.score : r.final_score) || 0).toFixed(0)}</span>
+        {w && (
+          <span className="muted" style={{ fontSize: 11, marginLeft: 5 }}>
+            (engine {Number(r.final_score || 0).toFixed(0)})
+          </span>
+        )}
+      </span>
+    ),
+  },
   siemens_fit: { label: "Siemens Fit", render: (r) => <span className="num">{r.siemens_fit !== "" ? Number(r.siemens_fit).toFixed(0) : "—"}</span> },
   summary: { label: "Short Description", render: (r) => <span className="desc-clip" title={r.summary}>{r.summary || "—"}</span> },
   hq: { label: "Location", render: (r) => r.hq || "—" },
@@ -23,9 +44,15 @@ const COLUMNS = {
   trend: { label: "Market Signal", render: (r) => r.trend || "—" },
   pillar: {
     label: "Route",
-    render: (r) => (
+    render: (r, w) => (
       <span>
         <span className={`pill ${r.pillar}`}>{r.pillar}</span>{" "}
+        {w?.moved && (
+          <>
+            <span className="muted">→</span>{" "}
+            <span className={`pill ghost ${w.pillar}`}>{w.pillar}</span>{" "}
+          </>
+        )}
         {(r.secondary || []).map((s) => <span key={s} className={`pill ghost ${s}`}>+{s}</span>)}
       </span>
     ),
@@ -124,6 +151,8 @@ export default function Explore() {
   const [selected, setSelected] = useState(new Set());
   const [drawer, setDrawer] = useState(false);
   const [cols, setCols] = useState(DEFAULT_COLS);
+  const [weightingOn, setWeightingOn] = useState(false);
+  const { active: weights, modified, reset: resetWeights } = useWeighting();
   const drawerTriggerRef = useRef(null);
   const drawerWasOpen = useRef(false);
   // Whatever path closed the drawer — Escape, backdrop click, or "Save view" — focus should land
@@ -192,6 +221,38 @@ export default function Explore() {
     api.myRuns().then((d) => setRuns(d.runs)).catch((e) => setError(e.message));
   }, []);
 
+  /* Portfolio re-weighting.
+   *
+   * The what-if on a profile answers "would THIS company re-route". The question a scout
+   * actually has is "under my business unit's priorities, who should we be talking to" —
+   * which is a property of the whole table, not one row. Every row carries the eight numbers
+   * needed to re-score it (store.list_runs), so this is arithmetic in the browser, not a
+   * round trip per company.
+   *
+   * The engine's score is never overwritten: whatIf lives beside it, and the columns keep
+   * showing the stored value with the re-weighted one next to it. */
+  const weighted = useMemo(() => {
+    if (!runs || !weightingOn || !modified) return null;
+    const out = new Map();
+    for (const r of runs) {
+      if (!r.dimensions || !Object.keys(r.dimensions).length) continue;
+      const scoreLike = { dimensions: r.dimensions, data_completeness: r.data_completeness };
+      const re = reweight(scoreLike, weights);
+      const rt = whatIfRouting(scoreLike, { aligned: r.fit_aligned }, weights);
+      if (!re || !rt) continue;
+      const base = whatIfRouting(scoreLike, { aligned: r.fit_aligned }, DEFAULT_WEIGHTS);
+      out.set(r.id, {
+        score: re.finalScore,
+        pillar: rt.pillar,
+        // Compared against the RE-DERIVED baseline, not the stored pillar: a human override or
+        // an older engine would otherwise be reported as an effect of the reviewer's weighting.
+        from: base ? base.pillar : r.pillar,
+        moved: Boolean(base && base.pillar !== rt.pillar),
+      });
+    }
+    return out;
+  }, [runs, weightingOn, modified, weights]);
+
   const rows = useMemo(() => {
     if (!runs) return [];
     // one row per COMPANY (latest run) — history stays in the DB, reachable via profile
@@ -205,13 +266,25 @@ export default function Explore() {
     const out = latest.filter((r) =>
       (!f || r.company.toLowerCase().includes(f) || (r.summary || "").toLowerCase().includes(f) ||
         (r.hq || "").toLowerCase().includes(f)) &&
-      (!pillar || r.pillar === pillar));
+      // Filter on what the reviewer can see: with a weighting applied, the pillar chips must
+      // select the re-weighted pillar or the two controls contradict each other on screen.
+      (!pillar || (weighted?.get(r.id)?.pillar ?? r.pillar) === pillar));
     out.sort((a, b) => {
+      if (sortKey === "final_score" && weighted) {
+        const va = weighted.get(a.id)?.score ?? a.final_score ?? 0;
+        const vb = weighted.get(b.id)?.score ?? b.final_score ?? 0;
+        return (va - vb) * sortDir;
+      }
       const va = a[sortKey] ?? "", vb = b[sortKey] ?? "";
       return (va > vb ? 1 : va < vb ? -1 : 0) * sortDir;
     });
     return out;
-  }, [runs, q, pillar, sortKey, sortDir]);
+  }, [runs, q, pillar, sortKey, sortDir, weighted]);
+
+  const moved = useMemo(
+    () => (weighted ? rows.filter((r) => weighted.get(r.id)?.moved) : []),
+    [rows, weighted],
+  );
 
   const stats = useMemo(() => {
     if (!runs?.length) return null;
@@ -296,10 +369,39 @@ export default function Explore() {
           onClick={() => setParam("density", dense ? "comfortable" : "")}>
           ☰ {dense ? "Compact" : "Comfortable"}
         </button>
+        <button className={"tool-btn" + (weightingOn ? " active" : "")}
+          aria-expanded={weightingOn} onClick={() => setWeightingOn((v) => !v)}>
+          ⚖ Weighting: {weightingOn && modified ? "mine" : "engine"}
+        </button>
         <span className="spacer" />
         {selected.size > 0 && <span className="muted" style={{ fontSize: 12 }}>{selected.size} selected</span>}
         <button className="tool-btn" onClick={exportCsv}>⤓ Export</button>
       </div>
+
+      {weightingOn && (
+        <div className="panel" style={{ marginBottom: 10 }}>
+          <h3>Score this table under your own weighting</h3>
+          <p className="muted" style={{ marginTop: 0, fontSize: 12 }}>
+            Re-scores every row in your browser only. The stored engine score is what the
+            database holds and what every export and every other reviewer sees — it is shown
+            next to the re-weighted one, never replaced by it.
+          </p>
+          <WeightSliders idPrefix="explore-w" />
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
+            <span role="status" aria-live="polite" style={{ fontSize: 12.5 }}>
+              {!modified
+                ? "Engine weighting — move a slider to see what changes."
+                : moved.length === 0
+                  ? `No companies change pillar under this weighting (${rows.length} shown).`
+                  : `${moved.length} of ${rows.length} companies change pillar under this weighting.`}
+            </span>
+            <button type="button" className="btn secondary" disabled={!modified}
+              onClick={resetWeights}>
+              Reset to engine weights
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="filter-row">
         <input className="input" style={{ maxWidth: 240, padding: "4px 9px" }}
@@ -377,7 +479,7 @@ export default function Explore() {
                       {r.parent_group && <span className="badge">Part of {r.parent_group}</span>}
                     </div>
                   </td>
-                  {cols.map((k) => <td key={k}>{COLUMNS[k].render(r)}</td>)}
+                  {cols.map((k) => <td key={k}>{COLUMNS[k].render(r, weighted?.get(r.id))}</td>)}
                   <td onClick={(e) => e.stopPropagation()} style={{ whiteSpace: "nowrap" }}>
                     <button className="kebab" title="Re-evaluate with fresh data"
                       aria-label={`Re-evaluate ${r.company}`}
