@@ -348,7 +348,14 @@ a:hover { text-decoration: underline; }
 .signin-lede { font-size: var(--fs-body); margin: 0 0 20px; }
 .signin-foot { font-size: var(--fs-meta); margin: 16px 0 0; }
 .signin .btn { width: 100%; justify-content: center; }
-/* Loud by design: the stubbed sign-in must be impossible to mistake for the real thing. */
-.stub-banner { position: fixed; inset: 0 0 auto 0; z-index: 100; text-align: center;
-  padding: 5px 12px; font-size: var(--fs-meta); font-weight: 700;
+/* Loud by design: the stubbed sign-in must be impossible to mistake for the real thing.
+   Anchored bottom-left rather than across the top because the top bar, rail and dock are
+   all fixed and positioned off --topbar-h — a full-width strip there covered the command
+   bar. The bottom of the rail is dead space, so this obstructs nothing while staying red
+   and permanently on screen. */
+   It is purely a label, so it must never intercept a click: on a narrow window it sits
+   over real controls, and swallowing their clicks would make the app feel broken. */
+.stub-banner { position: fixed; left: 8px; bottom: 8px; z-index: 100; max-width: 260px;
+  padding: 6px 10px; border-radius: var(--radius); pointer-events: none;
+  font-size: var(--fs-meta); font-weight: 700; line-height: 1.35;
   background: var(--danger); color: #fff; }
