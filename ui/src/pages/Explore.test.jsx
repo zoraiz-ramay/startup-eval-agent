@@ -1,9 +1,10 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { Link, MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import Explore from "./Explore.jsx";
 import { AppProvider } from "../state.jsx";
+import { api } from "../api.js";
 
 /**
  * EXP-02 / EXP-03 / EXP-08 — the column drawer.
@@ -17,6 +18,7 @@ vi.mock("../api.js", () => ({
   api: {
     myRuns: vi.fn(async () => ({ runs: [] })),
     search: vi.fn(async () => ({ results: [] })),
+    views: vi.fn(async () => ({ views: [] })),
     saveView: vi.fn(async (name, columns, filters) => ({ name, columns, filters })),
     deleteView: vi.fn(async () => ({ deleted: true })),
   },
@@ -92,5 +94,80 @@ describe("Explore column drawer", () => {
     expect(screen.queryByRole("complementary", { name: /customise columns/i })).toBeNull();
     // Closing must not drop focus into <body> — it belongs back on the control that opened it.
     expect(trigger).toHaveFocus();
+  });
+});
+
+/**
+ * Saved views — the reported "views are not opening, once created".
+ *
+ * The cause was that ?view=… was read only in a useState lazy initializer. React Router does
+ * not remount Explore when only the query string changes, so the commonest path of all —
+ * save a view, then click it in the sidenav while still on /explore — changed the URL and ran
+ * nothing. Every assertion below therefore navigates WITHOUT remounting; a test that rendered
+ * a fresh tree at /explore?view=X would have passed against the broken code.
+ */
+describe("Explore saved views", () => {
+  const HQ = "hq";
+
+  function renderWithNav(initial = "/explore") {
+    // A link inside the same tree is what makes this a same-mount navigation: react-router
+    // updates the location in place, exactly as the real sidenav entry does.
+    function Harness() {
+      return (
+        <>
+          <Link to="/explore?view=Munich">open Munich</Link>
+          <Explore />
+        </>
+      );
+    }
+    return render(
+      <MemoryRouter initialEntries={[initial]}>
+        <AppProvider>
+          <Routes>
+            <Route path="/explore" element={<Harness />} />
+          </Routes>
+        </AppProvider>
+      </MemoryRouter>,
+    );
+  }
+
+  it("applies a view's columns and filters when the URL changes without a remount", async () => {
+    const user = userEvent.setup();
+    api.views.mockResolvedValueOnce({
+      views: [{ name: "Munich", columns: [HQ], filters: { q: "munich", pillar: "Pass" } }],
+    });
+    renderWithNav();
+    await screen.findByRole("button", { name: /customise columns/i });
+
+    await user.click(screen.getByRole("link", { name: /open munich/i }));
+
+    // The chip proves the view was recognised even when its columns match the defaults.
+    expect(await screen.findByText(/View: Munich/)).toBeInTheDocument();
+    // Filters were stored by saveView from the day it shipped and no reader ever applied them.
+    expect(screen.getByLabelText(/filter results/i)).toHaveValue("munich");
+  });
+
+  it("saving a view sends it to the server and opens it", async () => {
+    const user = userEvent.setup();
+    api.views.mockResolvedValueOnce({ views: [] });
+    renderWithNav();
+
+    await user.click(await screen.findByRole("button", { name: /customise columns/i }));
+    await user.type(screen.getByPlaceholderText(/view name/i), "My view");
+    await user.click(screen.getByRole("button", { name: /^save view$/i }));
+
+    expect(api.saveView).toHaveBeenCalledWith("My view", expect.any(Array), expect.any(Object));
+    expect(await screen.findByText(/View: My view/)).toBeInTheDocument();
+  });
+
+  it("closing the view chip restores the default grid", async () => {
+    const user = userEvent.setup();
+    api.views.mockResolvedValueOnce({
+      views: [{ name: "Munich", columns: [HQ], filters: { q: "munich" } }],
+    });
+    renderWithNav("/explore?view=Munich");
+
+    await user.click(await screen.findByRole("button", { name: /close the view munich/i }));
+    expect(screen.queryByText(/View: Munich/)).toBeNull();
   });
 });

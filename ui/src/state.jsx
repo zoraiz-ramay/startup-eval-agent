@@ -25,9 +25,13 @@ function usePersistent(key, initial) {
   return [val, setVal];
 }
 
+const LEGACY_VIEWS_KEY = "se.savedViews";
+
 export function AppProvider({ children }) {
   const [watchlist, setWatchlist] = usePersistent("se.watchlist.v2", []);   // company names (stable across re-evaluations)
-  const [savedViews, setSavedViews] = usePersistent("se.savedViews", []);   // {name, columns, filters}
+  // Views live on the server, keyed on the Entra oid, so they follow a reviewer between
+  // machines instead of belonging to a browser profile. Loaded rather than persisted here.
+  const [savedViews, setSavedViews] = useState([]);                         // {name, columns, filters}
   const [pins, setPins] = usePersistent("se.pins", ["Explore startups", "Solve a problem"]);
   // Local what-if weighting for the six scoring dimensions, as points out of 100. null means the
   // reviewer has not overridden anything, which is what makes "reset" a single assignment rather
@@ -40,10 +44,50 @@ export function AppProvider({ children }) {
   const toggleWatch = (company) =>
     setWatchlist((w) => (w.includes(company) ? w.filter((x) => x !== company) : [...w, company]));
 
+  // `api.views?.()` rather than `api.views()`: page tests mock ../api.js with only the calls
+  // the page under test makes, and src/test/setup.js makes any unstubbed fetch throw. The
+  // optional call lets those tests mount the real provider and simply skip hydration.
+  useEffect(() => {
+    let cancelled = false;
+    Promise.resolve(api.views?.())
+      .then(async (r) => {
+        if (cancelled || !r) return;
+        let views = r.views || [];
+        // One-time lift of anything left in the old per-browser key, so a reviewer who had
+        // views before this change does not silently lose them.
+        let legacy = [];
+        try { legacy = JSON.parse(localStorage.getItem(LEGACY_VIEWS_KEY) || "[]"); } catch { legacy = []; }
+        const known = new Set(views.map((v) => v.name.toLowerCase()));
+        for (const v of legacy) {
+          if (!v?.name || known.has(String(v.name).toLowerCase())) continue;
+          try {
+            views = [...views, await api.saveView(v.name, v.columns || [], v.filters || {})];
+          } catch { /* keep the local copy for the next attempt */ }
+        }
+        if (legacy.length) {
+          try { localStorage.removeItem(LEGACY_VIEWS_KEY); } catch { /* ignore */ }
+        }
+        if (!cancelled) setSavedViews(views);
+      })
+      .catch(() => { /* signed out, or the API is down; the sidenav shows the empty state */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  const saveView = useCallback(async (name, columns, filters) => {
+    const saved = await api.saveView(name, columns, filters);
+    setSavedViews((v) => [...v.filter((x) => x.name !== saved.name), saved]);
+    return saved;
+  }, []);
+
+  const removeView = useCallback(async (name) => {
+    await api.deleteView(name);
+    setSavedViews((v) => v.filter((x) => x.name !== name));
+  }, []);
+
   return (
     <AppCtx.Provider value={{
       watchlist, toggleWatch,
-      savedViews, setSavedViews,
+      savedViews, saveView, removeView,
       pins, setPins,
       whatIfWeights, setWhatIfWeights,
       dockOpen, setDockOpen, dockCtx, setDockCtx,

@@ -159,7 +159,9 @@ function Rail() {
 
 function SideNav() {
   const { savedViews, watchlist } = useApp();
-  const nav = useNavigate();
+  // NavLink's own isActive compares pathnames only, so every view link would light up at
+  // once on /explore. The active view is the one named in the query string.
+  const view = new URLSearchParams(useLocation().search).get("view") || "";
   return (
     <nav className="sidenav" aria-label="Secondary">
       <h4>Quick access</h4>
@@ -177,11 +179,13 @@ function SideNav() {
           None yet — save one from Explore
         </div>
       )}
+      {/* NavLinks, not <div onClick>: as divs these were unreachable by keyboard and could
+          never pick up the .snav-item.active styling that already exists for them. */}
       {savedViews.map((v) => (
-        <div key={v.name} className="snav-item"
-          onClick={() => nav(`/explore?view=${encodeURIComponent(v.name)}`)}>
+        <NavLink key={v.name} to={`/explore?view=${encodeURIComponent(v.name)}`}
+          className={"snav-item" + (view === v.name ? " active" : "")}>
           {v.name}
-        </div>
+        </NavLink>
       ))}
     </nav>
   );

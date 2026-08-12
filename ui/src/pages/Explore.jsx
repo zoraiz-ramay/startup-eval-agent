@@ -117,16 +117,13 @@ function ColumnDrawer({ open, onClose, cols, setCols, onSaveView }) {
 export default function Explore() {
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
-  const { watchlist, toggleWatch, savedViews, setSavedViews } = useApp();
+  const { watchlist, toggleWatch, savedViews, saveView: persistView } = useApp();
 
   const [runs, setRuns] = useState(null);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState(new Set());
   const [drawer, setDrawer] = useState(false);
-  const [cols, setCols] = useState(() => {
-    const view = savedViews.find((v) => v.name === params.get("view"));
-    return view?.columns || DEFAULT_COLS;
-  });
+  const [cols, setCols] = useState(DEFAULT_COLS);
   const drawerTriggerRef = useRef(null);
   const drawerWasOpen = useRef(false);
   // Whatever path closed the drawer — Escape, backdrop click, or "Save view" — focus should land
@@ -141,11 +138,54 @@ export default function Explore() {
   const sortKey = params.get("sort") || "final_score";
   const sortDir = params.get("dir") === "asc" ? 1 : -1;
   const dense = params.get("density") !== "comfortable";
+  const viewName = params.get("view") || "";
+  const activeView = savedViews.find((v) => v.name === viewName) || null;
 
   const setParam = (k, v) => {
     const next = new URLSearchParams(params);
     if (v) next.set(k, v); else next.delete(k);
     setParams(next, { replace: true });
+  };
+
+  /* Opening a saved view.
+   *
+   * This used to be a useState lazy initializer, which is why views "did not open": React
+   * Router does not remount Explore when only the query string changes, so the commonest
+   * path of all — save a view from the drawer, then click it in the sidenav while already on
+   * /explore — set ?view=… and ran nothing. An effect keyed on the name fires every time.
+   *
+   * It also applies view.filters, which saveView has always stored and no reader ever used:
+   * a view saved as "Munich passes" opened unfiltered while the Saved page advertised the
+   * filter in its list row.
+   *
+   * appliedRef stops the effect fighting the reviewer. Once a view is applied its filters are
+   * theirs to change; re-running on every params tick would snap the grid back mid-typing. */
+  const appliedRef = useRef(null);
+  useEffect(() => {
+    if (!viewName) { appliedRef.current = null; return; }
+    if (appliedRef.current === viewName) return;
+    if (!activeView) return;                 // views may still be loading from the server
+    appliedRef.current = viewName;
+    setCols(activeView.columns?.length ? activeView.columns : DEFAULT_COLS);
+    const f = activeView.filters || {};
+    setParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set("view", viewName);
+      for (const key of ["q", "pillar", "sort"]) {
+        if (f[key]) next.set(key, f[key]); else next.delete(key);
+      }
+      return next;
+    }, { replace: true });
+  }, [viewName, activeView, setParams]);
+
+  const clearView = () => {
+    appliedRef.current = null;
+    setCols(DEFAULT_COLS);
+    setParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("view");
+      return next;
+    }, { replace: true });
   };
 
   useEffect(() => {
@@ -210,9 +250,12 @@ export default function Explore() {
   };
 
   const saveView = (name, columns) => {
-    setSavedViews((v) => [...v.filter((x) => x.name !== name),
-      { name, columns, filters: { q, pillar, sort: sortKey } }]);
     setDrawer(false);
+    persistView(name, columns, { q, pillar, sort: sortKey })
+      // Land on the view just saved, so "Save view" visibly produces something rather than
+      // just closing the drawer.
+      .then(() => { appliedRef.current = name; setParam("view", name); })
+      .catch((e) => setError(e.message));
   };
 
   return (
@@ -221,6 +264,14 @@ export default function Explore() {
       <div className="page-head">
         <h1 className="page-title">Companies Covered</h1>
         <span className="page-meta">{rows.length} results</span>
+        {/* Without this a view whose columns happen to match the defaults opens invisibly,
+            which is indistinguishable from it not opening at all. */}
+        {activeView && (
+          <span className="fchip">
+            View: {activeView.name}
+            <button onClick={clearView} aria-label={`Close the view ${activeView.name}`}>✕</button>
+          </span>
+        )}
       </div>
 
       {stats && (

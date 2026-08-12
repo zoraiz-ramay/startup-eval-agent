@@ -194,7 +194,7 @@
   "files": [
     {
       "path": "ui/src/App.jsx",
-      "lines": 263,
+      "lines": 267,
       "exports": [
         "App"
       ],
@@ -487,7 +487,7 @@
     },
     {
       "path": "ui/src/pages/Explore.jsx",
-      "lines": 349,
+      "lines": 400,
       "exports": [
         "Explore"
       ],
@@ -532,7 +532,7 @@
     },
     {
       "path": "ui/src/pages/Explore.test.jsx",
-      "lines": 97,
+      "lines": 174,
       "exports": [],
       "css_classes": []
     },
@@ -635,7 +635,7 @@
     },
     {
       "path": "ui/src/pages/Saved.jsx",
-      "lines": 43,
+      "lines": 42,
       "exports": [
         "Saved"
       ],
@@ -706,7 +706,7 @@
     },
     {
       "path": "ui/src/state.jsx",
-      "lines": 91,
+      "lines": 135,
       "exports": [
         "AppProvider",
         "AuthProvider",
@@ -721,6 +721,6 @@
     "api_methods": 21,
     "design_tokens": 37,
     "jsx_files": 34,
-    "jsx_lines": 3737
+    "jsx_lines": 3912
   }
 }
