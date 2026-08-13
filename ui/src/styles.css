@@ -78,9 +78,13 @@ a:hover { text-decoration: underline; }
   position: fixed; top: var(--topbar-h); bottom: 0; left: 0; width: var(--rail-w); z-index: 70;
   background: var(--chrome-900); display: flex; flex-direction: column; padding-top: 6px;
 }
+/* Also worn by a <button> (the assistant toggle), which brings its own background, border
+   and font — hence the resets, so it sits flush with the <a> items beside it. */
 .rail-item {
   display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 10px 0;
   color: var(--chrome-muted); border-left: 3px solid transparent; cursor: pointer;
+  background: none; border-top: 0; border-right: 0; border-bottom: 0; width: 100%;
+  font-family: inherit;
 }
 .rail-item:hover { color: var(--chrome-text); background: var(--chrome-800); text-decoration: none; }
 .rail-item.active { color: #fff; background: var(--chrome-800); border-left-color: #9db7f5; }

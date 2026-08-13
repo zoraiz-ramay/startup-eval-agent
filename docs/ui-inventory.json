@@ -211,12 +211,11 @@
   "files": [
     {
       "path": "ui/src/App.jsx",
-      "lines": 267,
+      "lines": 276,
       "exports": [
         "App"
       ],
       "css_classes": [
-        "ai",
         "avatar-btn",
         "badge",
         "brand",
@@ -225,7 +224,6 @@
         "dot",
         "icon-btn",
         "kbd",
-        "label",
         "lens",
         "name",
         "rail",
@@ -245,7 +243,7 @@
     },
     {
       "path": "ui/src/App.test.jsx",
-      "lines": 63,
+      "lines": 128,
       "exports": [],
       "css_classes": []
     },
@@ -743,7 +741,7 @@
     },
     {
       "path": "ui/src/state.jsx",
-      "lines": 135,
+      "lines": 157,
       "exports": [
         "AppProvider",
         "AuthProvider",
@@ -758,6 +756,6 @@
     "api_methods": 24,
     "design_tokens": 37,
     "jsx_files": 36,
-    "jsx_lines": 4418
+    "jsx_lines": 4514
   }
 }

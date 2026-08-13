@@ -1,4 +1,4 @@
-import { expect, RUN_FIXTURE, RUNS_FIXTURE, stabilise, stubEvaluation, stubRoutableRun, stubRuns, test } from "./fixtures.js";
+import { expect, RUN_FIXTURE, RUNS_FIXTURE, stabilise, stubEvaluation, stubIdentity, stubRoutableRun, stubRuns, test } from "./fixtures.js";
 
 /**
  * The user journeys from contract/feature-inventory.md. Each test names its contract ID so a
@@ -11,9 +11,13 @@ test.describe("shell", () => {
     const nav = page.getByRole("navigation", { name: /primary/i });
     // The visible labels are the product's wording, not the route names: /saved is "Views" and
     // /alerts is "Tracking". Asserting the route names instead would pass only by accident.
-    for (const label of ["Home", "Explore", "Views", "Tracking", "Ask AI", "Settings"]) {
+    for (const label of ["Home", "Explore", "Views", "Tracking", "Settings"]) {
       await expect(nav.getByRole("link", { name: new RegExp(label, "i") })).toBeVisible();
     }
+    // Ask AI is a button, not a link: it toggles the assistant dock in place rather than
+    // navigating, and it is the only control for it now that the command bar's duplicate is
+    // gone. Asserting the role is what would catch it silently becoming a link again.
+    await expect(nav.getByRole("button", { name: /ask ai/i })).toBeVisible();
   });
 
   test("SHELL-02/04: Ctrl+K focuses the command bar and Enter opens a profile", async ({ page }) => {
@@ -177,7 +181,11 @@ test.describe("profile", () => {
 
 test.describe("error states", () => {
   test("X-03: an API failure is announced, not silently blank", async ({ page }) => {
-    await page.route("**/api/runs", (route) => route.fulfill({ status: 500, json: { detail: "boom" } }));
+    // /api/my/searches, not /api/runs: Explore's data source moved when lists became
+    // per-reviewer, so a 500 on /api/runs left the page loading happily and this asserted
+    // nothing. The endpoint here has to be the one the page under test actually calls.
+    await page.route("**/api/my/searches",
+      (route) => route.fulfill({ status: 500, json: { detail: "boom" } }));
     await page.goto("/explore");
     await expect(page.getByRole("alert")).toBeVisible();
   });
@@ -257,6 +265,7 @@ test.describe("accessibility", () => {
  */
 test.describe("layout", () => {
   test("X-05/X-06: Tracxn shell holds its shape", async ({ page }, testInfo) => {
+    await stubIdentity(page);
     await stubRuns(page);
     await page.goto("/explore");
     await stabilise(page);
@@ -264,6 +273,7 @@ test.describe("layout", () => {
   });
 
   test("X-05: profile layout holds its shape", async ({ page }, testInfo) => {
+    await stubIdentity(page);
     await stubEvaluation(page);
     await page.goto("/startup/1");
     await stabilise(page);

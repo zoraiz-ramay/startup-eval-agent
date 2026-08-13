@@ -86,7 +86,7 @@ function CommandBar() {
 
 /* ------------------------------------------------ top bar */
 function TopBar() {
-  const { setDockOpen, dockOpen, watchlist } = useApp();
+  const { watchlist } = useApp();
   const { user } = useAuth();
   const nav = useNavigate();
   const account = user?.name || user?.email || "Account";
@@ -103,10 +103,6 @@ function TopBar() {
         <button className="icon-btn" aria-label="Advanced search" title="Advanced search"
           onClick={() => nav("/explore")}>
           <Icon icon={iconSearch} size={17} />
-        </button>
-        <button className="icon-btn ai" aria-label="AI assistant" title="AI assistant"
-          aria-expanded={dockOpen} onClick={() => setDockOpen(!dockOpen)}>
-          <Icon icon={iconAi} size={17} /><span className="label">AI</span>
         </button>
         <button className="icon-btn" title="Tracking"
           aria-label={watchlist.length
@@ -134,24 +130,37 @@ const RAIL = [
   { to: "/explore", label: "Explore", icon: iconTable },
   { to: "/saved", label: "Views", icon: iconBookmark },
   { to: "/alerts", label: "Tracking", icon: iconEye },
-  { to: "/ask", label: "Ask AI", icon: iconAi },
+  // Not a link: this is the one control for the assistant now that the command bar's
+  // duplicate has gone. The dock opens itself on a wide screen, so without a way back the
+  // close button in its header would be one-way for the rest of the session.
+  { action: "dock", label: "Ask AI", icon: iconAi },
   { to: "/settings", label: "Settings", icon: iconCogwheel },
 ];
 const ADMIN_RAIL = { to: "/admin", label: "Admin", icon: iconDashboard };
 
 function Rail() {
   const { user } = useAuth();
+  const { dockOpen, setDockOpen } = useApp();
   // The route is guarded server-side by require_admin; this only decides whether a reviewer
   // is shown a door they cannot open.
   const items = user?.is_admin ? [...RAIL, ADMIN_RAIL] : RAIL;
   return (
     <nav className="rail" aria-label="Primary">
       {items.map((n) => (
-        <NavLink key={n.to} to={n.to} end={n.end} title={n.label}
-          className={({ isActive }) => "rail-item" + (isActive ? " active" : "")}>
-          <span className="ri"><Icon icon={n.icon} size={18} /></span>
-          <span className="rl">{n.label}</span>
-        </NavLink>
+        n.action === "dock" ? (
+          <button key={n.label} type="button" title={n.label}
+            className={"rail-item" + (dockOpen ? " active" : "")}
+            aria-expanded={dockOpen} onClick={() => setDockOpen(!dockOpen)}>
+            <span className="ri"><Icon icon={n.icon} size={18} /></span>
+            <span className="rl">{n.label}</span>
+          </button>
+        ) : (
+          <NavLink key={n.to} to={n.to} end={n.end} title={n.label}
+            className={({ isActive }) => "rail-item" + (isActive ? " active" : "")}>
+            <span className="ri"><Icon icon={n.icon} size={18} /></span>
+            <span className="rl">{n.label}</span>
+          </NavLink>
+        )
       ))}
     </nav>
   );

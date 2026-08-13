@@ -147,6 +147,32 @@ export async function stubRuns(page) {
   await page.route("**/api/my/searches", (route) => route.fulfill({ json: RUNS_FIXTURE }));
 }
 
+/**
+ * Pin the signed-in identity. Required before any screenshot, for the same reason as
+ * stubRuns.
+ *
+ * The rail grows an "Admin" entry when the principal is an administrator, and that depends on
+ * ADMIN_UPNS in whatever environment the backend happened to be started with. Left unpinned,
+ * the baselines become a function of a shell variable: capture them with it set and every
+ * later run without it fails, and the other way round. Neither failure says anything about
+ * whether the layout still works.
+ *
+ * Non-admin by default, because that is the rail every reviewer sees.
+ */
+export async function stubIdentity(page, { admin = false } = {}) {
+  await page.route("**/api/auth/me", (route) => route.fulfill({
+    json: {
+      authenticated: true,
+      mode: "stub",
+      user: {
+        name: "E2E Reviewer", email: "e2e.reviewer@siemens.com",
+        upn: "e2e.reviewer@siemens.com", initials: "ER",
+        oid: "00000000-0000-0000-0000-000000000001", is_admin: admin,
+      },
+    },
+  }));
+}
+
 /** Stub the slow, non-deterministic endpoints so a journey is about the UI, not the network. */
 /**
  * A run that actually routes, for exercising the what-if routing derivation (PROF-15).

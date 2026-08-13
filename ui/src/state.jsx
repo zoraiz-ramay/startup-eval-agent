@@ -27,6 +27,28 @@ function usePersistent(key, initial) {
 
 const LEGACY_VIEWS_KEY = "se.savedViews";
 
+/**
+ * Whether the assistant starts open, decided once per load.
+ *
+ * The dock is a 332px `position: fixed` panel (styles.css) — it sits on top of the page
+ * rather than in the layout flow, and no media query adapts it. Opening it unconditionally
+ * would therefore cover most of a phone screen with something the reader never asked for, so
+ * it only auto-opens above the shell's existing 1180px breakpoint. Below that it is one tap
+ * away on the rail.
+ *
+ * Deliberately not persisted: "open when the app loads" is the point, so a dock closed
+ * earlier in the day should not still be closed tomorrow.
+ */
+const DOCK_AUTO_OPEN_QUERY = "(min-width: 1181px)";
+
+function dockOpenByDefault() {
+  try {
+    return Boolean(globalThis.matchMedia?.(DOCK_AUTO_OPEN_QUERY)?.matches);
+  } catch {
+    return false;
+  }
+}
+
 export function AppProvider({ children }) {
   const [watchlist, setWatchlist] = usePersistent("se.watchlist.v2", []);   // company names (stable across re-evaluations)
   // Views live on the server, keyed on the Entra oid, so they follow a reviewer between
@@ -38,7 +60,7 @@ export function AppProvider({ children }) {
   // than a float comparison. Never sent to the API: the engine's score is the shared truth and
   // this is one person's sandbox.
   const [whatIfWeights, setWhatIfWeights] = usePersistent("se.whatIfWeights.v1", null);
-  const [dockOpen, setDockOpen] = useState(false);
+  const [dockOpen, setDockOpen] = useState(dockOpenByDefault);
   const [dockCtx, setDockCtx] = useState(null);                             // {runId, company}
 
   const toggleWatch = (company) =>
