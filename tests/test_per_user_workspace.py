@@ -192,6 +192,128 @@ def test_my_searches_is_open_to_any_signed_in_reviewer(signed_in, monkeypatch):
     assert "runs" in res.json()
 
 
+# ------------------------------------------------------- granting admin from inside the app
+#
+# Every test here takes the `db` fixture: admin rights are now partly a database row, so a
+# test that shared the default DB could grant itself access and leak it into the next one.
+
+OTHER_UPN = "colleague@siemens.com"
+
+
+def _csrf(client: TestClient) -> dict:
+    """Writes are double-submit CSRF protected: the readable cookie has to come back as a
+    header. Without this every POST/DELETE below would 403 for the wrong reason."""
+    return {"X-CSRF-Token": client.cookies.get("sea_csrf") or ""}
+
+
+def test_admin_upns_can_arrive_in_the_aws_secret_blob(signed_in, monkeypatch):
+    """The deployment's config channel is AWS Secrets Manager, and whether the CI hub
+    explodes it into env vars or passes one JSON blob is not knowable from this repo. Reading
+    only the plain env var would leave production with no admins and a bare 403 to debug."""
+    monkeypatch.delenv("ADMIN_UPNS", raising=False)
+    monkeypatch.setenv("APP_SECRETS", f'{{"ADMIN_UPNS": "{STUB_UPN}"}}')
+    assert signed_in.get("/api/auth/me").json()["user"]["is_admin"] is True
+
+
+def test_me_exposes_your_own_upn(signed_in, monkeypatch):
+    """You cannot grant access to a list keyed on UPN without being able to read your own —
+    `email` is a different claim and is not guaranteed to match."""
+    monkeypatch.delenv("ADMIN_UPNS", raising=False)
+    assert signed_in.get("/api/auth/me").json()["user"]["upn"] == STUB_UPN
+
+
+def test_grant_then_revoke_round_trip(db, signed_in, monkeypatch):
+    monkeypatch.setenv("ADMIN_UPNS", STUB_UPN)
+    res = signed_in.post("/api/admin/admins", json={"upn": OTHER_UPN, "note": "team lead"},
+                            headers=_csrf(signed_in))
+    assert res.status_code == 200
+    assert res.json()["upn"] == OTHER_UPN
+    assert res.json()["granted_by"] == STUB_UPN
+
+    listed = signed_in.get("/api/admin/admins").json()["admins"]
+    by_upn = {a["upn"]: a for a in listed}
+    assert by_upn[OTHER_UPN]["source"] == "db"
+    assert by_upn[STUB_UPN]["source"] == "env"
+
+    assert signed_in.delete(f"/api/admin/admins/{OTHER_UPN}", headers=_csrf(signed_in)).status_code == 200
+    after = [a["upn"] for a in signed_in.get("/api/admin/admins").json()["admins"]]
+    assert OTHER_UPN not in after
+
+
+def test_a_db_granted_admin_is_really_an_admin(db, signed_in, monkeypatch):
+    """The grant has to work with ADMIN_UPNS empty, or it is not a way to hand out access."""
+    monkeypatch.delenv("ADMIN_UPNS", raising=False)
+    store.grant_admin(STUB_UPN, granted_by="someone@siemens.com")
+    assert signed_in.get("/api/auth/me").json()["user"]["is_admin"] is True
+    assert signed_in.get("/api/admin/overview").status_code == 200
+
+
+def test_an_env_seeded_admin_cannot_be_revoked(db, signed_in, monkeypatch):
+    """ADMIN_UPNS is the recovery path. Deleting a row that does not exist would report
+    success and change nothing, which is worse than refusing."""
+    monkeypatch.setenv("ADMIN_UPNS", f"{STUB_UPN},{OTHER_UPN}")
+    res = signed_in.delete(f"/api/admin/admins/{OTHER_UPN}", headers=_csrf(signed_in))
+    assert res.status_code == 409
+    assert "ADMIN_UPNS" in res.json()["detail"]
+    assert signed_in.get("/api/auth/me").json()["user"]["is_admin"] is True
+
+
+def test_the_last_admin_cannot_revoke_themselves(db, signed_in, monkeypatch):
+    """Self-lockout on a fail-closed system is only repairable from the AWS console."""
+    monkeypatch.delenv("ADMIN_UPNS", raising=False)
+    store.grant_admin(STUB_UPN, granted_by="bootstrap@siemens.com")
+    res = signed_in.delete(f"/api/admin/admins/{STUB_UPN}", headers=_csrf(signed_in))
+    assert res.status_code == 409
+    assert signed_in.get("/api/auth/me").json()["user"]["is_admin"] is True
+
+
+def test_revoking_yourself_is_allowed_when_someone_else_remains(db, signed_in, monkeypatch):
+    monkeypatch.delenv("ADMIN_UPNS", raising=False)
+    store.grant_admin(STUB_UPN, granted_by="bootstrap@siemens.com")
+    store.grant_admin(OTHER_UPN, granted_by=STUB_UPN)
+    assert signed_in.delete(f"/api/admin/admins/{STUB_UPN}", headers=_csrf(signed_in)).status_code == 200
+    assert signed_in.get("/api/auth/me").json()["user"]["is_admin"] is False
+
+
+def test_granting_the_same_person_twice_is_refused(db, signed_in, monkeypatch):
+    monkeypatch.setenv("ADMIN_UPNS", STUB_UPN)
+    assert signed_in.post("/api/admin/admins", json={"upn": OTHER_UPN}, headers=_csrf(signed_in)).status_code == 200
+    assert signed_in.post("/api/admin/admins", json={"upn": OTHER_UPN}, headers=_csrf(signed_in)).status_code == 409
+    # and the same for someone who is already an admin via the environment
+    assert signed_in.post("/api/admin/admins", json={"upn": STUB_UPN}, headers=_csrf(signed_in)).status_code == 409
+
+
+@pytest.mark.parametrize("bad", ["", "   ", "not-an-email", "no domain@", "@siemens.com",
+                                 "two words@siemens.com"])
+def test_a_malformed_sign_in_name_is_refused(db, signed_in, monkeypatch, bad):
+    """A row nobody can ever match against looks exactly like a working grant."""
+    monkeypatch.setenv("ADMIN_UPNS", STUB_UPN)
+    assert signed_in.post("/api/admin/admins", json={"upn": bad}, headers=_csrf(signed_in)).status_code == 422
+
+
+def test_upn_matching_ignores_case_and_padding(db, signed_in, monkeypatch):
+    monkeypatch.setenv("ADMIN_UPNS", STUB_UPN)
+    signed_in.post("/api/admin/admins", json={"upn": f"  {OTHER_UPN.upper()}  "},
+                    headers=_csrf(signed_in))
+    assert OTHER_UPN in store.admin_upns_from_db()
+
+
+def test_the_new_admin_routes_are_closed_to_a_non_admin(db, signed_in, monkeypatch):
+    monkeypatch.delenv("ADMIN_UPNS", raising=False)
+    assert signed_in.get("/api/admin/admins").status_code == 403
+    assert signed_in.post("/api/admin/admins", json={"upn": OTHER_UPN}, headers=_csrf(signed_in)).status_code == 403
+    assert signed_in.delete(f"/api/admin/admins/{OTHER_UPN}", headers=_csrf(signed_in)).status_code == 403
+
+
+def test_a_broken_admins_table_does_not_lock_out_the_seeded_admin(signed_in, monkeypatch):
+    """A database failure must not be able to add access, but it must not remove the
+    environment's either — that would take a working deployment down to nobody."""
+    monkeypatch.setenv("ADMIN_UPNS", STUB_UPN)
+    monkeypatch.setattr(store, "admin_upns_from_db",
+                        lambda: (_ for _ in ()).throw(RuntimeError("disk gone")))
+    assert signed_in.get("/api/auth/me").json()["user"]["is_admin"] is True
+
+
 # ------------------------------------------------------------- saved views
 
 def test_saved_views_are_scoped_to_their_owner(db):

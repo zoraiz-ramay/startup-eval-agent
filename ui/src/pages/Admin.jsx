@@ -25,22 +25,153 @@ function Stat({ value, label }) {
   );
 }
 
+/**
+ * Who can administer this deployment, and the control for changing that.
+ *
+ * Two sources of admin rights, and the difference matters to whoever is looking at this
+ * table. An `env` row comes from the ADMIN_UPNS setting and cannot be revoked from here —
+ * it is the recovery path that keeps a deployment from ending up with nobody able to
+ * administer it. So those rows carry no revoke control at all, rather than one that would
+ * fail: an action you are offered and which then refuses reads as a bug.
+ */
+function Administrators({ data, onChange }) {
+  const [upn, setUpn] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const submit = async (e) => {
+    e.preventDefault();
+    const value = upn.trim();
+    if (!value || busy) return;
+    setBusy(true);
+    setErr("");
+    try {
+      await api.adminGrant(value);
+      setUpn("");
+      await onChange();
+    } catch (ex) {
+      setErr(ex.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const revoke = async (target) => {
+    setBusy(true);
+    setErr("");
+    try {
+      await api.adminRevoke(target);
+      await onChange();
+    } catch (ex) {
+      setErr(ex.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const admins = data?.admins || [];
+
+  return (
+    <div className="panel">
+      <h3>Administrators ({admins.length})</h3>
+      <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
+        Administrators can see every reviewer&apos;s activity and grant access to others.
+        Everyone else gets an &ldquo;access required&rdquo; message.
+      </p>
+
+      {err && <ErrorBox message={err} hint="the change was not saved" />}
+
+      {admins.length === 0 ? (
+        <p className="muted" style={{ fontSize: 12 }}>
+          Nobody is an administrator. Set <code>ADMIN_UPNS</code> on the server to grant the
+          first one.
+        </p>
+      ) : (
+        <table className="dtable dense">
+          <thead>
+            <tr><th>Sign-in name</th><th>Source</th><th>Granted by</th><th /></tr>
+          </thead>
+          <tbody>
+            {admins.map((a) => (
+              <tr key={a.upn} style={{ cursor: "default" }}>
+                <td>
+                  {a.upn}
+                  {a.upn === data?.you && <span className="badge" style={{ marginLeft: 6 }}>you</span>}
+                </td>
+                <td>
+                  <span className="muted">{a.source === "env" ? "Server setting" : "Granted in app"}</span>
+                </td>
+                <td className="muted">{a.granted_by || "—"}</td>
+                <td style={{ textAlign: "right" }}>
+                  {a.source === "db" && (
+                    <button
+                      type="button"
+                      className="btn secondary"
+                      disabled={busy}
+                      aria-label={`Remove administrator access for ${a.upn}`}
+                      onClick={() => revoke(a.upn)}
+                    >
+                      Remove
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <form onSubmit={submit} style={{ display: "flex", gap: 6, marginTop: 10 }}>
+        {/* Visible label, not a placeholder: the placeholder disappears on focus, and this
+            field is one where getting the exact string right is the whole difficulty. */}
+        <label htmlFor="admin-grant-upn" className="muted" style={{ fontSize: 12, alignSelf: "center" }}>
+          Sign-in name
+        </label>
+        <input
+          id="admin-grant-upn"
+          className="input"
+          type="email"
+          placeholder="name@siemens.com"
+          value={upn}
+          disabled={busy}
+          onChange={(e) => setUpn(e.target.value)}
+          style={{ flex: 1, maxWidth: 320 }}
+        />
+        <button type="submit" className="btn" disabled={busy || !upn.trim()}>
+          {busy ? "Working…" : "Grant access"}
+        </button>
+      </form>
+      <p className="muted" style={{ fontSize: 11.5, marginTop: 6, marginBottom: 0 }}>
+        Use the person&apos;s full Microsoft sign-in name. It must match exactly — they can read
+        theirs from the account menu after signing in once.
+      </p>
+    </div>
+  );
+}
+
 export default function Admin() {
   const nav = useNavigate();
   const [overview, setOverview] = useState(null);
   const [searches, setSearches] = useState(null);
   const [allRuns, setAllRuns] = useState(null);
+  const [admins, setAdmins] = useState(null);
   const [error, setError] = useState("");
   const [forbidden, setForbidden] = useState(false);
 
+  const reloadAdmins = React.useCallback(
+    () => api.adminList().then(setAdmins).catch((e) => setError(e.message)),
+    [],
+  );
+
   useEffect(() => {
     let cancelled = false;
-    Promise.all([api.adminOverview(), api.adminSearches(), api.runs()])
-      .then(([o, s, r]) => {
+    Promise.all([api.adminOverview(), api.adminSearches(), api.runs(), api.adminList()])
+      .then(([o, s, r, a]) => {
         if (cancelled) return;
         setOverview(o);
         setSearches(s.searches || []);
         setAllRuns(r.runs || []);
+        setAdmins(a);
       })
       .catch((e) => {
         if (cancelled) return;
@@ -69,10 +200,10 @@ export default function Admin() {
         <div className="crumb">Workspace &gt; Admin</div>
         <div className="page-head"><h1 className="page-title">Admin</h1></div>
         <div className="empty">
-          <h4>You do not have administrator access</h4>
+          <h4>Administrator access required</h4>
           <p>
-            Access is granted by adding your sign-in name to the <code>ADMIN_UPNS</code>
-            {" "}setting on the server. Ask whoever runs the deployment.
+            This page shows activity across every reviewer, so it is limited to
+            administrators. Ask one of them to grant your sign-in name access from this page.
           </p>
           <button className="btn secondary" onClick={() => nav("/")}>Back to Home</button>
         </div>
@@ -92,6 +223,8 @@ export default function Admin() {
 
       {error && <ErrorBox message={error} hint="is the API running?" />}
       {!overview && !error && <Loading text="Loading usage…" />}
+
+      {admins && <Administrators data={admins} onChange={reloadAdmins} />}
 
       {overview && (
         <>

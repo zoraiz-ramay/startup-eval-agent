@@ -213,6 +213,17 @@ CREATE TABLE IF NOT EXISTS saved_views (
     updated_at   TEXT NOT NULL,
     UNIQUE (user_oid, name)
 );
+-- Admins granted from inside the app. This is the SECOND source of admin rights, never the
+-- only one: ADMIN_UPNS stays the seed (see is_admin in api/auth.py), because a system with no
+-- "not configured, so allow" branch anywhere would otherwise have no way to make its first
+-- grant once this table is empty. Keyed on UPN rather than oid because you grant access to a
+-- colleague by typing their sign-in name, before they have ever signed in and been given one.
+CREATE TABLE IF NOT EXISTS admins (
+    upn        TEXT PRIMARY KEY COLLATE NOCASE,
+    granted_by TEXT NOT NULL,
+    granted_at TEXT NOT NULL,
+    note       TEXT NOT NULL DEFAULT ''
+);
 CREATE INDEX IF NOT EXISTS idx_people_company ON people(company_id);
 CREATE INDEX IF NOT EXISTS idx_facts_run ON evidence_facts(run_id);
 CREATE INDEX IF NOT EXISTS idx_web_cache_created ON web_cache(created_at);
@@ -823,3 +834,65 @@ def list_overrides(run_id: int) -> list[dict]:
              # by a script, or before sign-in existed all read as unverified.
              "verified": r[7] == "entra"}
             for r in rows]
+
+
+# ------------------------------------------------------------------ admins
+
+def list_admins() -> list[dict]:
+    """Admins granted in-app, oldest first. Read-only, so no S3 upload."""
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT upn, granted_by, granted_at, note FROM admins ORDER BY granted_at, upn"
+        ).fetchall()
+    return [{"upn": r[0], "granted_by": r[1], "granted_at": r[2], "note": r[3] or "",
+             "source": "db"} for r in rows]
+
+
+def admin_upns_from_db() -> set[str]:
+    """Just the names, lowercased, for the is_admin check on every admin request.
+
+    Separate from list_admins so the hot path does not build dicts it throws away, and so a
+    caller that only needs membership cannot accidentally leak the grant metadata.
+    """
+    with _conn() as con:
+        rows = con.execute("SELECT upn FROM admins").fetchall()
+    return {str(r[0]).strip().lower() for r in rows if str(r[0]).strip()}
+
+
+def grant_admin(upn: str, granted_by: str, note: str = "") -> dict | None:
+    """Add an admin. Returns the new row, or None if that UPN already had a grant.
+
+    Audit record, so it uploads like the other write paths — losing it would leave a
+    privilege change on one container's local disk.
+    """
+    u = str(upn or "").strip().lower()
+    if not u:
+        return None
+    ts = _now()
+    with _conn() as con:
+        existing = con.execute("SELECT 1 FROM admins WHERE upn=?", (u,)).fetchone()
+        if existing:
+            return None
+        con.execute(
+            "INSERT INTO admins (upn, granted_by, granted_at, note) VALUES (?,?,?,?)",
+            (u, str(granted_by or "").strip().lower(), ts, str(note or "")[:200]))
+    _upload_to_s3()
+    return {"upn": u, "granted_by": str(granted_by or "").strip().lower(),
+            "granted_at": ts, "note": str(note or "")[:200], "source": "db"}
+
+
+def revoke_admin(upn: str) -> bool:
+    """Remove an in-app grant. False if there was nothing to remove.
+
+    Cannot touch an ADMIN_UPNS-seeded admin — those live in the environment, not here, which
+    is exactly what makes them the recovery path.
+    """
+    u = str(upn or "").strip().lower()
+    if not u:
+        return False
+    with _conn() as con:
+        cur = con.execute("DELETE FROM admins WHERE upn=?", (u,))
+        removed = cur.rowcount > 0
+    if removed:
+        _upload_to_s3()
+    return removed

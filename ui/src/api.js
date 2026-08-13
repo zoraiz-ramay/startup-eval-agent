@@ -72,6 +72,11 @@ export const api = {
   run: (id) => request(`/api/runs/${encodeURIComponent(id)}`),
   adminOverview: () => request("/api/admin/overview"),
   adminSearches: () => request("/api/admin/searches"),
+  adminList: () => request("/api/admin/admins"),
+  adminGrant: (upn, note = "") =>
+    request("/api/admin/admins", { method: "POST", body: { upn, note } }),
+  adminRevoke: (upn) =>
+    request(`/api/admin/admins/${encodeURIComponent(upn)}`, { method: "DELETE" }),
   views: () => request("/api/my/views"),
   saveView: (name, columns, filters) =>
     request("/api/my/views", { method: "POST", body: { name, columns, filters } }),

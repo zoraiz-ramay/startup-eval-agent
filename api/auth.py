@@ -405,25 +405,53 @@ def current_user(request: Request) -> Principal:
 
 
 def admin_upns() -> frozenset[str]:
-    """The UPNs allowed into the admin dashboard, from ADMIN_UPNS (comma-separated).
+    """The seed admins, from ADMIN_UPNS (comma-separated).
 
     Read per call rather than captured at import so a deployment can change the list by
     restarting the process without a code change, and so tests can set it with monkeypatch.
+
+    Goes through _secret_from_env, not os.getenv, because production config arrives from AWS
+    Secrets Manager and it is not knowable from this repo whether the CI hub explodes that
+    secret into individual env vars or hands over one JSON blob. Reading only the plain env
+    var would, under the blob shape, leave this empty in production — and the symptom is an
+    ordinary 403, indistinguishable from "you are not on the list".
     """
-    raw = os.getenv("ADMIN_UPNS", "")
+    raw = _secret_from_env("ADMIN_UPNS")
     return frozenset(u.strip().lower() for u in raw.split(",") if u.strip())
+
+
+def db_admin_upns() -> frozenset[str]:
+    """Admins granted in-app. Never the only source — see is_admin.
+
+    A failure here must not lock everyone out of a working deployment, so a broken or
+    unreachable database degrades to "no in-app grants" rather than raising into the auth
+    path. That is still fail-closed: it can only ever remove access, never add it.
+    """
+    try:
+        from api import store
+        return frozenset(store.admin_upns_from_db())
+    except Exception:
+        log.warning("[auth] could not read the admins table; falling back to ADMIN_UPNS only",
+                    exc_info=True)
+        return frozenset()
 
 
 def is_admin(user: Principal) -> bool:
     """Membership is by UPN, which is the tenant-unique sign-in name.
 
-    Fail-closed, like everything else in this module: an unset or empty ADMIN_UPNS means
-    NOBODY is an admin. There is deliberately no "not configured, so allow" branch — the
-    admin surface exposes every reviewer's activity, so getting that default wrong is worse
-    than locking the owner out of their own dashboard until they set the variable.
+    Two sources, union: the ADMIN_UPNS seed and the in-app grants. The seed cannot be dropped
+    in favour of the table alone — with an empty table and no "not configured, so allow"
+    branch anywhere in this module, nobody would be able to make the first grant, and the
+    only way back in would be the AWS console.
+
+    Fail-closed otherwise: an unset ADMIN_UPNS and an empty table means NOBODY is an admin.
+    The admin surface exposes every reviewer's activity, so getting that default wrong is
+    worse than locking the owner out of their own dashboard until they set the variable.
     """
     upn = (getattr(user, "upn", "") or "").strip().lower()
-    return bool(upn) and upn in admin_upns()
+    if not upn:
+        return False
+    return upn in admin_upns() or upn in db_admin_upns()
 
 
 def require_admin(user: Principal = Depends(current_user)) -> Principal:
@@ -607,6 +635,11 @@ def me(request: Request):
     return {"authenticated": True, "mode": cfg.mode,
             "user": {"name": user.name, "email": user.email or user.upn,
                      "initials": user.initials, "oid": user.oid,
+                     # The exact string the admin list matches on. Without it there is no way
+                     # to find out what to type when granting someone access: `email` is the
+                     # email claim, which is not necessarily the preferred_username this is
+                     # keyed on. It is the caller's own identity, so it widens nothing.
+                     "upn": user.upn,
                      # Only decides whether the SPA renders the admin nav entry. Every
                      # /api/admin route re-checks with require_admin, so a client that
                      # flips this flag gains nothing.

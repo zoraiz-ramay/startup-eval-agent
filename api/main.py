@@ -8,6 +8,7 @@ In Docker:     see docker-compose.yml (service `api`)
 """
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import pathlib
@@ -30,9 +31,12 @@ from core.solve import solve_problem, load_challenges, set_challenge_status
 from core import s3 as _s3
 from api import store
 from api.auth import Principal, current_user, require_admin, settings as auth_settings
+from api.auth import admin_upns as auth_admin_upns, db_admin_upns as auth_db_admin_upns
 from api.auth import router as auth_router
 from api.security import SecurityMiddleware
 from api.routes_evidence import router as evidence_router
+
+log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------- local applications file
@@ -104,6 +108,32 @@ app.add_middleware(CORSMiddleware, allow_origins=_origins, allow_credentials=Tru
 # `import core` has loaded .env, and it is where a missing client secret should stop the
 # process — not on the first sign-in attempt.
 auth_settings()
+
+
+def _log_admin_count() -> None:
+    """Say how many admins exist, because the alternative is discovering it via a 403.
+
+    Counts only — never the addresses. They are personal data, and this log is shipped to
+    wherever the platform collects container output.
+
+    A deployment with zero admins is a working app that nobody can administer, and the
+    fail-closed default means that is exactly what you get until ADMIN_UPNS is set. Warn
+    loudly rather than let it look like a permissions bug weeks later.
+    """
+    try:
+        seeded = len(auth_admin_upns())
+        granted = len(auth_db_admin_upns() - auth_admin_upns())
+    except Exception:
+        log.warning("[admin] could not determine the admin list at startup", exc_info=True)
+        return
+    if seeded + granted == 0:
+        log.warning("[admin] NOBODY is an administrator: ADMIN_UPNS is unset and no in-app "
+                    "grants exist. /admin will 403 for every user, including you.")
+    else:
+        log.info("[admin] %d seeded admin(s) from ADMIN_UPNS, %d granted in-app", seeded, granted)
+
+
+_log_admin_count()
 
 # Registered before the SPA catch-all at the bottom of this file, which would otherwise
 # swallow /api/auth/* and serve index.html instead.
@@ -364,6 +394,72 @@ def admin_overview(days: int = 30, user: Principal = Depends(require_admin)) -> 
 def admin_searches(limit: int = 200, user: Principal = Depends(require_admin)) -> dict:
     """The raw activity log — who searched what, when, and whether it hit the cache."""
     return {"searches": store.list_searches(limit=limit)}
+
+
+class AdminGrant(BaseModel):
+    upn: str = Field(..., description="Sign-in name (UPN) to grant administrator access to")
+    note: str = Field("", description="Optional note recorded with the grant")
+
+
+@app.get("/api/admin/admins")
+def admin_list(user: Principal = Depends(require_admin)) -> dict:
+    """Both sources of admin rights, tagged, because they behave differently.
+
+    An `env` row comes from ADMIN_UPNS and cannot be revoked here — it is the recovery path
+    that guarantees the deployment is never left with nobody able to administer it. The UI
+    needs the tag to omit the revoke control rather than offer one that would silently fail.
+    """
+    seeded = sorted(auth_admin_upns())
+    granted = [a for a in store.list_admins() if a["upn"] not in set(seeded)]
+    return {
+        "admins": [{"upn": u, "source": "env", "granted_by": "", "granted_at": "", "note": ""}
+                   for u in seeded] + granted,
+        "you": user.upn,
+    }
+
+
+@app.post("/api/admin/admins")
+def admin_grant(body: AdminGrant, user: Principal = Depends(require_admin)) -> dict:
+    """Grant administrator access to another sign-in name."""
+    upn = (body.upn or "").strip().lower()
+    # Not full RFC 5322 — just enough to catch a display name or a typo'd domain before it
+    # becomes a row nobody can match against and everybody assumes is working.
+    if not upn or "@" not in upn or " " in upn or upn.startswith("@") or upn.endswith("@"):
+        raise HTTPException(status_code=422, detail="Enter a full sign-in name, e.g. name@siemens.com.")
+    if upn in auth_admin_upns():
+        raise HTTPException(status_code=409,
+                            detail=f"{upn} is already an administrator via ADMIN_UPNS.")
+    row = store.grant_admin(upn, granted_by=user.upn, note=body.note or "")
+    if row is None:
+        raise HTTPException(status_code=409, detail=f"{upn} is already an administrator.")
+    log.info("[admin] %s granted admin access (by %s)", upn, user.upn)
+    return row
+
+
+@app.delete("/api/admin/admins/{upn}")
+def admin_revoke(upn: str, user: Principal = Depends(require_admin)) -> dict:
+    """Revoke an in-app grant.
+
+    Two refusals, both about not creating a state that can only be repaired from the AWS
+    console: an ADMIN_UPNS-seeded admin does not live here to be removed, and the last
+    remaining admin may not remove themselves.
+    """
+    target = (upn or "").strip().lower()
+    if target in auth_admin_upns():
+        raise HTTPException(
+            status_code=409,
+            detail=f"{target} is an administrator via the ADMIN_UPNS setting, which cannot be "
+                   "changed from here. Edit it on the server and restart.")
+    remaining = (auth_admin_upns() | auth_db_admin_upns()) - {target}
+    if not remaining:
+        raise HTTPException(
+            status_code=409,
+            detail="This is the only administrator left. Grant access to someone else first, "
+                   "or nobody will be able to administer this deployment.")
+    if not store.revoke_admin(target):
+        raise HTTPException(status_code=404, detail=f"{target} is not an administrator.")
+    log.info("[admin] %s revoked admin access (by %s)", target, user.upn)
+    return {"upn": target, "revoked": True}
 
 
 @app.get("/api/companies")

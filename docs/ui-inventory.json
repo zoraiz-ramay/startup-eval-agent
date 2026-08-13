@@ -83,6 +83,23 @@
       "args": []
     },
     {
+      "method": "adminList",
+      "args": []
+    },
+    {
+      "method": "adminGrant",
+      "args": [
+        "upn",
+        "note = \"\""
+      ]
+    },
+    {
+      "method": "adminRevoke",
+      "args": [
+        "upn"
+      ]
+    },
+    {
       "method": "views",
       "args": []
     },
@@ -401,7 +418,7 @@
     },
     {
       "path": "ui/src/pages/Admin.jsx",
-      "lines": 211,
+      "lines": 344,
       "exports": [
         "Admin"
       ],
@@ -413,6 +430,7 @@
         "dtable",
         "empty",
         "grid2",
+        "input",
         "k",
         "muted",
         "page-head",
@@ -424,6 +442,12 @@
         "stats-strip",
         "v"
       ]
+    },
+    {
+      "path": "ui/src/pages/Admin.test.jsx",
+      "lines": 123,
+      "exports": [],
+      "css_classes": []
     },
     {
       "path": "ui/src/pages/Alerts.jsx",
@@ -731,9 +755,9 @@
   ],
   "totals": {
     "routes": 8,
-    "api_methods": 21,
+    "api_methods": 24,
     "design_tokens": 37,
-    "jsx_files": 35,
-    "jsx_lines": 4162
+    "jsx_files": 36,
+    "jsx_lines": 4418
   }
 }
