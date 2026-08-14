@@ -11,6 +11,11 @@ until redis-cli ping 2>/dev/null | grep -q PONG; do
 done
 echo "Redis is ready."
 
+# Load ALL keys from the AWS secret into the environment.
+# The CI hub maps only a known set; custom keys (e.g. ADMIN_UPNS) are silently
+# dropped. This fills the gap without overwriting anything already injected.
+eval "$(python load_secrets.py 2>/dev/null)" || true
+
 # Start the application
 exec gunicorn api.main:app \
   --bind 0.0.0.0:8080 \
