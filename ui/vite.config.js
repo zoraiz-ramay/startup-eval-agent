@@ -13,4 +13,12 @@ export default defineConfig({
     },
   },
   build: { outDir: "dist", sourcemap: false },
+  test: {
+    environment: "jsdom",
+    globals: true,
+    setupFiles: "./src/test/setup.js",
+    // E2E lives in ui/e2e and is driven by Playwright, which owns its own runner.
+    include: ["src/**/*.test.{js,jsx}"],
+    restoreMocks: true,
+  },
 });

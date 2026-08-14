@@ -4,7 +4,7 @@ import { useApp } from "../state.jsx";
 
 export default function Saved() {
   const nav = useNavigate();
-  const { savedViews, setSavedViews } = useApp();
+  const { savedViews, removeView } = useApp();
   return (
     <div>
       <div className="crumb">Workspace &gt; Saved views</div>
@@ -29,8 +29,7 @@ export default function Saved() {
                   {v.filters?.pillar ? ` · ${v.filters.pillar}` : ""}
                 </div>
               </div>
-              <button className="btn danger"
-                onClick={() => setSavedViews((s) => s.filter((x) => x.name !== v.name))}>
+              <button className="btn danger" onClick={() => removeView(v.name)}>
                 Delete
               </button>
             </div>

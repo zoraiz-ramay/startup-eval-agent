@@ -1,0 +1,26 @@
+{
+  "feature_name": "Claim‑Evidence Matrix",
+  "problem_solved": "Provide a transparent mapping between each claim and its supporting evidence.",
+  "user_value": "Users can see why a score was given and trust the evaluation.",
+  "credibility_impact": "high",
+  "cost_impact": "low",
+  "engineering_effort": "small",
+  "dependencies": [],
+  "acceptance_criteria": [
+    "API endpoint /api/evidence/{startup} returns a JSON array with claim, source, quality, confidence.",
+    "React component renders the matrix with Siemens iX Table and Badge components.",
+    "All new code is covered by unit + Playwright tests.",
+    "UI passes Axe accessibility audit."
+  ],
+  "test_strategy": [
+    "Backend unit test for missing startup (404).",
+    "Backend unit test returns correctly‑structured matrix when data exists.",
+    "Playwright test verifies the table appears on the UI and is responsive.",
+    "Orchestrator run must pass all quality gates."
+  ],
+  "definition_of_done": [
+    "Endpoint & component merged to main.",
+    "Documentation updated in docs/features.md.",
+    "Changelog entry added."
+  ]
+}

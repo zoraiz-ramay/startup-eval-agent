@@ -35,8 +35,14 @@ def load_challenges() -> list[dict]:
         return []
 
 
-def set_challenge_status(index: int, status: str, reviewer: str = "") -> dict | None:
-    """Innovation-team approval control: mark a challenge approved/rejected/pending."""
+def set_challenge_status(index: int, status: str, reviewer: str = "",
+                         reviewer_oid: str = "") -> dict | None:
+    """Innovation-team approval control: mark a challenge approved/rejected/pending.
+
+    `reviewer_oid` is the caller's verified directory id when the API supplies one, so that
+    an approval here is as attributable as a pillar override. Optional and plain strings:
+    core/ stays runnable from scripts and tests with no web request in sight.
+    """
     if status not in ("pending", "approved", "rejected"):
         return None
     items = load_challenges()
@@ -44,6 +50,7 @@ def set_challenge_status(index: int, status: str, reviewer: str = "") -> dict | 
         return None
     items[index]["status"] = status
     items[index]["reviewer"] = reviewer
+    items[index]["reviewer_oid"] = reviewer_oid
     try:
         with open(CHALLENGES_PATH, "w", encoding="utf-8") as fh:
             json.dump(items, fh, indent=2, ensure_ascii=False)

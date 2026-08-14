@@ -1,0 +1,313 @@
+{
+  "_note": "Pre-existing iX/a11y debt. The gate fails on anything NOT in here. Only ever shrinks — regenerate after fixing findings.",
+  "generated_from": "scripts/ix_lint.mjs",
+  "count": 51,
+  "findings": [
+    {
+      "file": "ui/src/components/ClaimEvidenceMatrix.jsx",
+      "line": 10,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/components/ClaimEvidenceMatrix.jsx",
+      "line": 11,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/components/ClaimEvidenceMatrix.jsx",
+      "line": 12,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/components/ClaimEvidenceMatrix.jsx",
+      "line": 13,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/components/ClaimEvidenceMatrix.jsx",
+      "line": 14,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/components/ClaimEvidenceMatrix.jsx",
+      "line": 18,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/components/ClaimEvidenceMatrix.jsx",
+      "line": 19,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/components/ClaimEvidenceMatrix.jsx",
+      "line": 20,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/components/ClaimEvidenceMatrix.jsx",
+      "line": 34,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/components/FitScoreHistogram.jsx",
+      "line": 102,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/components/FitScoreHistogram.jsx",
+      "line": 103,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/components/ScoreBar.jsx",
+      "line": 21,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/components/ScoreBar.jsx",
+      "line": 31,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/components/widgets.jsx",
+      "line": 46,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/components/widgets.jsx",
+      "line": 48,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/components/widgets.jsx",
+      "line": 52,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/pages/EvidenceTab.jsx",
+      "line": 5,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/pages/EvidenceTab.jsx",
+      "line": 6,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/pages/EvidenceTab.jsx",
+      "line": 7,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/pages/EvidenceTab.jsx",
+      "line": 12,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/pages/Explore.css",
+      "line": 4,
+      "rule": "ix/unknown-token",
+      "message": "var(--bg) is not declared in tokens.css"
+    },
+    {
+      "file": "ui/src/pages/Explore.jsx",
+      "line": 65,
+      "rule": "a11y/clickable-non-interactive",
+      "message": "onClick on a <div>/<span> with no role — not keyboard reachable"
+    },
+    {
+      "file": "ui/src/pages/Explore.jsx",
+      "line": 246,
+      "rule": "a11y/clickable-non-interactive",
+      "message": "onClick on a <div>/<span> with no role — not keyboard reachable"
+    },
+    {
+      "file": "ui/src/pages/Explore.jsx",
+      "line": 247,
+      "rule": "a11y/clickable-non-interactive",
+      "message": "onClick on a <div>/<span> with no role — not keyboard reachable"
+    },
+    {
+      "file": "ui/src/styles.css",
+      "line": 21,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/styles.css",
+      "line": 30,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/styles.css",
+      "line": 42,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/styles.css",
+      "line": 43,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/styles.css",
+      "line": 45,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/styles.css",
+      "line": 59,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/styles.css",
+      "line": 132,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/styles.css",
+      "line": 153,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/styles.css",
+      "line": 157,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/styles.css",
+      "line": 161,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/styles.css",
+      "line": 177,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/styles.css",
+      "line": 178,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/styles.css",
+      "line": 179,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/styles.css",
+      "line": 180,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/styles.css",
+      "line": 181,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/styles.css",
+      "line": 213,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/styles.css",
+      "line": 216,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/styles.css",
+      "line": 219,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/styles.css",
+      "line": 225,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/styles.css",
+      "line": 234,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/styles.css",
+      "line": 246,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/styles.css",
+      "line": 272,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/styles.css",
+      "line": 276,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/styles.css",
+      "line": 302,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/styles.css",
+      "line": 309,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/styles.css",
+      "line": 319,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    },
+    {
+      "file": "ui/src/styles.css",
+      "line": 332,
+      "rule": "ix/no-raw-colour",
+      "message": "Raw colour outside tokens.css — use a var(--token) so the iX theme controls it"
+    }
+  ]
+}

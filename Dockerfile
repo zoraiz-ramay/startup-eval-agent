@@ -47,7 +47,12 @@ COPY --from=frontend --chown=appuser:appuser /frontend/dist ./static
 # Ensure redis data dir exists and is writable
 RUN mkdir -p /app/data && chown -R appuser:appuser /app/data
 
+# APP_ENV lives in the image, not start.sh or the task definition, so that the auth
+# bypass (AUTH_MODE=stub) cannot be switched on from a console: api/auth.py refuses to
+# boot when APP_ENV=production and AUTH_MODE is anything but entra. Changing this line
+# is a reviewable diff in git, which is the point.
 ENV PORT=8080 \
+    APP_ENV=production \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 

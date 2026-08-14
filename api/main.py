@@ -8,6 +8,7 @@ In Docker:     see docker-compose.yml (service `api`)
 """
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import pathlib
@@ -15,7 +16,7 @@ import pathlib
 # Ensure the project root is importable when launched as `uvicorn api.main:app`.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import Depends, FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -29,7 +30,13 @@ import core
 from core.solve import solve_problem, load_challenges, set_challenge_status
 from core import s3 as _s3
 from api import store
+from api.auth import Principal, current_user, require_admin, settings as auth_settings
+from api.auth import admin_upns as auth_admin_upns, db_admin_upns as auth_db_admin_upns
+from api.auth import router as auth_router
 from api.security import SecurityMiddleware
+from api.routes_evidence import router as evidence_router
+
+log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------- local applications file
@@ -63,6 +70,14 @@ try:
 except Exception:
     pass
 
+# Give the engine its result cache. Injected rather than imported by core/ so nothing in core/
+# depends on api/ and the engine still runs (uncached) from tests, scripts and Streamlit.
+try:
+    core.web.install_cache(store.cache_get, store.cache_put)
+    store.cache_purge_expired()
+except Exception:
+    pass
+
 
 def _get_local_df() -> "pd.DataFrame | None":
     global _local_df
@@ -87,7 +102,43 @@ _origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:3000,
 app.add_middleware(SecurityMiddleware)
 app.add_middleware(CORSMiddleware, allow_origins=_origins, allow_credentials=True,
                    allow_methods=["GET", "POST", "PATCH", "DELETE"],
-                   allow_headers=["Authorization", "Content-Type"])
+                   allow_headers=["Authorization", "Content-Type", "X-CSRF-Token"])
+
+# Build and validate auth config here rather than at import of api.auth: this runs after
+# `import core` has loaded .env, and it is where a missing client secret should stop the
+# process — not on the first sign-in attempt.
+auth_settings()
+
+
+def _log_admin_count() -> None:
+    """Say how many admins exist, because the alternative is discovering it via a 403.
+
+    Counts only — never the addresses. They are personal data, and this log is shipped to
+    wherever the platform collects container output.
+
+    A deployment with zero admins is a working app that nobody can administer, and the
+    fail-closed default means that is exactly what you get until ADMIN_UPNS is set. Warn
+    loudly rather than let it look like a permissions bug weeks later.
+    """
+    try:
+        seeded = len(auth_admin_upns())
+        granted = len(auth_db_admin_upns() - auth_admin_upns())
+    except Exception:
+        log.warning("[admin] could not determine the admin list at startup", exc_info=True)
+        return
+    if seeded + granted == 0:
+        log.warning("[admin] NOBODY is an administrator: ADMIN_UPNS is unset and no in-app "
+                    "grants exist. /admin will 403 for every user, including you.")
+    else:
+        log.info("[admin] %d seeded admin(s) from ADMIN_UPNS, %d granted in-app", seeded, granted)
+
+
+_log_admin_count()
+
+# Registered before the SPA catch-all at the bottom of this file, which would otherwise
+# swallow /api/auth/* and serve index.html instead.
+app.include_router(auth_router)
+app.include_router(evidence_router)
 
 
 class EvaluateBody(BaseModel):
@@ -108,16 +159,25 @@ class AskBody(BaseModel):
     run_id: int | None = Field(None, description="Ground the answer in this evaluated run")
 
 
+# Neither of the two bodies below carries a `reviewer` any more: it is taken from the
+# session. Pydantic ignores unknown fields by default, so a stale client still sending one
+# is silently disregarded rather than rejected — which is exactly right, since the whole
+# point is that a client cannot choose who gets credited. Do not add extra="forbid" here;
+# that would turn a harmless old browser tab into a hard 422.
 class OverrideBody(BaseModel):
     new_pillar: str = Field(..., pattern="^(Connect|Collaborate|Empower|Pass)$")
     reason: str = Field(..., min_length=5, max_length=1000)
     evidence_note: str = Field("", max_length=2000)
-    reviewer: str = Field("", max_length=120)
 
 
 class ChallengeStatusBody(BaseModel):
     status: str = Field(..., pattern="^(pending|approved|rejected)$")
-    reviewer: str = Field("", max_length=120)
+
+
+class SavedViewBody(BaseModel):
+    name: str = Field(..., min_length=1, max_length=80)
+    columns: list[str] = Field(default_factory=list, max_length=40)
+    filters: dict = Field(default_factory=dict)
 
 
 def _gd_key() -> bool:
@@ -126,6 +186,24 @@ def _gd_key() -> bool:
 
 @app.get("/health")
 def health() -> dict:
+    """Liveness only, and deliberately empty of detail.
+
+    This endpoint is unauthenticated because the Docker healthcheck and the load balancer
+    both need it, which also means it is reachable from outside. It used to report the S3
+    bucket name, the LLM provider and model, and which API keys were configured — a free
+    reconnaissance summary for anyone who found the hostname. The diagnostics moved to
+    /api/status, behind the session guard.
+    """
+    return {"status": "ok"}
+
+
+@app.get("/api/status")
+def status(user: Principal = Depends(current_user)) -> dict:
+    """What /health used to say, for signed-in reviewers.
+
+    The S3 bucket name is not repeated here: it is a target rather than something a
+    reviewer can act on, and Settings never displayed it.
+    """
     _llm = core.LLMClient()
     return {"status": "ok",
             "llm": _llm.available,
@@ -135,15 +213,19 @@ def health() -> dict:
             "data_source": "glassdollar_api",
             "applications_file": os.path.basename(_LOCAL_XLSX) if _LOCAL_XLSX else "",
             "applications_count": int(len(_get_local_df())) if _LOCAL_XLSX else 0,
-            "s3_bucket": _s3.S3_BUCKET,
             "s3_available": _s3._available()}
 
 
 @app.get("/api/search")
 def search(q: str, limit: int = 10) -> dict:
-    """Name search — always queries the local applications xlsx first, then the
-    GlassDollar API (when a key is set). Results are merged and deduplicated so
-    local applicants appear even when a live API key is configured."""
+    """Name search — GlassDollar API first, then the local applications xlsx.
+
+    GlassDollar leads because it is the live, curated record: it spans far more companies
+    than the 429-row export and its fields are the ones the pipeline would otherwise
+    reconstruct from DuckDuckGo. The xlsx stays as the second source rather than being
+    dropped — it carries pitch-form answers (business model, development stage, the Siemens
+    function selections, the deck) that the API does not expose — and it is the only source
+    at all when no key is configured."""
     q, limit = q[:200], max(1, min(limit, 25))
     if not q.strip():
         return {"results": []}
@@ -151,7 +233,25 @@ def search(q: str, limit: int = 10) -> dict:
     results: list = []
     seen_names: set = set()
 
-    # 1. Local xlsx — always available, no key needed.
+    if _gd_key():
+        try:
+            df = core.search_glassdollar(q.strip(), limit=limit)
+            for row in df.to_dict("records"):
+                name = str(row.get("company_name", "")).strip()
+                if not name or name.lower() in seen_names:
+                    continue
+                seen_names.add(name.lower())
+                results.append({
+                    "company_name": name,
+                    "hq": str(row.get("hq", "")),
+                    "website": str(row.get("website", "")),
+                    "source": "glassdollar",
+                })
+        except Exception:
+            # Don't fail the whole search if the API is down — local results still show.
+            pass
+
+    # Local xlsx — always available, no key needed.
     # Results are sorted so "starts with" matches appear before "contains" matches.
     local = _get_local_df()
     if local is not None:
@@ -175,25 +275,6 @@ def search(q: str, limit: int = 10) -> dict:
                 "source": "applications",
             })
 
-    # 2. GlassDollar API — live results appended after local ones.
-    if _gd_key():
-        try:
-            df = core.search_glassdollar(q.strip(), limit=limit)
-            for row in df.to_dict("records"):
-                name = str(row.get("company_name", "")).strip()
-                if not name or name.lower() in seen_names:
-                    continue
-                seen_names.add(name.lower())
-                results.append({
-                    "company_name": name,
-                    "hq": str(row.get("hq", "")),
-                    "website": str(row.get("website", "")),
-                    "source": "glassdollar",
-                })
-        except Exception as e:
-            # Don't fail the whole search if the API is down — local results still show.
-            pass
-
     return {"results": results[:limit]}
 
 
@@ -214,32 +295,77 @@ def _freshness(created_at: str) -> dict:
 
 
 @app.post("/api/evaluate")
-def evaluate(body: EvaluateBody) -> dict:
+def evaluate(body: EvaluateBody, user: Principal = Depends(current_user)) -> dict:
     """Cache-first full pipeline run. Returns the stored evaluation when one exists and
     is younger than EVAL_TTL_DAYS; refresh=true forces a new run (old runs are retained
     for audit/history). Uses the GlassDollar API when a key is set; otherwise the local
-    applications file serves as the dev/test company source."""
+    applications file serves as the dev/test company source.
+
+    The evaluation itself is shared — one company is evaluated once for the whole team —
+    but the *search* is recorded against the caller, which is what gives each reviewer
+    their own list without duplicating any of the expensive work.
+    """
     name = body.name.strip()
+    principal = user.as_reviewer()
     if not body.refresh:
         # Any stored evaluation is served from the DB — regardless of age. Fresh external
         # calls happen ONLY on explicit refresh (Re-evaluate / Refresh Data buttons).
         # Freshness metadata tells the UI how old the data is.
-        cached = store.latest_run_for_company(name)
+        cached = store.latest_run_for_alias(name)
         if cached:
             cached["cached"] = True
             cached["freshness"] = _freshness(cached.get("run_created_at", ""))
+            store.record_search(principal, name, company_name=str(cached.get("company", "")),
+                                run_id=cached.get("run_id"), served_from="cache")
             return cached
     df = None if _gd_key() else _get_local_df()
-    res = core.evaluate(name, None, core.DEFAULT_TOOLS_CSV, do_web=body.do_web, df=df)
+    # An explicit refresh must re-search: serving cached hits would replay the very evidence
+    # the caller asked to renew.
+    res = core.evaluate(name, None, core.DEFAULT_TOOLS_CSV, do_web=body.do_web, df=df,
+                        use_web_cache=not body.refresh)
     if not res.get("found"):
         raise HTTPException(status_code=404, detail=f"No match for '{body.name}' in GlassDollar or on the web.")
     if body.save:
-        res["run_id"] = store.save_run(res)
+        # The typed query is filed as an alias so the next reviewer who types it the same
+        # way is served from the database instead of re-running the pipeline.
+        res["run_id"] = store.save_run(res, aliases=[name])
+    store.record_search(principal, name, company_name=str(res.get("company", "")),
+                        run_id=res.get("run_id"), served_from="fresh")
     from datetime import datetime, timezone
     res["cached"] = False
     res["run_created_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     res["freshness"] = _freshness(res["run_created_at"])
     return res
+
+
+@app.get("/api/my/searches")
+def my_searches(limit: int = 200, user: Principal = Depends(current_user)) -> dict:
+    """The startups THIS reviewer has searched. Explore's data source.
+
+    Lists are private: there is no parameter that widens this to another principal. The
+    team-wide view lives at /api/admin/searches behind require_admin.
+    """
+    return {"runs": store.list_user_runs(user.oid, limit=max(1, min(limit, 500)))}
+
+
+@app.get("/api/my/views")
+def my_views(user: Principal = Depends(current_user)) -> dict:
+    return {"views": store.list_views(user.oid)}
+
+
+@app.post("/api/my/views")
+def my_view_save(body: SavedViewBody, user: Principal = Depends(current_user)) -> dict:
+    """Upsert one grid view. Views used to live in localStorage, so they were per-browser
+    rather than per-person; keying them on the Entra oid is what makes them follow a
+    reviewer between machines."""
+    return store.save_view(user.oid, body.name, body.columns, body.filters)
+
+
+@app.delete("/api/my/views/{name}")
+def my_view_delete(name: str, user: Principal = Depends(current_user)) -> dict:
+    if not store.delete_view(user.oid, name):
+        raise HTTPException(status_code=404, detail=f"No saved view named {name!r}.")
+    return {"deleted": name}
 
 
 @app.post("/api/solve")
@@ -252,8 +378,88 @@ def solve(body: SolveBody) -> dict:
 
 
 @app.get("/api/runs")
-def runs(limit: int = 100) -> dict:
+def runs(limit: int = 100, user: Principal = Depends(require_admin)) -> dict:
+    """Every run from every reviewer. Admin-only since lists became private — reviewers
+    read their own via /api/my/searches, which returns rows of exactly this shape."""
     return {"runs": store.list_runs(limit=limit)}
+
+
+@app.get("/api/admin/overview")
+def admin_overview(days: int = 30, user: Principal = Depends(require_admin)) -> dict:
+    """Usage metrics: sessions, searches, distinct users, cache-hit rate, busiest companies."""
+    return store.admin_overview(recent_days=max(1, min(days, 365)))
+
+
+@app.get("/api/admin/searches")
+def admin_searches(limit: int = 200, user: Principal = Depends(require_admin)) -> dict:
+    """The raw activity log — who searched what, when, and whether it hit the cache."""
+    return {"searches": store.list_searches(limit=limit)}
+
+
+class AdminGrant(BaseModel):
+    upn: str = Field(..., description="Sign-in name (UPN) to grant administrator access to")
+    note: str = Field("", description="Optional note recorded with the grant")
+
+
+@app.get("/api/admin/admins")
+def admin_list(user: Principal = Depends(require_admin)) -> dict:
+    """Both sources of admin rights, tagged, because they behave differently.
+
+    An `env` row comes from ADMIN_UPNS and cannot be revoked here — it is the recovery path
+    that guarantees the deployment is never left with nobody able to administer it. The UI
+    needs the tag to omit the revoke control rather than offer one that would silently fail.
+    """
+    seeded = sorted(auth_admin_upns())
+    granted = [a for a in store.list_admins() if a["upn"] not in set(seeded)]
+    return {
+        "admins": [{"upn": u, "source": "env", "granted_by": "", "granted_at": "", "note": ""}
+                   for u in seeded] + granted,
+        "you": user.upn,
+    }
+
+
+@app.post("/api/admin/admins")
+def admin_grant(body: AdminGrant, user: Principal = Depends(require_admin)) -> dict:
+    """Grant administrator access to another sign-in name."""
+    upn = (body.upn or "").strip().lower()
+    # Not full RFC 5322 — just enough to catch a display name or a typo'd domain before it
+    # becomes a row nobody can match against and everybody assumes is working.
+    if not upn or "@" not in upn or " " in upn or upn.startswith("@") or upn.endswith("@"):
+        raise HTTPException(status_code=422, detail="Enter a full sign-in name, e.g. name@siemens.com.")
+    if upn in auth_admin_upns():
+        raise HTTPException(status_code=409,
+                            detail=f"{upn} is already an administrator via ADMIN_UPNS.")
+    row = store.grant_admin(upn, granted_by=user.upn, note=body.note or "")
+    if row is None:
+        raise HTTPException(status_code=409, detail=f"{upn} is already an administrator.")
+    log.info("[admin] %s granted admin access (by %s)", upn, user.upn)
+    return row
+
+
+@app.delete("/api/admin/admins/{upn}")
+def admin_revoke(upn: str, user: Principal = Depends(require_admin)) -> dict:
+    """Revoke an in-app grant.
+
+    Two refusals, both about not creating a state that can only be repaired from the AWS
+    console: an ADMIN_UPNS-seeded admin does not live here to be removed, and the last
+    remaining admin may not remove themselves.
+    """
+    target = (upn or "").strip().lower()
+    if target in auth_admin_upns():
+        raise HTTPException(
+            status_code=409,
+            detail=f"{target} is an administrator via the ADMIN_UPNS setting, which cannot be "
+                   "changed from here. Edit it on the server and restart.")
+    remaining = (auth_admin_upns() | auth_db_admin_upns()) - {target}
+    if not remaining:
+        raise HTTPException(
+            status_code=409,
+            detail="This is the only administrator left. Grant access to someone else first, "
+                   "or nobody will be able to administer this deployment.")
+    if not store.revoke_admin(target):
+        raise HTTPException(status_code=404, detail=f"{target} is not an administrator.")
+    log.info("[admin] %s revoked admin access (by %s)", target, user.upn)
+    return {"upn": target, "revoked": True}
 
 
 @app.get("/api/companies")
@@ -278,11 +484,16 @@ def run_delete(run_id: int) -> dict:
 
 
 @app.post("/api/runs/{run_id}/override")
-def override_run(run_id: int, body: OverrideBody) -> dict:
+def override_run(run_id: int, body: OverrideBody,
+                 user: Principal = Depends(current_user)) -> dict:
     """Reviewer override of the routing decision. The automated result is preserved;
-    the change, its reason, and supporting evidence are logged for audit."""
+    the change, its reason, and supporting evidence are logged for audit.
+
+    The reviewer comes from the session, never from the body. This used to be a free-text
+    field, which meant a partnership decision could be attributed to anyone who had not
+    made it."""
     rec = store.add_override(run_id, body.new_pillar, body.reason,
-                             body.evidence_note, body.reviewer)
+                             body.evidence_note, reviewer=user.as_reviewer())
     if rec is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found.")
     return rec
@@ -299,9 +510,11 @@ def challenges() -> dict:
 
 
 @app.patch("/api/challenges/{index}")
-def challenge_status(index: int, body: ChallengeStatusBody) -> dict:
+def challenge_status(index: int, body: ChallengeStatusBody,
+                     user: Principal = Depends(current_user)) -> dict:
     """Innovation-team approval control over submitted problems."""
-    rec = set_challenge_status(index, body.status, body.reviewer)
+    rec = set_challenge_status(index, body.status, user.name,
+                               reviewer_oid=user.oid)
     if rec is None:
         raise HTTPException(status_code=404, detail=f"Challenge {index} not found.")
     return rec
@@ -373,8 +586,19 @@ def pdf_url(filename: str) -> dict:
 
 # ── Static file serving (single-container production mode) ───────────────────
 _STATIC_DIR = pathlib.Path(__file__).resolve().parent.parent / "static"
+<<<<<<< HEAD
 if _STATIC_DIR.is_dir():
+    _ASSETS_DIR = _STATIC_DIR / "assets"
+    if _ASSETS_DIR.is_dir():
+        app.mount("/assets", StaticFiles(directory=str(_ASSETS_DIR)), name="assets")
+=======
+# Gate on assets/, not on static/ itself. StaticFiles raises RuntimeError from its
+# constructor when the directory is missing, so a static/ holding anything other than a
+# real vite build took the whole process down at import time rather than degrading to the
+# API-only mode this branch exists to allow.
+if (_STATIC_DIR / "assets").is_dir():
     app.mount("/assets", StaticFiles(directory=str(_STATIC_DIR / "assets")), name="assets")
+>>>>>>> 3a901e1f04598db6e857705462fc33bf7d616845
 
     @app.get("/{full_path:path}")
     def spa_fallback(full_path: str):

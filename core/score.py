@@ -5,7 +5,8 @@ import re
 
 import pandas as pd
 
-from .config import WEIGHTS, THIN_PROFILE_CAP
+from .config import (WEIGHTS, THIN_PROFILE_CAP, PROGRAM_PRESTIGE_WEIGHTS, PROGRAM_PRESTIGE_CAP,
+                     PROGRAM_SELF_ASSERTED_FACTOR, PROGRAM_SELF_ASSERTED_CAP)
 
 # Per-route weight profiles (each sums to 1.0). The universal WEIGHTS remain the
 # backwards-compatible headline score; these drive route-specific recommendations.
@@ -35,7 +36,11 @@ def score_startup(row: pd.Series, enrichment: dict, verification: dict, fit: dic
     # anti-gaming: verified beats partial/unverified; contradicted counts zero
     effective_traction = sum(_W.get(c.get("status", "unverified"), 0.25) for c in cust)
 
-    funding_txt = str(row.get("funding", ""))
+    # The application row is authoritative, but it is blank for most startups — and for a
+    # web-sourced company it does not exist at all. Reading only the row meant a round the
+    # research had actually established (and which the profile header already displayed) was
+    # invisible to scoring, despite being worth 20 traction points and market 70 vs 50.
+    funding_txt = str(row.get("funding", "")).strip() or str(profile.get("funding", "")).strip()
     has_funding = bool(re.search(r"[\$€£]|\bm\b|million|seed|series", funding_txt, re.I))
 
     stage_growth = str(row.get("Stage: Growth market stage (your solution is mature, and you are selling it to your main target market)", "")).strip()
@@ -79,11 +84,37 @@ def score_startup(row: pd.Series, enrichment: dict, verification: dict, fit: dic
     # ecosystem: verified web presence + program membership (Xcelerator, incubators,
     # corporate programs like Nvidia Inception / Microsoft for Startups) + corporate parent.
     # Programs are SUPPORTING signals: only evidence-backed memberships (with a source URL)
-    # earn points, so a self-claimed membership cannot inflate the score automatically.
+    # earn points, and each is weighted by a PRESTIGE TIER (a Y Combinator / Siemens-run spot
+    # is worth more than a generic local incubator), so a self-claimed membership cannot inflate
+    # the score and one prestigious program outweighs several obscure ones.
+    # "Evidenced" means INDEPENDENTLY corroborated: the membership and the company co-occur in
+    # a third-party result. A source_url alone is no longer sufficient evidence, because a
+    # membership grounded only in the company's own fetched site pages also carries a URL (its
+    # website) — counting that as evidence would let any startup inflate this dimension just by
+    # listing a program on its /partners page. Older cached profiles predate the `confidence`
+    # field, so they fall back to the original URL heuristic.
     programs = [p for p in profile.get("programs", []) if isinstance(p, dict) and p.get("name")]
-    evidenced_programs = [p for p in programs if str(p.get("source_url", "")).startswith("http")]
+
+    def _corroborated(p: dict) -> bool:
+        conf = str(p.get("confidence", "")).strip().lower()
+        if conf:
+            return conf == "corroborated"
+        return str(p.get("source_url", "")).startswith("http")
+
+    def _tier_pts(p: dict) -> float:
+        return PROGRAM_PRESTIGE_WEIGHTS.get(str(p.get("prestige", "tier3")).lower(),
+                                            PROGRAM_PRESTIGE_WEIGHTS["tier3"])
+
+    # Both groups are weighted by prestige tier, so one top-tier membership still outweighs
+    # several obscure ones; the self-asserted side is discounted and capped separately, so a
+    # logo wall can never reach what independent corroboration earns.
+    evidenced_programs = [p for p in programs if _corroborated(p)]
+    claimed_programs = [p for p in programs if not _corroborated(p)]
+    prestige_pts = min(sum(_tier_pts(p) for p in evidenced_programs), PROGRAM_PRESTIGE_CAP)
+    claimed_pts = min(PROGRAM_SELF_ASSERTED_FACTOR * sum(_tier_pts(p) for p in claimed_programs),
+                      PROGRAM_SELF_ASSERTED_CAP)
     eco = 30 + 20 * len([f for f in facts if f.method == "ddg_search" and f.verified])
-    eco += 12 * min(3, len(evidenced_programs)) + 4 * min(2, len(programs) - len(evidenced_programs))
+    eco += prestige_pts + claimed_pts
     eco += 10 if str(profile.get("parent_group", "")).strip() else 0
     dims["ecosystem"] = min(100, eco)
 

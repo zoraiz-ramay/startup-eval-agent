@@ -1,0 +1,38 @@
+{
+  "$comment": [
+    "Project-wide guardrails for the UI/feature agents. These are enforced by the harness, not by",
+    "asking an agent to behave — the previous agent system self-approved its own work and shipped",
+    "churn, so the rules that matter live outside the model's control.",
+    "",
+    "Visual baselines and the behaviour contract are human-owned. An agent that could regenerate a",
+    "baseline could 'prove' any layout change was fine, which is exactly the loophole that makes",
+    "visual regression worthless.",
+    "",
+    "The --update-snapshots denies are leading-wildcard on purpose: the command is normally run as",
+    "'cd ui && npx playwright test ...', so a pattern anatch it."
+  ],
+  "permissions": {
+    "deny": [
+      "Write(ui/e2e/**screenshots**/**)",
+      "Edit(ui/e2e/**screenshots**/**)",
+      "Bash(*--update-snapshots*)",
+      "Bash(*playwright test*-u*)",
+      "Write(contract/feature-inventory.md)",
+      "Edit(contract/feature-inventory.md)",
+      "Write(.claude/**)",
+      "Edit(.claude/**)"
+    ],
+    "allow": [
+      "Bash(bash scripts/gates.sh*)",
+      "Bash(node scripts/ix_lint.mjs*)",
+      "Bash(py -3 scripts/ui_inventory.py*)",
+      "Bash(py -3 -m pytest tests/*)",
+      "Bash(cd ui && npx vitest run*)",
+      "Bash(cd ui && npx playwright test)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(*)"
+    ]
+  }
+}
