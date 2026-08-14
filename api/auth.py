@@ -404,20 +404,42 @@ def current_user(request: Request) -> Principal:
     return user
 
 
+def _seed_admins_from_file() -> frozenset[str]:
+    """Seed admins baked into the image via seed_admins.json.
+
+    The CI hub maps only a known set of secret keys as env vars; custom keys like
+    ADMIN_UPNS are stored in Secrets Manager but never injected into the container.
+    This file is the bootstrap path that does not depend on the CI hub's key list.
+    """
+    import json
+    import pathlib
+    path = pathlib.Path(__file__).resolve().parent.parent / "seed_admins.json"
+    if not path.is_file():
+        return frozenset()
+    try:
+        data = json.loads(path.read_text())
+        if isinstance(data, list):
+            return frozenset(u.strip().lower() for u in data if isinstance(u, str) and u.strip())
+    except Exception:
+        log.warning("[auth] could not read seed_admins.json", exc_info=True)
+    return frozenset()
+
+
 def admin_upns() -> frozenset[str]:
-    """The seed admins, from ADMIN_UPNS (comma-separated).
+    """The seed admins, from ADMIN_UPNS (comma-separated) and seed_admins.json.
 
     Read per call rather than captured at import so a deployment can change the list by
     restarting the process without a code change, and so tests can set it with monkeypatch.
 
-    Goes through _secret_from_env, not os.getenv, because production config arrives from AWS
-    Secrets Manager and it is not knowable from this repo whether the CI hub explodes that
-    secret into individual env vars or hands over one JSON blob. Reading only the plain env
-    var would, under the blob shape, leave this empty in production — and the symptom is an
-    ordinary 403, indistinguishable from "you are not on the list".
+    Three sources, union:
+    1. ADMIN_UPNS env var (or APP_SECRETS/AWS_SECRET_JSON blob) — the runtime path.
+    2. seed_admins.json baked into the image — the bootstrap path when the CI hub
+       does not inject custom secret keys.
+    3. The in-app grants table (checked separately in is_admin).
     """
     raw = _secret_from_env("ADMIN_UPNS")
-    return frozenset(u.strip().lower() for u in raw.split(",") if u.strip())
+    env_upns = frozenset(u.strip().lower() for u in raw.split(",") if u.strip())
+    return env_upns | _seed_admins_from_file()
 
 
 def db_admin_upns() -> frozenset[str]:
