@@ -553,13 +553,77 @@ def _deepen_founders(prof: dict, company: str, llm: LLMClient) -> None:
                     f[k] = str(u[k]).strip()
 
 
-def _profile_facts(prof: dict) -> list[Fact]:
-    facts: list[Fact] = []
+# Headline profile fields the GlassDollar record can answer directly, and the row columns
+# that carry them. These are exactly the three _recover_headline_facts spends a focused
+# search wave and an extraction call on.
+_DB_SEEDABLE = (
+    ("founded_year", ("founded_year",)),
+    ("funding", ("funding",)),
+    ("employees", ("employees_count", "employee_band")),
+)
 
-    def add(key, value, src=""):
+
+def _seed_from_database(prof: dict, row: pd.Series) -> set:
+    """Take the headline facts from the GlassDollar record BEFORE the recall nets run.
+
+    Two things happen here, and both are the point of preferring GlassDollar.
+
+    Speed: _recover_headline_facts fires its own search wave plus an extraction call for
+    founded year, headcount and funding, and it is the slowest and least reliable part of the
+    profile chain. GlassDollar holds all three. Populating them here means that pass sees
+    them filled and skips itself.
+
+    Precedence: the database wins over the main wave's extraction, not merely over a blank.
+    A curated record beats a model reading DuckDuckGo snippets — which CLAUDE.md already
+    names as the most fragile thing in the system. The nets still run for whatever GlassDollar
+    left empty, so this narrows the web's job rather than replacing it.
+
+    When the database and the web agree, the researched source URL is kept: it corroborates.
+    When they disagree the URL is dropped, because it evidences the value that just lost and
+    leaving it attached would make the surviving value look sourced by a page that contradicts
+    it. Returns the field names that came from the database, so their Facts can say so.
+
+    Deliberately NOT seeded: employees_over_time. _clean_employee_series drops any datapoint
+    without an http source, and GlassDollar supplies one current headcount with no URL and no
+    history — putting it in the series would be a datapoint the series cannot evidence. It
+    goes to the scalar `employees` field only.
+    """
+    seeded = set()
+    for key, cols in _DB_SEEDABLE:
+        val = ""
+        for col in cols:
+            candidate = str(row.get(col, "") or "").strip()
+            # pandas renders a missing cell as the string "nan" once it has been through
+            # astype(str), which is not a founding year.
+            if candidate and candidate.lower() != "nan":
+                val = candidate
+                break
+        if not val:
+            continue
+        researched = str(prof.get(key, "")).strip()
+        if researched and researched != val:
+            prof.pop(f"{key}_source", None)
+        prof[key] = val
+        seeded.add(key)
+    return seeded
+
+
+def _profile_facts(prof: dict, from_db: set | None = None,
+                   db_method: str = "glassdollar_db") -> list[Fact]:
+    """`from_db` names the headline fields that came from the GlassDollar record rather than
+    web research, so their Facts carry that provenance instead of claiming a search found
+    them. Confidence is higher for those: a curated database entry is better evidence than a
+    model reading an aggregator page, and it is the reason the search wave was skipped."""
+    facts: list[Fact] = []
+    from_db = from_db or set()
+
+    def add(key, value, src="", origin=""):
         if str(value).strip():
+            db = origin and origin in from_db
             facts.append(Fact(key=key, value=str(value)[:300], source_url=src or "",
-                              method="profile_research", confidence=0.65, verified=bool(src)))
+                              method=db_method if db else "profile_research",
+                              confidence=0.8 if db else 0.65,
+                              verified=bool(src)))
 
     for f in prof.get("founders", []):
         if isinstance(f, dict) and f.get("name"):
@@ -582,9 +646,10 @@ def _profile_facts(prof: dict) -> list[Fact]:
             add("program", label, p.get("source_url", ""))
     add("parent_group", prof.get("parent_group", ""))
     add("founded_year_research", prof.get("founded_year", ""),
-        prof.get("founded_year_source", ""))
-    add("funding_research", prof.get("funding", ""), prof.get("funding_source", ""))
-    add("employees_research", prof.get("employees", ""))
+        prof.get("founded_year_source", ""), origin="founded_year")
+    add("funding_research", prof.get("funding", ""), prof.get("funding_source", ""),
+        origin="funding")
+    add("employees_research", prof.get("employees", ""), origin="employees")
     if prof.get("sfs", {}).get("relevant"):
         add("sfs_relevance", prof["sfs"].get("rationale") or "SFS financing avenue relevant")
     return facts
@@ -889,6 +954,9 @@ def research_profile(row: pd.Series, llm: LLMClient, do_web: bool = True,
         if not prof["reference_customers"]:
             raw = str(row.get("customers", "") or row.get("Reference customers", ""))
             prof["reference_customers"] = _clean_customers(re.split(r"[,\n;·|]+", raw))
+        # GlassDollar first: seed the headline facts it already holds so the recall net below
+        # skips them. This is what makes an API-sourced evaluation faster than a web-only one.
+        seeded = _seed_from_database(prof, row)
         # ---- second-pass recall nets ------------------------------------------------------
         # Four independent passes, each firing its own search wave plus one extraction call:
         # the headline facts (founded_year / employees), founder recovery, the program recheck,
@@ -918,10 +986,6 @@ def research_profile(row: pd.Series, llm: LLMClient, do_web: bool = True,
                         out = None
                     if name == "history":
                         prof["employees_over_time"] = out or []
-        # Employees: never leave blank when the application row already knows it. After the
-        # recall net, so a researched figure still wins over the application's.
-        if not str(prof.get("employees", "")).strip():
-            prof["employees"] = str(row.get("employees_count", "") or row.get("employee_band", "")).strip()
         # Grade the surviving (grounded) memberships by prestige tier so the ecosystem score
         # can weight a top-tier accelerator above a generic one. Must follow the program
         # recheck — it grades whatever that found. In place; never adds or removes a program.
@@ -935,6 +999,11 @@ def research_profile(row: pd.Series, llm: LLMClient, do_web: bool = True,
                 _deepen_founders(prof, company, llm)
             except Exception:
                 pass
-        return {"profile": prof, "facts": _profile_facts(prof)}
+        # A row carrying a glassdollar_id came from the live REST API; one without it came
+        # from the shipped application export. Both are GlassDollar, but only one of them is
+        # the startup writing about itself, and provenance.py grades them differently.
+        db_method = ("glassdollar_api" if str(row.get("glassdollar_id", "")).strip()
+                     not in ("", "nan") else "glassdollar_db")
+        return {"profile": prof, "facts": _profile_facts(prof, seeded, db_method)}
     except Exception:
         return {"profile": dict(EMPTY_PROFILE), "facts": []}

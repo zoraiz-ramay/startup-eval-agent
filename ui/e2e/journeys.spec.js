@@ -1,4 +1,4 @@
-import { expect, RUN_FIXTURE, RUNS_FIXTURE, stabilise, stubEvaluation, stubRoutableRun, stubRuns, test } from "./fixtures.js";
+import { expect, RUN_FIXTURE, RUNS_FIXTURE, stabilise, stubEvaluation, stubIdentity, stubRoutableRun, stubRuns, test } from "./fixtures.js";
 
 /**
  * The user journeys from contract/feature-inventory.md. Each test names its contract ID so a
@@ -11,9 +11,13 @@ test.describe("shell", () => {
     const nav = page.getByRole("navigation", { name: /primary/i });
     // The visible labels are the product's wording, not the route names: /saved is "Views" and
     // /alerts is "Tracking". Asserting the route names instead would pass only by accident.
-    for (const label of ["Home", "Explore", "Views", "Tracking", "Ask AI", "Settings"]) {
+    for (const label of ["Home", "Explore", "Views", "Tracking", "Settings"]) {
       await expect(nav.getByRole("link", { name: new RegExp(label, "i") })).toBeVisible();
     }
+    // Ask AI is a button, not a link: it toggles the assistant dock in place rather than
+    // navigating, and it is the only control for it now that the command bar's duplicate is
+    // gone. Asserting the role is what would catch it silently becoming a link again.
+    await expect(nav.getByRole("button", { name: /ask ai/i })).toBeVisible();
   });
 
   test("SHELL-02/04: Ctrl+K focuses the command bar and Enter opens a profile", async ({ page }) => {
@@ -125,13 +129,14 @@ test.describe("profile", () => {
     const headerPill = page.locator(".ph-title .pill").first();
     await expect(page.getByText(/still/i).first()).toBeVisible();
 
-    // One edit. Collaborate's card falls 67.3 -> 46.3, under its own 55 gate, so only the ungated
-    // Empower survives. Asserting the transition rather than a bare number keeps this readable
-    // when the fixture is retuned.
-    await page.getByLabel(/^ecosystem$/i).fill("100");
+    // One edit. Ecosystem to 52% of the weighting drops Collaborate's card 67.3 -> 46.4, under
+    // its own 55 gate, so only the ungated Empower survives. The control is a share slider now,
+    // so the value is the share directly rather than a raw point count normalised afterwards —
+    // 52% is the same weighting the old "ecosystem = 100 points" produced (100/192).
+    await page.getByLabel(/^ecosystem$/i).fill("52");
 
     await expect(page.getByText(/not the evaluation result/i).first()).toBeVisible();
-    await expect(page.getByText(/46\.3/).first()).toBeVisible();
+    await expect(page.getByText(/46\.4/).first()).toBeVisible();
     await expect(page.getByText(/needs ≥ 55/).first()).toBeVisible();
 
     // The decision itself is untouched — that is the whole contract of a what-if.
@@ -176,7 +181,11 @@ test.describe("profile", () => {
 
 test.describe("error states", () => {
   test("X-03: an API failure is announced, not silently blank", async ({ page }) => {
-    await page.route("**/api/runs", (route) => route.fulfill({ status: 500, json: { detail: "boom" } }));
+    // /api/my/searches, not /api/runs: Explore's data source moved when lists became
+    // per-reviewer, so a 500 on /api/runs left the page loading happily and this asserted
+    // nothing. The endpoint here has to be the one the page under test actually calls.
+    await page.route("**/api/my/searches",
+      (route) => route.fulfill({ status: 500, json: { detail: "boom" } }));
     await page.goto("/explore");
     await expect(page.getByRole("alert")).toBeVisible();
   });
@@ -190,7 +199,7 @@ test.describe("accessibility", () => {
     const runs = {
       runs: [...RUNS_FIXTURE.runs, { ...RUNS_FIXTURE.runs[0], id: 4, company: "Fourth Pillar Co", pillar: "Pass" }],
     };
-    await page.route("**/api/runs", (route) => route.fulfill({ json: runs }));
+    await page.route("**/api/my/searches", (route) => route.fulfill({ json: runs }));
     await page.goto("/explore");
     await expect(page.locator(".pill.Pass").first()).toBeVisible();
 
@@ -256,6 +265,7 @@ test.describe("accessibility", () => {
  */
 test.describe("layout", () => {
   test("X-05/X-06: Tracxn shell holds its shape", async ({ page }, testInfo) => {
+    await stubIdentity(page);
     await stubRuns(page);
     await page.goto("/explore");
     await stabilise(page);
@@ -263,6 +273,7 @@ test.describe("layout", () => {
   });
 
   test("X-05: profile layout holds its shape", async ({ page }, testInfo) => {
+    await stubIdentity(page);
     await stubEvaluation(page);
     await page.goto("/startup/1");
     await stabilise(page);

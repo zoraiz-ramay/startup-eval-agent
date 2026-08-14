@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import GOLDEN_FILE from "./golden-runs.json";
 import { DEFAULT_WEIGHTS, DIMENSIONS } from "./index.js";
-import { ROUTES, routeWeightsFor, scorecardsFor, whatIfRouting } from "./routing.js";
+import {
+  ROUTES, breakevenWeight, routeWeightsFor, scorecardsFor, weightsWithShare, whatIfRouting,
+} from "./routing.js";
 
 const GOLDEN = GOLDEN_FILE.runs;
 
@@ -138,5 +140,71 @@ describe("untrusted input", () => {
     expect(whatIfRouting(run, { aligned: true }, null)).toBeNull();
     expect(whatIfRouting({ dimensions: {} }, { aligned: true }, DEFAULT_WEIGHTS)).toBeNull();
     expect(scorecardsFor(run, Object.fromEntries(DIMENSIONS.map((k) => [k, 0])))).toBeNull();
+  });
+});
+
+describe("breakeven sensitivity", () => {
+  const fitOf = (run) => ({ aligned: run.fit_aligned });
+
+  it("agrees with whatIfRouting everywhere inside the band it reports", () => {
+    // The property that makes the number trustworthy: if the panel says "eligible between 31%
+    // and 58%", re-scoring at any weight in that range must actually produce that route.
+    for (const run of GOLDEN) {
+      for (const route of ROUTES) {
+        const bw = breakevenWeight(run, fitOf(run), "traction", route);
+        expect(bw, `run ${run.run_id} ${route}`).not.toBeNull();
+        if (!bw.reachable) continue;
+        for (const share of [bw.band.from, (bw.band.from + bw.band.to) / 2, bw.band.to]) {
+          const probed = whatIfRouting(run, fitOf(run), weightsWithShare(DEFAULT_WEIGHTS, "traction", share));
+          expect(
+            probed.gates[route].eligible,
+            `run ${run.run_id} ${route} at traction=${share}`,
+          ).toBe(true);
+        }
+      }
+    }
+  });
+
+  it("says a route is unreachable rather than inventing a weight for it", () => {
+    // Every golden run is alignment-blocked or traction-blocked for at least one route, and the
+    // honest answer there is "no weighting does this" — the panel must never print a breakeven
+    // the reviewer could chase and never reach.
+    const unreachable = [];
+    for (const run of GOLDEN) {
+      for (const route of ROUTES) {
+        const bw = breakevenWeight(run, fitOf(run), "traction", route);
+        if (!bw.reachable) {
+          unreachable.push([run.run_id, route]);
+          expect(bw.band).toBeNull();
+        }
+      }
+    }
+    expect(unreachable.length).toBeGreaterThan(0);
+  });
+
+  it("reports delta 0 when the route is already eligible at the reviewer's weighting", () => {
+    for (const run of GOLDEN) {
+      const at = whatIfRouting(run, fitOf(run), DEFAULT_WEIGHTS);
+      for (const route of at.eligible) {
+        const bw = breakevenWeight(run, fitOf(run), "traction", route);
+        expect(bw.currentlyEligible, `run ${run.run_id} ${route}`).toBe(true);
+        expect(bw.delta, `run ${run.run_id} ${route}`).toBe(0);
+      }
+    }
+  });
+
+  it("short-circuits an alignment-blocked run without claiming a band", () => {
+    const blocked = { ...GOLDEN[0], dimensions: { ...GOLDEN[0].dimensions, siemens_fit: 10 } };
+    const bw = breakevenWeight(blocked, { aligned: false }, "traction", "Connect");
+    expect(bw.invariant).toBe("alignment");
+    expect(bw.reachable).toBe(false);
+    expect(bw.band).toBeNull();
+  });
+
+  it("refuses unknown dimensions, unknown routes and unusable weights", () => {
+    const run = GOLDEN[0];
+    expect(breakevenWeight(run, fitOf(run), "vibes", "Connect")).toBeNull();
+    expect(breakevenWeight(run, fitOf(run), "traction", "Pass")).toBeNull();
+    expect(breakevenWeight(run, fitOf(run), "traction", "Connect", null)).toBeNull();
   });
 });

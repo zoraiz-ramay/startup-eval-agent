@@ -24,7 +24,7 @@ test.describe("authentication", () => {
     await page.goto("/explore");
     await expect(page.getByRole("navigation", { name: /primary/i })).toBeVisible();
 
-    await page.route("**/api/runs", (route) =>
+    await page.route("**/api/my/searches", (route) =>
       route.fulfill({ status: 401, json: { detail: "Not signed in.", code: "unauthenticated" } }));
     await page.reload();
 

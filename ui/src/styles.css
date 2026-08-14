@@ -28,16 +28,43 @@ a:hover { text-decoration: underline; }
 }
 .cmdbar input::placeholder { color: var(--chrome-muted); }
 .cmdbar input:focus { border-color: #5c74c9; }
-.cmdbar .lens { position: absolute; left: 10px; top: 8px; color: var(--chrome-muted); font-size: 13px; }
+.cmdbar .lens {
+  position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+  color: var(--chrome-muted); display: flex; pointer-events: none;
+}
 .cmdbar .kbd {
   position: absolute; right: 8px; top: 7px; font-size: 10.5px; color: var(--chrome-muted);
   border: 1px solid var(--chrome-border); border-radius: 4px; padding: 2px 6px;
 }
-.top-actions { display: flex; align-items: center; gap: 6px; }
+/* margin-left:auto, not flex-grow on .cmdbar: the command bar is capped at 640px, so
+   without this the leftover width sits to the RIGHT of the actions and the buttons float
+   in the middle of a wide screen. */
+.top-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
 .icon-btn {
   background: none; border: none; color: var(--chrome-muted); cursor: pointer;
   font-size: 15px; padding: 7px 9px; border-radius: var(--radius); line-height: 1;
+  display: inline-flex; align-items: center; gap: 6px;
 }
+.icon-btn .label { font-size: 12px; font-weight: 600; }
+/* Unread/tracked count on the alerts bell. */
+.icon-btn { position: relative; }
+.icon-btn .dot {
+  position: absolute; top: 3px; right: 3px; min-width: 15px; height: 15px; padding: 0 3px;
+  border-radius: 8px; background: var(--accent); color: #fff;
+  font-size: 9.5px; font-weight: 700; line-height: 15px; text-align: center;
+}
+
+/* What-if weight sliders. accent-color paints the native control from the design tokens
+   instead of rebuilding it, which keeps its keyboard behaviour intact. */
+.wslider { flex: 1; min-width: 90px; accent-color: var(--accent); cursor: pointer; }
+
+/* ---------------- iX icons ----------------
+   The iX SVGs declare fill='none' on their outer group and expect the host to paint them —
+   this is the override <ix-icon> applies after inlining. Only `fill` is touched: some
+   glyphs are drawn with strokes, and blanking those would erase them. */
+.ix-i { display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.ix-i svg { width: 100%; height: 100%; display: block; }
+.ix-i svg, .ix-i svg * { fill: currentColor; }
 .icon-btn:hover { background: var(--chrome-700); color: var(--chrome-text); }
 .icon-btn.ai { color: #c4b2f2; border: 1px solid #4b3d80; }
 .icon-btn.ai:hover { background: #322a55; }
@@ -51,9 +78,13 @@ a:hover { text-decoration: underline; }
   position: fixed; top: var(--topbar-h); bottom: 0; left: 0; width: var(--rail-w); z-index: 70;
   background: var(--chrome-900); display: flex; flex-direction: column; padding-top: 6px;
 }
+/* Also worn by a <button> (the assistant toggle), which brings its own background, border
+   and font — hence the resets, so it sits flush with the <a> items beside it. */
 .rail-item {
   display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 10px 0;
   color: var(--chrome-muted); border-left: 3px solid transparent; cursor: pointer;
+  background: none; border-top: 0; border-right: 0; border-bottom: 0; width: 100%;
+  font-family: inherit;
 }
 .rail-item:hover { color: var(--chrome-text); background: var(--chrome-800); text-decoration: none; }
 .rail-item.active { color: #fff; background: var(--chrome-800); border-left-color: #9db7f5; }
@@ -348,7 +379,14 @@ a:hover { text-decoration: underline; }
 .signin-lede { font-size: var(--fs-body); margin: 0 0 20px; }
 .signin-foot { font-size: var(--fs-meta); margin: 16px 0 0; }
 .signin .btn { width: 100%; justify-content: center; }
-/* Loud by design: the stubbed sign-in must be impossible to mistake for the real thing. */
-.stub-banner { position: fixed; inset: 0 0 auto 0; z-index: 100; text-align: center;
-  padding: 5px 12px; font-size: var(--fs-meta); font-weight: 700;
+/* Loud by design: the stubbed sign-in must be impossible to mistake for the real thing.
+   Anchored bottom-left rather than across the top because the top bar, rail and dock are
+   all fixed and positioned off --topbar-h — a full-width strip there covered the command
+   bar. The bottom of the rail is dead space, so this obstructs nothing while staying red
+   and permanently on screen. */
+   It is purely a label, so it must never intercept a click: on a narrow window it sits
+   over real controls, and swallowing their clicks would make the app feel broken. */
+.stub-banner { position: fixed; left: 8px; bottom: 8px; z-index: 100; max-width: 260px;
+  padding: 6px 10px; border-radius: var(--radius); pointer-events: none;
+  font-size: var(--fs-meta); font-weight: 700; line-height: 1.35;
   background: var(--danger); color: #fff; }

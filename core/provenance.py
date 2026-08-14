@@ -9,9 +9,15 @@ from typing import Any
 #   self_reported: the startup's own application/pitch data
 #   public: found on the open web with a source URL
 #   inferred: derived by the model/heuristics, no direct source
-#   private: supplied internally (reserved; nothing produces it automatically)
+#   private: from a licensed source with no publicly linkable URL
 _METHOD_SOURCE_TYPE = {
     "glassdollar_db": "self_reported",
+    # The GlassDollar REST API is a curated third-party database, not the startup writing
+    # about itself and not something a reader can open in a browser. It is deliberately
+    # neither "self_reported" (GlassDollar corroborates across LinkedIn/Crunchbase/PitchBook
+    # rather than taking the pitch form at its word) nor "public" — a "public" claim with no
+    # URL is demoted to "inferred" below, and this is not an inference either.
+    "glassdollar_api": "private",
     "pitch_pdf": "self_reported",
     "ddg_search": "public",
     "profile_research": "public",

@@ -29,6 +29,10 @@
     {
       "path": "/settings",
       "component": "Settings"
+    },
+    {
+      "path": "/admin",
+      "component": "Admin"
     }
   ],
   "api_methods": [
@@ -57,6 +61,10 @@
       ]
     },
     {
+      "method": "myRuns",
+      "args": []
+    },
+    {
       "method": "runs",
       "args": []
     },
@@ -64,6 +72,49 @@
       "method": "run",
       "args": [
         "id"
+      ]
+    },
+    {
+      "method": "adminOverview",
+      "args": []
+    },
+    {
+      "method": "adminSearches",
+      "args": []
+    },
+    {
+      "method": "adminList",
+      "args": []
+    },
+    {
+      "method": "adminGrant",
+      "args": [
+        "upn",
+        "note = \"\""
+      ]
+    },
+    {
+      "method": "adminRevoke",
+      "args": [
+        "upn"
+      ]
+    },
+    {
+      "method": "views",
+      "args": []
+    },
+    {
+      "method": "saveView",
+      "args": [
+        "name",
+        "columns",
+        "filters"
+      ]
+    },
+    {
+      "method": "deleteView",
+      "args": [
+        "name"
       ]
     },
     {
@@ -160,7 +211,7 @@
   "files": [
     {
       "path": "ui/src/App.jsx",
-      "lines": 233,
+      "lines": 276,
       "exports": [
         "App"
       ],
@@ -170,6 +221,7 @@
         "brand",
         "cmdbar",
         "count",
+        "dot",
         "icon-btn",
         "kbd",
         "lens",
@@ -191,7 +243,7 @@
     },
     {
       "path": "ui/src/App.test.jsx",
-      "lines": 62,
+      "lines": 128,
       "exports": [],
       "css_classes": []
     },
@@ -261,6 +313,14 @@
       ]
     },
     {
+      "path": "ui/src/components/Icon.jsx",
+      "lines": 42,
+      "exports": [
+        "Icon"
+      ],
+      "css_classes": []
+    },
+    {
       "path": "ui/src/components/Loading.jsx",
       "lines": 6,
       "exports": [
@@ -287,16 +347,28 @@
       ]
     },
     {
+      "path": "ui/src/components/WeightSliders.jsx",
+      "lines": 74,
+      "exports": [
+        "WeightSliders",
+        "useWeighting"
+      ],
+      "css_classes": [
+        "k",
+        "spec",
+        "v",
+        "wslider"
+      ]
+    },
+    {
       "path": "ui/src/components/WhatIfWeights.jsx",
-      "lines": 235,
+      "lines": 247,
       "exports": [
         "WhatIfWeights"
       ],
       "css_classes": [
         "badge",
         "btn",
-        "grid2",
-        "input",
         "k",
         "muted",
         "panel",
@@ -339,6 +411,39 @@
     {
       "path": "ui/src/main.jsx",
       "lines": 17,
+      "exports": [],
+      "css_classes": []
+    },
+    {
+      "path": "ui/src/pages/Admin.jsx",
+      "lines": 344,
+      "exports": [
+        "Admin"
+      ],
+      "css_classes": [
+        "badge",
+        "btn",
+        "crumb",
+        "dense",
+        "dtable",
+        "empty",
+        "grid2",
+        "input",
+        "k",
+        "muted",
+        "page-head",
+        "page-meta",
+        "page-title",
+        "panel",
+        "secondary",
+        "stat",
+        "stats-strip",
+        "v"
+      ]
+    },
+    {
+      "path": "ui/src/pages/Admin.test.jsx",
+      "lines": 123,
       "exports": [],
       "css_classes": []
     },
@@ -416,7 +521,7 @@
     },
     {
       "path": "ui/src/pages/Explore.jsx",
-      "lines": 349,
+      "lines": 502,
       "exports": [
         "Explore"
       ],
@@ -445,6 +550,7 @@
         "page-head",
         "page-meta",
         "page-title",
+        "panel",
         "pill",
         "secondary",
         "sfs",
@@ -461,7 +567,7 @@
     },
     {
       "path": "ui/src/pages/Explore.test.jsx",
-      "lines": 95,
+      "lines": 236,
       "exports": [],
       "css_classes": []
     },
@@ -564,7 +670,7 @@
     },
     {
       "path": "ui/src/pages/Saved.jsx",
-      "lines": 43,
+      "lines": 42,
       "exports": [
         "Saved"
       ],
@@ -635,7 +741,7 @@
     },
     {
       "path": "ui/src/state.jsx",
-      "lines": 91,
+      "lines": 157,
       "exports": [
         "AppProvider",
         "AuthProvider",
@@ -646,10 +752,10 @@
     }
   ],
   "totals": {
-    "routes": 7,
-    "api_methods": 15,
+    "routes": 8,
+    "api_methods": 24,
     "design_tokens": 37,
-    "jsx_files": 32,
-    "jsx_lines": 3451
+    "jsx_files": 36,
+    "jsx_lines": 4514
   }
 }

@@ -371,6 +371,16 @@ def create_session(principal: Principal) -> tuple[str, str]:
     sessions().put(f"sess:{sid}",
                    {"user": principal.as_dict(), "csrf": csrf, "created_at": time.time()},
                    settings().session_ttl)
+    # Durable sign-in record for the admin dashboard. Redis holds only *live* sessions (they
+    # expire after SESSION_TTL), so it can say who is online but never how many sessions
+    # there have been. Imported here rather than at module scope to keep the auth module
+    # importable without the persistence layer, and best-effort: a full disk must not be
+    # able to stop people signing in.
+    try:
+        from api import store
+        store.record_session(principal.as_reviewer())
+    except Exception as exc:
+        log.warning("Could not record sign-in for the admin log: %s", exc)
     return sid, csrf
 
 
@@ -391,6 +401,65 @@ def current_user(request: Request) -> Principal:
     user = request.scope.get("state", {}).get("user")
     if not isinstance(user, Principal):
         raise HTTPException(status_code=401, detail="Not signed in.")
+    return user
+
+
+def admin_upns() -> frozenset[str]:
+    """The seed admins, from ADMIN_UPNS (comma-separated).
+
+    Read per call rather than captured at import so a deployment can change the list by
+    restarting the process without a code change, and so tests can set it with monkeypatch.
+
+    Goes through _secret_from_env, not os.getenv, because production config arrives from AWS
+    Secrets Manager and it is not knowable from this repo whether the CI hub explodes that
+    secret into individual env vars or hands over one JSON blob. Reading only the plain env
+    var would, under the blob shape, leave this empty in production — and the symptom is an
+    ordinary 403, indistinguishable from "you are not on the list".
+    """
+    raw = _secret_from_env("ADMIN_UPNS")
+    return frozenset(u.strip().lower() for u in raw.split(",") if u.strip())
+
+
+def db_admin_upns() -> frozenset[str]:
+    """Admins granted in-app. Never the only source — see is_admin.
+
+    A failure here must not lock everyone out of a working deployment, so a broken or
+    unreachable database degrades to "no in-app grants" rather than raising into the auth
+    path. That is still fail-closed: it can only ever remove access, never add it.
+    """
+    try:
+        from api import store
+        return frozenset(store.admin_upns_from_db())
+    except Exception:
+        log.warning("[auth] could not read the admins table; falling back to ADMIN_UPNS only",
+                    exc_info=True)
+        return frozenset()
+
+
+def is_admin(user: Principal) -> bool:
+    """Membership is by UPN, which is the tenant-unique sign-in name.
+
+    Two sources, union: the ADMIN_UPNS seed and the in-app grants. The seed cannot be dropped
+    in favour of the table alone — with an empty table and no "not configured, so allow"
+    branch anywhere in this module, nobody would be able to make the first grant, and the
+    only way back in would be the AWS console.
+
+    Fail-closed otherwise: an unset ADMIN_UPNS and an empty table means NOBODY is an admin.
+    The admin surface exposes every reviewer's activity, so getting that default wrong is
+    worse than locking the owner out of their own dashboard until they set the variable.
+    """
+    upn = (getattr(user, "upn", "") or "").strip().lower()
+    if not upn:
+        return False
+    return upn in admin_upns() or upn in db_admin_upns()
+
+
+def require_admin(user: Principal = Depends(current_user)) -> Principal:
+    """Sibling of current_user for the /api/admin routes. 403, not 404: the caller is
+    authenticated and the route exists — hiding that adds nothing an attacker cannot infer
+    from the SPA bundle, and it makes a misconfigured ADMIN_UPNS impossible to diagnose."""
+    if not is_admin(user):
+        raise HTTPException(status_code=403, detail="Administrator access required.")
     return user
 
 
@@ -565,4 +634,13 @@ def me(request: Request):
         return {"authenticated": False, "mode": cfg.mode}
     return {"authenticated": True, "mode": cfg.mode,
             "user": {"name": user.name, "email": user.email or user.upn,
-                     "initials": user.initials, "oid": user.oid}}
+                     "initials": user.initials, "oid": user.oid,
+                     # The exact string the admin list matches on. Without it there is no way
+                     # to find out what to type when granting someone access: `email` is the
+                     # email claim, which is not necessarily the preferred_username this is
+                     # keyed on. It is the caller's own identity, so it widens nothing.
+                     "upn": user.upn,
+                     # Only decides whether the SPA renders the admin nav entry. Every
+                     # /api/admin route re-checks with require_admin, so a client that
+                     # flips this flag gains nothing.
+                     "is_admin": is_admin(user)}}

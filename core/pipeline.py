@@ -51,6 +51,34 @@ def backfill_profile(profile: dict, deep_profile: dict) -> dict:
     return sources
 
 
+def _looks_like_domain(value: str) -> bool:
+    """A single dotted token with no spaces — "phena.tech", "https://phena.tech/about"."""
+    s = str(value or "").strip()
+    if "://" in s:
+        s = s.split("://", 1)[1]
+    s = s.split("/", 1)[0]
+    return bool(s) and " " not in s and "." in s and not s.endswith(".")
+
+
+def _by_domain(name: str):
+    """GlassDollar's by-domain lookup, or None. Best-effort: no key, no network, no match and
+    an unparseable input all mean "fall through to the next resolution step"."""
+    if not _looks_like_domain(name):
+        return None
+    s = str(name).strip()
+    if "://" in s:
+        s = s.split("://", 1)[1]
+    s = s.split("/", 1)[0]
+    if s.lower().startswith("www."):
+        s = s[4:]
+    try:
+        from . import glassdollar_api
+        company = glassdollar_api.get_client().get_company_by_domain(s)
+        return glassdollar_api.company_to_row(company) if company else None
+    except Exception:
+        return None
+
+
 def evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = True,
              df: "pd.DataFrame" = None, on_step=None, use_web_cache: bool = True) -> dict:
     """Run the full pipeline for one startup.
@@ -89,6 +117,14 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
     llm = LLMClient()
     row = find_startup(df, name)
     source = "glassdollar"
+    hydrated = False
+    if row is None:
+        # A domain is a stronger identity than a fuzzy name match at 0.82: "phena.tech"
+        # resolves to exactly one company, while "Phena" competes with FENA Holdings and
+        # Phenna Group. Tried before falling through to the web, so a reviewer who pastes a
+        # URL still gets the database record rather than a scraped reconstruction of it.
+        row = _by_domain(name)
+        hydrated = row is not None     # by-domain returns the full company, not a search hit
     if row is None:
         # Not confidently in the GlassDollar database -> research it live on the web.
         row = web_profile_row(name, llm=llm)
@@ -102,7 +138,7 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
         # The paginated /v1/companies list can return lighter objects than /v1/companies/{id}.
         # If this row came from the API, hydrate the full profile (referenced_customers,
         # long_description, ...) once so downstream steps see complete data. Best-effort only.
-        gd_id = str(row.get("glassdollar_id", "")).strip()
+        gd_id = "" if hydrated else str(row.get("glassdollar_id", "")).strip()
         if gd_id and gd_id.lower() != "nan":
             try:
                 from . import glassdollar_api
@@ -165,7 +201,9 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
                     "customers", "Reference customers",
                     "Business model", "Development stage of your solution")
     if source == "glassdollar":
-        profile = {c: str(row.get(c, "")) for c in profile_cols if c in df.columns}
+        # row.index, not df.columns: a row resolved by domain never came out of `df` at all,
+        # and reading the column list off the search frame would leave its profile empty.
+        profile = {c: str(row.get(c, "")) for c in profile_cols if c in row.index}
     else:                       # web row: keep only the fields we actually populated
         profile = {c: str(row.get(c, "")) for c in profile_cols if str(row.get(c, "")).strip()}
 

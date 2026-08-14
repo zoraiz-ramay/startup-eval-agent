@@ -91,6 +91,12 @@ export const test = base.extend({
     // Relative URL on purpose — it goes through the vite proxy so the cookie is set on the
     // page's own origin. page.request.get() uses a separate context and the browser would
     // never see the cookie.
+    // Saved views are server-side and per-reviewer now, and the stub principal is the SAME
+    // person in every run — so a view someone created while poking at the dev backend would
+    // appear in the sidenav and move every baseline. Pinned empty here; the specs that care
+    // about views override it.
+    await page.route("**/api/my/views", (route) => route.fulfill({ json: { views: [] } }));
+
     await page.goto("/api/auth/login?next=/");
     // Checked from inside the page for the same reason the login above is a page.goto:
     // page.request has its own cookie jar and would report "signed out" no matter what.
@@ -111,10 +117,11 @@ export const test = base.extend({
 /**
  * Fixed rows for the Explore table.
  *
- * Visual baselines must render identical pixels every run. Left unstubbed, /api/runs returns
- * whatever is in runs.db — which grows and re-scores every time anyone evaluates a company — so
- * the snapshot drifted and the mobile baseline failed on consecutive runs. A baseline that
- * flickers teaches people to ignore the diff, which defeats the point of having one.
+ * Visual baselines must render identical pixels every run. Left unstubbed, /api/my/searches
+ * returns whatever this reviewer has searched — which grows and re-scores every time anyone
+ * evaluates a company — so the snapshot drifted and the mobile baseline failed on consecutive
+ * runs. A baseline that flickers teaches people to ignore the diff, which defeats the point of
+ * having one.
  */
 export const RUNS_FIXTURE = {
   runs: [
@@ -135,7 +142,35 @@ export const RUNS_FIXTURE = {
 
 /** Deterministic table data — required before any screenshot of a data view. */
 export async function stubRuns(page) {
-  await page.route("**/api/runs", (route) => route.fulfill({ json: RUNS_FIXTURE }));
+  // /api/my/searches, not /api/runs: lists became per-reviewer, and /api/runs is now the
+  // admin-only whole-tenant view that no journey below reads.
+  await page.route("**/api/my/searches", (route) => route.fulfill({ json: RUNS_FIXTURE }));
+}
+
+/**
+ * Pin the signed-in identity. Required before any screenshot, for the same reason as
+ * stubRuns.
+ *
+ * The rail grows an "Admin" entry when the principal is an administrator, and that depends on
+ * ADMIN_UPNS in whatever environment the backend happened to be started with. Left unpinned,
+ * the baselines become a function of a shell variable: capture them with it set and every
+ * later run without it fails, and the other way round. Neither failure says anything about
+ * whether the layout still works.
+ *
+ * Non-admin by default, because that is the rail every reviewer sees.
+ */
+export async function stubIdentity(page, { admin = false } = {}) {
+  await page.route("**/api/auth/me", (route) => route.fulfill({
+    json: {
+      authenticated: true,
+      mode: "stub",
+      user: {
+        name: "E2E Reviewer", email: "e2e.reviewer@siemens.com",
+        upn: "e2e.reviewer@siemens.com", initials: "ER",
+        oid: "00000000-0000-0000-0000-000000000001", is_admin: admin,
+      },
+    },
+  }));
 }
 
 /** Stub the slow, non-deterministic endpoints so a journey is about the UI, not the network. */
@@ -147,9 +182,9 @@ export async function stubRuns(page) {
  * cannot support an assertion about derived routing.
  *
  * These numbers ARE engine-consistent — the scorecards are ROUTE_WEIGHTS x dimensions x data
- * confidence, and the pillar is what core/route.py's gates produce from them. Raising ecosystem to
- * 100 drops the Collaborate card from 67.3 to 46.3, under its 55 gate, so the pillar demotes to
- * Empower. An 8.7-point margin, from a single field edit.
+ * confidence, and the pillar is what core/route.py's gates produce from them. Giving ecosystem a
+ * 52% share drops the Collaborate card from 67.3 to 46.4, under its 55 gate, so the pillar
+ * demotes to Empower. An 8.6-point margin, from a single slider.
  */
 export const ROUTABLE_RUN_FIXTURE = {
   ...RUN_FIXTURE,

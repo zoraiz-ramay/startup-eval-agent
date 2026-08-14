@@ -17,6 +17,7 @@ import pathlib
 import shutil
 import sqlite3
 import threading
+from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
 
 from core.config import BASE_DIR
@@ -167,9 +168,71 @@ CREATE TABLE IF NOT EXISTS web_cache (
     payload    TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
+
+-- ---------------- per-reviewer workspace (keyed on the Entra oid) ----------------
+-- One row per /api/evaluate call, whether or not it re-ran the pipeline. This is BOTH the
+-- reviewer's own list of startups and the admin activity log, which is why it records
+-- served_from: the difference between the two is the whole point of the shared cache.
+CREATE TABLE IF NOT EXISTS searches (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_oid     TEXT NOT NULL,
+    user_upn     TEXT,
+    query        TEXT NOT NULL,           -- what the reviewer typed, before resolution
+    company_id   INTEGER,                 -- nullable: delete_run does not cascade
+    company_name TEXT,                    -- resolved name, denormalized so the list survives deletes
+    run_id       INTEGER,                 -- nullable for the same reason
+    served_from  TEXT,                    -- cache | fresh
+    created_at   TEXT NOT NULL
+);
+-- Sign-ins are recorded here rather than counted from Redis: sessions there expire after
+-- SESSION_TTL (8h by default), so Redis can answer "who is online" but never "how many
+-- sessions this month", which is what the admin dashboard asks.
+CREATE TABLE IF NOT EXISTS sessions (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_oid   TEXT NOT NULL,
+    user_upn   TEXT,
+    started_at TEXT NOT NULL
+);
+-- Every string that has ever been used to reach a company: the name a reviewer typed, the
+-- name the pipeline resolved it to, and its domain. Without this the cache-first lookup in
+-- /api/evaluate misses its own writes -- it searches on the typed name while save_run stores
+-- the RESOLVED one, so "phena" never finds the run filed under "Phena Technologies" and the
+-- whole external pipeline runs again for a company already in the database.
+CREATE TABLE IF NOT EXISTS company_aliases (
+    alias      TEXT PRIMARY KEY COLLATE NOCASE,
+    company_id INTEGER NOT NULL REFERENCES companies(id),
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS saved_views (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_oid     TEXT NOT NULL,
+    name         TEXT NOT NULL COLLATE NOCASE,
+    columns_json TEXT NOT NULL,
+    filters_json TEXT NOT NULL,
+    created_at   TEXT NOT NULL,
+    updated_at   TEXT NOT NULL,
+    UNIQUE (user_oid, name)
+);
+-- Admins granted from inside the app. This is the SECOND source of admin rights, never the
+-- only one: ADMIN_UPNS stays the seed (see is_admin in api/auth.py), because a system with no
+-- "not configured, so allow" branch anywhere would otherwise have no way to make its first
+-- grant once this table is empty. Keyed on UPN rather than oid because you grant access to a
+-- colleague by typing their sign-in name, before they have ever signed in and been given one.
+CREATE TABLE IF NOT EXISTS admins (
+    upn        TEXT PRIMARY KEY COLLATE NOCASE,
+    granted_by TEXT NOT NULL,
+    granted_at TEXT NOT NULL,
+    note       TEXT NOT NULL DEFAULT ''
+);
 CREATE INDEX IF NOT EXISTS idx_people_company ON people(company_id);
 CREATE INDEX IF NOT EXISTS idx_facts_run ON evidence_facts(run_id);
 CREATE INDEX IF NOT EXISTS idx_web_cache_created ON web_cache(created_at);
+CREATE INDEX IF NOT EXISTS idx_searches_user ON searches(user_oid, created_at);
+CREATE INDEX IF NOT EXISTS idx_searches_created ON searches(created_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_oid);
+CREATE INDEX IF NOT EXISTS idx_saved_views_user ON saved_views(user_oid);
+-- latest_run_for_company scans runs on every evaluate; it is the hot path of the cache.
+CREATE INDEX IF NOT EXISTS idx_runs_company ON runs(company);
 """
 
 
@@ -349,7 +412,40 @@ def _replace_children(con: sqlite3.Connection, cid: int, run_id: int, result: di
                  str(m.get("rationale", ""))[:400]))
 
 
-def save_run(result: dict) -> int:
+def _norm_alias(value: str) -> str:
+    """Reduce a typed query, a resolved name or a URL to the string aliases are matched on.
+
+    Hosts and URLs collapse to a bare domain so "https://www.phena.ai/about", "phena.ai" and
+    "www.phena.ai" are one alias. Company names are left alone apart from trimming — the
+    column is COLLATE NOCASE, so case needs no handling here.
+    """
+    s = str(value or "").strip()
+    if not s:
+        return ""
+    if "://" in s:
+        s = s.split("://", 1)[1]
+    if "." in s and " " not in s:            # looks like a host, not a company name
+        s = s.split("/", 1)[0]
+        if s.lower().startswith("www."):
+            s = s[4:]
+    return s.strip().strip(".,")[:200]
+
+
+def _record_alias(con: sqlite3.Connection, alias: str, cid: int) -> None:
+    key = _norm_alias(alias)
+    if not key:
+        return
+    # First writer wins: an alias already pointing somewhere is not repointed here, because
+    # two companies can legitimately share a typed prefix and silently stealing the alias
+    # would serve the wrong company's evaluation from cache.
+    con.execute("INSERT OR IGNORE INTO company_aliases (alias, company_id, created_at) "
+                "VALUES (?,?,?)", (key, cid, _now()))
+
+
+def save_run(result: dict, aliases: Iterable[str] = ()) -> int:
+    """Persist an evaluation. `aliases` are extra strings this company should be findable
+    by — in practice the query the reviewer actually typed, which is usually NOT the name
+    the pipeline resolved and stores."""
     rt = result.get("routing", {}) or {}
     sc = result.get("score", {}) or {}
     dp = result.get("deep_profile", {}) or {}
@@ -367,6 +463,9 @@ def save_run(result: dict) -> int:
         cid = _upsert_company(con, result, run_id)
         con.execute("UPDATE runs SET company_id=? WHERE id=?", (cid, run_id))
         _replace_children(con, cid, run_id, result)
+        p = result.get("profile", {}) or {}
+        for a in (result.get("company", ""), p.get("domain", ""), p.get("website", ""), *aliases):
+            _record_alias(con, a, cid)
     _upload_to_s3()
     return run_id
 
@@ -457,6 +556,13 @@ def list_runs(limit: int = 100) -> list[dict]:
                 "founders": ", ".join(f.get("name", "") for f in
                                       (res.get("deep_profile", {}) or {}).get("founders", [])
                                       if isinstance(f, dict))[:120],
+                # Everything the browser needs to re-score this row under a reviewer's own
+                # weighting (ui/src/scoring). Eight numbers, parsed from JSON already being
+                # read here, so the grid can answer "who would we be talking to under my
+                # priorities" without a round trip per row.
+                "dimensions": {k: v for k, v in dims.items() if isinstance(v, (int, float))},
+                "data_completeness": sc.get("data_completeness", 0),
+                "fit_aligned": bool((res.get("fit", {}) or {}).get("aligned")),
             })
         except Exception:
             pass
@@ -490,6 +596,188 @@ def latest_run_for_company(company: str) -> dict | None:
     res["run_id"] = row[0]
     res["run_created_at"] = row[1]
     return res
+
+
+def latest_run_for_alias(name: str) -> dict | None:
+    """Cache-first lookup that also resolves the strings a company is *known by*.
+
+    `latest_run_for_company` matches the stored name exactly, which means it misses its own
+    writes: /api/evaluate searches on what the reviewer typed while save_run files the run
+    under the name the pipeline resolved. Aliases close that gap; the exact-name match stays
+    as the fallback so runs written before company_aliases existed are still served.
+    """
+    key = _norm_alias(name)
+    if not key:
+        return None
+    with _conn() as con:
+        row = con.execute(
+            "SELECT r.id, r.created_at, r.result_json FROM company_aliases a "
+            "JOIN companies c ON c.id = a.company_id "
+            "JOIN runs r ON r.id = c.latest_run_id "
+            "WHERE a.alias = ?", (key,)).fetchone()
+    if row:
+        res = json.loads(row[2])
+        res["run_id"] = row[0]
+        res["run_created_at"] = row[1]
+        return res
+    return latest_run_for_company(name)
+
+
+# ------------------------------------------------- per-reviewer searches & sessions
+def record_search(user: dict, query: str, *, company_name: str = "", company_id: int | None = None,
+                  run_id: int | None = None, served_from: str = "fresh") -> None:
+    """Log one evaluate call against the signed-in principal.
+
+    Uploads to S3 like the other write paths: unlike web_cache this is an audit record and
+    cannot be regenerated, so it must not sit only on a container's local disk waiting for
+    someone else to trigger a save_run.
+    """
+    oid = str((user or {}).get("oid", "")).strip()
+    if not oid:
+        return
+    with _conn() as con:
+        con.execute(
+            "INSERT INTO searches (user_oid, user_upn, query, company_id, company_name, run_id, "
+            "served_from, created_at) VALUES (?,?,?,?,?,?,?,?)",
+            (oid, str((user or {}).get("upn", "") or ""), str(query)[:200], company_id,
+             str(company_name or "")[:200], run_id, served_from, _now()))
+    _upload_to_s3()
+
+
+def record_session(user: dict) -> None:
+    """One row per successful sign-in — see the schema comment on `sessions`."""
+    oid = str((user or {}).get("oid", "")).strip()
+    if not oid:
+        return
+    with _conn() as con:
+        con.execute("INSERT INTO sessions (user_oid, user_upn, started_at) VALUES (?,?,?)",
+                    (oid, str((user or {}).get("upn", "") or ""), _now()))
+    _upload_to_s3()
+
+
+def list_user_runs(user_oid: str, limit: int = 200) -> list[dict]:
+    """The reviewer's own list: one grid row per company THEY searched, newest search first.
+
+    Built by intersecting `searches` with `list_runs` rather than by a join, so the grid rows
+    stay byte-identical to the ones Explore already renders and there is one place that
+    decides what a grid row contains.
+    """
+    oid = str(user_oid or "").strip()
+    if not oid:
+        return []
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT company_name, MAX(created_at) FROM searches "
+            "WHERE user_oid=? AND company_name<>'' GROUP BY LOWER(company_name) "
+            "ORDER BY MAX(created_at) DESC LIMIT ?", (oid, limit)).fetchall()
+    if not rows:
+        return []
+    order = {str(r[0]).lower(): i for i, r in enumerate(rows)}
+    searched_at = {str(r[0]).lower(): r[1] for r in rows}
+    mine = []
+    seen = set()
+    # list_runs is per-RUN and a re-evaluated company has several; this list is per-company, so
+    # take the first (newest — list_runs is id DESC) and drop the rest. History stays in the DB
+    # and is still reachable from the profile.
+    for item in list_runs(limit=max(limit * 5, 500)):
+        k = str(item.get("company", "")).lower()
+        if k in order and k not in seen:
+            seen.add(k)
+            item["searched_at"] = searched_at[k]
+            mine.append(item)
+    mine.sort(key=lambda i: order[str(i["company"]).lower()])
+    return mine
+
+
+def admin_overview(recent_days: int = 30, top: int = 10) -> dict:
+    """Usage metrics for the admin dashboard. One connection, small aggregate queries."""
+    since = (datetime.now(timezone.utc) - timedelta(days=recent_days)).isoformat(timespec="seconds")
+    with _conn() as con:
+        q = lambda sql, args=(): con.execute(sql, args).fetchone()[0] or 0   # noqa: E731
+        sessions_total = q("SELECT COUNT(*) FROM sessions")
+        sessions_recent = q("SELECT COUNT(*) FROM sessions WHERE started_at>=?", (since,))
+        searches_total = q("SELECT COUNT(*) FROM searches")
+        searches_recent = q("SELECT COUNT(*) FROM searches WHERE created_at>=?", (since,))
+        users_total = q("SELECT COUNT(DISTINCT user_oid) FROM sessions")
+        users_recent = q("SELECT COUNT(DISTINCT user_oid) FROM searches WHERE created_at>=?", (since,))
+        companies_searched = q("SELECT COUNT(DISTINCT LOWER(company_name)) FROM searches "
+                               "WHERE company_name<>''")
+        cache_hits = q("SELECT COUNT(*) FROM searches WHERE served_from='cache'")
+        runs_total = q("SELECT COUNT(*) FROM runs")
+        companies_total = q("SELECT COUNT(*) FROM companies")
+        top_companies = [{"company": r[0], "searches": r[1]} for r in con.execute(
+            "SELECT company_name, COUNT(*) c FROM searches WHERE company_name<>'' "
+            "GROUP BY LOWER(company_name) ORDER BY c DESC, company_name LIMIT ?", (top,)).fetchall()]
+        per_user = [{"upn": r[0] or r[1], "oid": r[1], "searches": r[2], "companies": r[3],
+                     "last_seen": r[4]} for r in con.execute(
+            "SELECT MAX(user_upn), user_oid, COUNT(*), COUNT(DISTINCT LOWER(company_name)), "
+            "MAX(created_at) FROM searches GROUP BY user_oid "
+            "ORDER BY COUNT(*) DESC LIMIT ?", (top,)).fetchall()]
+    return {
+        "window_days": recent_days,
+        "sessions": {"total": sessions_total, "recent": sessions_recent},
+        "searches": {"total": searches_total, "recent": searches_recent},
+        "users": {"total": users_total, "recent": users_recent},
+        "companies": {"searched": companies_searched, "evaluated": companies_total},
+        "runs": runs_total,
+        # The share of searches answered from the database instead of the pipeline — the
+        # number that says whether the shared cache is actually earning its keep.
+        "cache_hit_rate": round(cache_hits / searches_total, 3) if searches_total else 0.0,
+        "top_companies": top_companies,
+        "per_user": per_user,
+    }
+
+
+def list_searches(limit: int = 200) -> list[dict]:
+    """The full activity log, newest first. Admin-only — see require_admin in api/auth.py."""
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT id, user_oid, user_upn, query, company_name, run_id, served_from, created_at "
+            "FROM searches ORDER BY id DESC LIMIT ?", (max(1, min(limit, 1000)),)).fetchall()
+    return [{"id": r[0], "user_oid": r[1], "user_upn": r[2] or "", "query": r[3],
+             "company": r[4] or "", "run_id": r[5], "served_from": r[6] or "",
+             "created_at": r[7]} for r in rows]
+
+
+# ------------------------------------------------------------------- saved views
+def list_views(user_oid: str) -> list[dict]:
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT name, columns_json, filters_json, updated_at FROM saved_views "
+            "WHERE user_oid=? ORDER BY updated_at DESC", (str(user_oid),)).fetchall()
+    out = []
+    for r in rows:
+        try:
+            out.append({"name": r[0], "columns": json.loads(r[1]),
+                        "filters": json.loads(r[2]), "updated_at": r[3]})
+        except ValueError:
+            continue
+    return out
+
+
+def save_view(user_oid: str, name: str, columns: list, filters: dict) -> dict:
+    """Upsert by (owner, name) — saving over a name replaces that view, as the UI implies."""
+    name = str(name).strip()[:80]
+    ts = _now()
+    with _conn() as con:
+        con.execute(
+            "INSERT INTO saved_views (user_oid, name, columns_json, filters_json, created_at, "
+            "updated_at) VALUES (?,?,?,?,?,?) "
+            "ON CONFLICT(user_oid, name) DO UPDATE SET columns_json=excluded.columns_json, "
+            "filters_json=excluded.filters_json, updated_at=excluded.updated_at",
+            (str(user_oid), name, json.dumps(columns), json.dumps(filters), ts, ts))
+    _upload_to_s3()
+    return {"name": name, "columns": columns, "filters": filters, "updated_at": ts}
+
+
+def delete_view(user_oid: str, name: str) -> bool:
+    with _conn() as con:
+        cur = con.execute("DELETE FROM saved_views WHERE user_oid=? AND name=?",
+                          (str(user_oid), str(name).strip()))
+        deleted = cur.rowcount > 0
+    if deleted:
+        _upload_to_s3()
+    return deleted
 
 
 def delete_run(run_id: int) -> bool:
@@ -546,3 +834,65 @@ def list_overrides(run_id: int) -> list[dict]:
              # by a script, or before sign-in existed all read as unverified.
              "verified": r[7] == "entra"}
             for r in rows]
+
+
+# ------------------------------------------------------------------ admins
+
+def list_admins() -> list[dict]:
+    """Admins granted in-app, oldest first. Read-only, so no S3 upload."""
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT upn, granted_by, granted_at, note FROM admins ORDER BY granted_at, upn"
+        ).fetchall()
+    return [{"upn": r[0], "granted_by": r[1], "granted_at": r[2], "note": r[3] or "",
+             "source": "db"} for r in rows]
+
+
+def admin_upns_from_db() -> set[str]:
+    """Just the names, lowercased, for the is_admin check on every admin request.
+
+    Separate from list_admins so the hot path does not build dicts it throws away, and so a
+    caller that only needs membership cannot accidentally leak the grant metadata.
+    """
+    with _conn() as con:
+        rows = con.execute("SELECT upn FROM admins").fetchall()
+    return {str(r[0]).strip().lower() for r in rows if str(r[0]).strip()}
+
+
+def grant_admin(upn: str, granted_by: str, note: str = "") -> dict | None:
+    """Add an admin. Returns the new row, or None if that UPN already had a grant.
+
+    Audit record, so it uploads like the other write paths — losing it would leave a
+    privilege change on one container's local disk.
+    """
+    u = str(upn or "").strip().lower()
+    if not u:
+        return None
+    ts = _now()
+    with _conn() as con:
+        existing = con.execute("SELECT 1 FROM admins WHERE upn=?", (u,)).fetchone()
+        if existing:
+            return None
+        con.execute(
+            "INSERT INTO admins (upn, granted_by, granted_at, note) VALUES (?,?,?,?)",
+            (u, str(granted_by or "").strip().lower(), ts, str(note or "")[:200]))
+    _upload_to_s3()
+    return {"upn": u, "granted_by": str(granted_by or "").strip().lower(),
+            "granted_at": ts, "note": str(note or "")[:200], "source": "db"}
+
+
+def revoke_admin(upn: str) -> bool:
+    """Remove an in-app grant. False if there was nothing to remove.
+
+    Cannot touch an ADMIN_UPNS-seeded admin — those live in the environment, not here, which
+    is exactly what makes them the recovery path.
+    """
+    u = str(upn or "").strip().lower()
+    if not u:
+        return False
+    with _conn() as con:
+        cur = con.execute("DELETE FROM admins WHERE upn=?", (u,))
+        removed = cur.rowcount > 0
+    if removed:
+        _upload_to_s3()
+    return removed

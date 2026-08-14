@@ -1,8 +1,13 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Routes, Route, NavLink, useNavigate, useLocation } from "react-router-dom";
+import {
+  iconAi, iconAlarmBell, iconBookmark, iconCogwheel, iconDashboard, iconEye, iconHome,
+  iconSearch, iconTable,
+} from "@siemens/ix-icons/icons";
 import { api } from "./api.js";
 import { AppProvider, AuthProvider, useApp, useAuth } from "./state.jsx";
 import AssistantDock from "./components/AssistantDock.jsx";
+import Icon from "./components/Icon.jsx";
 import { Loading } from "./components/widgets.jsx";
 import SignIn from "./pages/SignIn.jsx";
 import Home from "./pages/Home.jsx";
@@ -12,6 +17,7 @@ import Saved from "./pages/Saved.jsx";
 import Alerts from "./pages/Alerts.jsx";
 import AskAI from "./pages/AskAI.jsx";
 import Settings from "./pages/Settings.jsx";
+import Admin from "./pages/Admin.jsx";
 
 /* ------------------------------------------------ command bar (Ctrl/Cmd+K) */
 function CommandBar() {
@@ -55,7 +61,7 @@ function CommandBar() {
 
   return (
     <div className="cmdbar suggest">
-      <span className="lens">🔍</span>
+      <span className="lens"><Icon icon={iconSearch} size={14} /></span>
       <input ref={inputRef} placeholder="Search a startup, or type / for commands…"
         value={q} onChange={(e) => setQ(e.target.value)}
         onKeyDown={(e) => e.key === "Enter" && submit()}
@@ -80,8 +86,10 @@ function CommandBar() {
 
 /* ------------------------------------------------ top bar */
 function TopBar() {
-  const { setDockOpen, dockOpen } = useApp();
+  const { watchlist } = useApp();
+  const { user } = useAuth();
   const nav = useNavigate();
+  const account = user?.name || user?.email || "Account";
   return (
     <header className="topbar">
       <div className="brand" role="link" style={{ cursor: "pointer" }} onClick={() => nav("/")}>
@@ -89,37 +97,70 @@ function TopBar() {
         <span className="sub">Startup intelligence · Siemens for Startups</span>
       </div>
       <CommandBar />
+      {/* title alone is not an accessible name for an icon-only button — scripts/ix_lint.mjs
+          checks for aria-label, and a screen reader gets nothing from the glyph. */}
       <div className="top-actions">
-        <button className="icon-btn" title="Advanced search" onClick={() => nav("/explore")}>⚲</button>
-        <button className={"icon-btn ai"} title="AI assistant"
-          onClick={() => setDockOpen(!dockOpen)}>✦ AI</button>
-        <button className="icon-btn" title="Alerts" onClick={() => nav("/alerts")}>🔔</button>
-        <button className="icon-btn" title="Export" onClick={() => nav("/explore")}>⤓</button>
-        <button className="avatar-btn" title="Account" onClick={() => nav("/settings")}>Z</button>
+        <button className="icon-btn" aria-label="Advanced search" title="Advanced search"
+          onClick={() => nav("/explore")}>
+          <Icon icon={iconSearch} size={17} />
+        </button>
+        <button className="icon-btn" title="Tracking"
+          aria-label={watchlist.length
+            ? `Tracking, ${watchlist.length} companies watched`
+            : "Tracking"}
+          onClick={() => nav("/alerts")}>
+          <Icon icon={iconAlarmBell} size={17} />
+          {watchlist.length > 0 && <span className="dot">{watchlist.length}</span>}
+        </button>
+        {/* The Export button that used to sit here navigated to /explore — the same place as
+            Advanced search — and exported nothing. The real CSV export is Explore's own
+            toolbar button, which knows what rows and columns are on screen. */}
+        <button className="avatar-btn" aria-label={`Account: ${account}`} title={account}
+          onClick={() => nav("/settings")}>{user?.initials || "?"}</button>
       </div>
     </header>
   );
 }
 
 /* ------------------------------------------------ icon rail + secondary nav */
+// iX icons rather than Unicode box-drawing glyphs: ▦ (Explore) and ▤ (Views) were the same
+// shape at 17px, and 🔔 rendered as a colour emoji in otherwise monochrome chrome.
 const RAIL = [
-  { to: "/", label: "Home", icon: "⌂", end: true },
-  { to: "/explore", label: "Explore", icon: "▦" },
-  { to: "/saved", label: "Views", icon: "▤" },
-  { to: "/alerts", label: "Tracking", icon: "◉" },
-  { to: "/ask", label: "Ask AI", icon: "✦" },
-  { to: "/settings", label: "Settings", icon: "⚙" },
+  { to: "/", label: "Home", icon: iconHome, end: true },
+  { to: "/explore", label: "Explore", icon: iconTable },
+  { to: "/saved", label: "Views", icon: iconBookmark },
+  { to: "/alerts", label: "Tracking", icon: iconEye },
+  // Not a link: this is the one control for the assistant now that the command bar's
+  // duplicate has gone. The dock opens itself on a wide screen, so without a way back the
+  // close button in its header would be one-way for the rest of the session.
+  { action: "dock", label: "Ask AI", icon: iconAi },
+  { to: "/settings", label: "Settings", icon: iconCogwheel },
 ];
+const ADMIN_RAIL = { to: "/admin", label: "Admin", icon: iconDashboard };
 
 function Rail() {
+  const { user } = useAuth();
+  const { dockOpen, setDockOpen } = useApp();
+  // The route is guarded server-side by require_admin; this only decides whether a reviewer
+  // is shown a door they cannot open.
+  const items = user?.is_admin ? [...RAIL, ADMIN_RAIL] : RAIL;
   return (
     <nav className="rail" aria-label="Primary">
-      {RAIL.map((n) => (
-        <NavLink key={n.to} to={n.to} end={n.end} title={n.label}
-          className={({ isActive }) => "rail-item" + (isActive ? " active" : "")}>
-          <span className="ri">{n.icon}</span>
-          <span className="rl">{n.label}</span>
-        </NavLink>
+      {items.map((n) => (
+        n.action === "dock" ? (
+          <button key={n.label} type="button" title={n.label}
+            className={"rail-item" + (dockOpen ? " active" : "")}
+            aria-expanded={dockOpen} onClick={() => setDockOpen(!dockOpen)}>
+            <span className="ri"><Icon icon={n.icon} size={18} /></span>
+            <span className="rl">{n.label}</span>
+          </button>
+        ) : (
+          <NavLink key={n.to} to={n.to} end={n.end} title={n.label}
+            className={({ isActive }) => "rail-item" + (isActive ? " active" : "")}>
+            <span className="ri"><Icon icon={n.icon} size={18} /></span>
+            <span className="rl">{n.label}</span>
+          </NavLink>
+        )
       ))}
     </nav>
   );
@@ -127,14 +168,16 @@ function Rail() {
 
 function SideNav() {
   const { savedViews, watchlist } = useApp();
-  const nav = useNavigate();
+  // NavLink's own isActive compares pathnames only, so every view link would light up at
+  // once on /explore. The active view is the one named in the query string.
+  const view = new URLSearchParams(useLocation().search).get("view") || "";
   return (
     <nav className="sidenav" aria-label="Secondary">
       <h4>Quick access</h4>
+      <NavLink to="/?compose=1" className="snav-item">Start a scouting query</NavLink>
       <NavLink to="/explore" className={({ isActive }) => "snav-item" + (isActive ? " active" : "")}>
         Explore startups
       </NavLink>
-      <NavLink to="/?compose=1" className="snav-item">Start a scouting query</NavLink>
       <NavLink to="/alerts" className="snav-item">
         Watchlist <span className="count">{watchlist.length}</span>
       </NavLink>
@@ -145,17 +188,14 @@ function SideNav() {
           None yet — save one from Explore
         </div>
       )}
+      {/* NavLinks, not <div onClick>: as divs these were unreachable by keyboard and could
+          never pick up the .snav-item.active styling that already exists for them. */}
       {savedViews.map((v) => (
-        <div key={v.name} className="snav-item"
-          onClick={() => nav(`/explore?view=${encodeURIComponent(v.name)}`)}>
+        <NavLink key={v.name} to={`/explore?view=${encodeURIComponent(v.name)}`}
+          className={"snav-item" + (view === v.name ? " active" : "")}>
           {v.name}
-        </div>
+        </NavLink>
       ))}
-
-      <h4>Pipeline</h4>
-      <div className="snav-item" style={{ cursor: "default", color: "var(--text-2)", fontSize: 11.5 }}>
-        Input → Enrich → Verify → Structure → Score → Review → Route
-      </div>
     </nav>
   );
 }
@@ -179,6 +219,9 @@ function Shell() {
           <Route path="/alerts" element={<Alerts />} />
           <Route path="/ask" element={<AskAI />} />
           <Route path="/settings" element={<Settings />} />
+          {/* Registered for everyone: the page renders its own explanation when the API
+              answers 403, which beats a blank 404 for a reviewer who was sent the link. */}
+          <Route path="/admin" element={<Admin />} />
         </Routes>
       </main>
       <AssistantDock />

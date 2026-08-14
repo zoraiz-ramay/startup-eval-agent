@@ -1,9 +1,10 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { Link, MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import Explore from "./Explore.jsx";
 import { AppProvider } from "../state.jsx";
+import { api } from "../api.js";
 
 /**
  * EXP-02 / EXP-03 / EXP-08 — the column drawer.
@@ -15,8 +16,11 @@ import { AppProvider } from "../state.jsx";
  */
 vi.mock("../api.js", () => ({
   api: {
-    runs: vi.fn(async () => ({ runs: [] })),
+    myRuns: vi.fn(async () => ({ runs: [] })),
     search: vi.fn(async () => ({ results: [] })),
+    views: vi.fn(async () => ({ views: [] })),
+    saveView: vi.fn(async (name, columns, filters) => ({ name, columns, filters })),
+    deleteView: vi.fn(async () => ({ deleted: true })),
   },
 }));
 
@@ -90,5 +94,142 @@ describe("Explore column drawer", () => {
     expect(screen.queryByRole("complementary", { name: /customise columns/i })).toBeNull();
     // Closing must not drop focus into <body> — it belongs back on the control that opened it.
     expect(trigger).toHaveFocus();
+  });
+});
+
+/**
+ * Saved views — the reported "views are not opening, once created".
+ *
+ * The cause was that ?view=… was read only in a useState lazy initializer. React Router does
+ * not remount Explore when only the query string changes, so the commonest path of all —
+ * save a view, then click it in the sidenav while still on /explore — changed the URL and ran
+ * nothing. Every assertion below therefore navigates WITHOUT remounting; a test that rendered
+ * a fresh tree at /explore?view=X would have passed against the broken code.
+ */
+describe("Explore saved views", () => {
+  const HQ = "hq";
+
+  function renderWithNav(initial = "/explore") {
+    // A link inside the same tree is what makes this a same-mount navigation: react-router
+    // updates the location in place, exactly as the real sidenav entry does.
+    function Harness() {
+      return (
+        <>
+          <Link to="/explore?view=Munich">open Munich</Link>
+          <Explore />
+        </>
+      );
+    }
+    return render(
+      <MemoryRouter initialEntries={[initial]}>
+        <AppProvider>
+          <Routes>
+            <Route path="/explore" element={<Harness />} />
+          </Routes>
+        </AppProvider>
+      </MemoryRouter>,
+    );
+  }
+
+  it("applies a view's columns and filters when the URL changes without a remount", async () => {
+    const user = userEvent.setup();
+    api.views.mockResolvedValueOnce({
+      views: [{ name: "Munich", columns: [HQ], filters: { q: "munich", pillar: "Pass" } }],
+    });
+    renderWithNav();
+    await screen.findByRole("button", { name: /customise columns/i });
+
+    await user.click(screen.getByRole("link", { name: /open munich/i }));
+
+    // The chip proves the view was recognised even when its columns match the defaults.
+    expect(await screen.findByText(/View: Munich/)).toBeInTheDocument();
+    // Filters were stored by saveView from the day it shipped and no reader ever applied them.
+    expect(screen.getByLabelText(/filter results/i)).toHaveValue("munich");
+  });
+
+  it("saving a view sends it to the server and opens it", async () => {
+    const user = userEvent.setup();
+    api.views.mockResolvedValueOnce({ views: [] });
+    renderWithNav();
+
+    await user.click(await screen.findByRole("button", { name: /customise columns/i }));
+    await user.type(screen.getByPlaceholderText(/view name/i), "My view");
+    await user.click(screen.getByRole("button", { name: /^save view$/i }));
+
+    expect(api.saveView).toHaveBeenCalledWith("My view", expect.any(Array), expect.any(Object));
+    expect(await screen.findByText(/View: My view/)).toBeInTheDocument();
+  });
+
+  it("closing the view chip restores the default grid", async () => {
+    const user = userEvent.setup();
+    api.views.mockResolvedValueOnce({
+      views: [{ name: "Munich", columns: [HQ], filters: { q: "munich" } }],
+    });
+    renderWithNav("/explore?view=Munich");
+
+    await user.click(await screen.findByRole("button", { name: /close the view munich/i }));
+    expect(screen.queryByText(/View: Munich/)).toBeNull();
+  });
+});
+
+/**
+ * Portfolio re-weighting.
+ *
+ * The point is not that the arithmetic is right — ui/src/scoring/routing.test.js pins that
+ * against real recorded runs. It is that the table applies it without ever presenting the
+ * result as the evaluation: the engine's stored score has to stay on screen beside it.
+ */
+describe("Explore portfolio weighting", () => {
+  const ROW = {
+    id: 1, company: "Aeroview", pillar: "Pass", secondary: [], final_score: 40,
+    sfs_relevant: false, created_at: "2026-08-01T00:00:00+00:00", summary: "", hq: "Munich",
+    dimensions: { traction: 43.8, siemens_fit: 66.5, product: 85, market: 50, founder: 70, ecosystem: 100 },
+    data_completeness: 0.25, fit_aligned: true,
+  };
+
+  function render1(runs = [ROW]) {
+    api.myRuns.mockResolvedValueOnce({ runs });
+    api.views.mockResolvedValueOnce({ views: [] });
+    return render(
+      <MemoryRouter initialEntries={["/explore"]}>
+        <AppProvider><Explore /></AppProvider>
+      </MemoryRouter>,
+    );
+  }
+
+  it("leaves the grid on the engine's numbers until a weight is actually moved", async () => {
+    const user = userEvent.setup();
+    render1();
+    await user.click(await screen.findByRole("button", { name: /weighting/i }));
+
+    expect(screen.getByText(/move a slider to see what changes/i)).toBeInTheDocument();
+    // No "(engine NN)" annotation yet: nothing has been re-weighted, so there is nothing to
+    // distinguish it from.
+    expect(screen.queryByText(/\(engine 40\)/)).toBeNull();
+  });
+
+  it("re-scores the table but keeps the engine's stored score on screen", async () => {
+    const user = userEvent.setup();
+    render1();
+    await user.click(await screen.findByRole("button", { name: /weighting/i }));
+
+    const slider = screen.getByLabelText("Product");
+    fireEvent.change(slider, { target: { value: "80" } });
+
+    // The re-weighted figure is shown WITH the stored one, never instead of it — this row's
+    // engine score is 40 and must remain visible and labelled as the engine's.
+    expect(await screen.findByText(/\(engine 40\)/)).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(/companies change pillar|No companies change pillar/);
+  });
+
+  it("resets back to the engine weighting", async () => {
+    const user = userEvent.setup();
+    render1();
+    await user.click(await screen.findByRole("button", { name: /weighting/i }));
+    fireEvent.change(screen.getByLabelText("Product"), { target: { value: "80" } });
+    await screen.findByText(/\(engine 40\)/);
+
+    await user.click(screen.getByRole("button", { name: /reset to engine weights/i }));
+    expect(screen.queryByText(/\(engine 40\)/)).toBeNull();
   });
 });
