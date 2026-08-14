@@ -586,7 +586,11 @@ def pdf_url(filename: str) -> dict:
 
 # ── Static file serving (single-container production mode) ───────────────────
 _STATIC_DIR = pathlib.Path(__file__).resolve().parent.parent / "static"
-if _STATIC_DIR.is_dir():
+# Gate on assets/, not on static/ itself. StaticFiles raises RuntimeError from its
+# constructor when the directory is missing, so a static/ holding anything other than a
+# real vite build took the whole process down at import time rather than degrading to the
+# API-only mode this branch exists to allow.
+if (_STATIC_DIR / "assets").is_dir():
     app.mount("/assets", StaticFiles(directory=str(_STATIC_DIR / "assets")), name="assets")
 
     @app.get("/{full_path:path}")

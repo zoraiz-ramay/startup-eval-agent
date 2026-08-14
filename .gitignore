@@ -12,6 +12,10 @@ data/runs.db-shm
 *.DS_Store
 .DS_Store
 ui/dist/
+# Build output, produced by the Dockerfile's frontend stage (COPY --from=frontend
+# /frontend/dist ./static). Committing it once left a bundle here with no assets/
+# subdirectory, which made api/main.py fail to import — see the guard there.
+static/
 
 # Ignore spreadsheet-like files by default
 *.csv
