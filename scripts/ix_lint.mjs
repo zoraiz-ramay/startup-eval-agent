@@ -49,7 +49,12 @@ for (const file of files) {
   const src = readFileSync(file, "utf8");
   const isTokens = file === TOKENS;
   const isTest = /\.test\.jsx?$/.test(file);
-  const lines = src.split("\n");
+  // Split on \r?\n, not "\n". A trailing \r defeats the comment stripping below: "." does not
+  // match \r and "$" without /m only matches end-of-string, so //-comments survive on a CRLF
+  // file and their prose gets linted as code. That is invisible until git's autocrlf rewrites a
+  // checkout, at which point identical source starts and stops failing depending on how the
+  // working tree was produced.
+  const lines = src.split(/\r?\n/);
 
   lines.forEach((raw, i) => {
     const line = i + 1;
