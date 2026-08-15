@@ -416,7 +416,7 @@
     },
     {
       "path": "ui/src/pages/Admin.jsx",
-      "lines": 344,
+      "lines": 352,
       "exports": [
         "Admin"
       ],
@@ -443,7 +443,7 @@
     },
     {
       "path": "ui/src/pages/Admin.test.jsx",
-      "lines": 123,
+      "lines": 165,
       "exports": [],
       "css_classes": []
     },
@@ -756,6 +756,6 @@
     "api_methods": 24,
     "design_tokens": 37,
     "jsx_files": 36,
-    "jsx_lines": 4514
+    "jsx_lines": 4564
   }
 }

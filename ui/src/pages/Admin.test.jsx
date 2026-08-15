@@ -18,7 +18,7 @@ import { api } from "../api.js";
  */
 const OVERVIEW = {
   window_days: 30,
-  users: { total: 2 }, sessions: { total: 5 }, searches: { total: 9 },
+  users: { total: 2, recent: 1, searched_recent: 1 }, sessions: { total: 5 }, searches: { total: 9 },
   companies: { searched: 3, evaluated: 3 }, cache_hit_rate: 0.5,
   per_user: [], top_companies: [],
 };
@@ -118,5 +118,47 @@ describe("Admin — administrators", () => {
     api.adminList.mockResolvedValue({ you: "", admins: [] });
     renderAdmin();
     expect(await screen.findByText(/nobody is an administrator/i)).toBeInTheDocument();
+  });
+});
+
+/**
+ * Three sign-in numbers sit together on this page because each is misleading alone: five
+ * sign-ins by one person and five by five people are the same total and different facts.
+ */
+describe("Admin — sign-in metrics", () => {
+  // "Reviewers" is both a stat label and the heading of the table below it, so the lookup is
+  // pinned to the label element rather than to the text.
+  const tile = (label) => screen.getByText(label, { selector: ".stat .k" }).closest(".stat");
+
+  it("separates how many people from how many sign-ins", async () => {
+    renderAdmin();
+    await screen.findByText("Reviewers", { selector: ".stat .k" });
+
+    expect(within(tile("Reviewers")).getByText("2")).toBeInTheDocument();
+    expect(within(tile("Sign-ins")).getByText("5")).toBeInTheDocument();
+  });
+
+  it("reports unique sign-ins for the window, labelled with its length", async () => {
+    renderAdmin();
+    await screen.findByText("Signed in (30d)", { selector: ".stat .k" });
+    expect(within(tile("Signed in (30d)")).getByText("1")).toBeInTheDocument();
+  });
+
+  it("lists a reviewer who signed in but never searched", async () => {
+    api.adminOverview.mockResolvedValue({
+      ...OVERVIEW,
+      per_user: [{ oid: "oid-lurker", upn: "lurker@siemens.com", sign_ins: 2, searches: 0,
+                   companies: 0, last_seen: "", last_sign_in: "2026-08-14T09:00:00+00:00" }],
+    });
+    renderAdmin();
+
+    const row = (await screen.findByText("lurker@siemens.com")).closest("tr");
+    const cells = within(row).getAllByRole("cell").map((c) => c.textContent);
+    // Sign-ins is a real count; the search columns show an em dash rather than a 0 that
+    // would read as "searched nothing" instead of "has not searched".
+    expect(cells[1]).toBe("2");
+    expect(cells[2]).toBe("—");
+    expect(cells[3]).toBe("—");
+    expect(cells[4]).toContain("2026-08-14");
   });
 });

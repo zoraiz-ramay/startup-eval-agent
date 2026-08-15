@@ -229,8 +229,12 @@ export default function Admin() {
       {overview && (
         <>
           <div className="stats-strip">
+            {/* Three sign-in numbers, adjacent because each is meaningless without the others:
+                how many people have ever signed in, how many times in total, and how many of
+                those people came back inside the window. Adoption is the third one. */}
             <Stat value={overview.users.total} label="Reviewers" />
             <Stat value={overview.sessions.total} label="Sign-ins" />
+            <Stat value={overview.users.recent} label={`Signed in (${overview.window_days}d)`} />
             <Stat value={overview.searches.total} label="Searches" />
             <Stat value={overview.companies.searched} label="Companies searched" />
             <Stat value={overview.companies.evaluated} label="Companies evaluated" />
@@ -241,19 +245,23 @@ export default function Admin() {
             <div className="panel">
               <h3>Reviewers</h3>
               {overview.per_user.length === 0 ? (
-                <p className="muted" style={{ fontSize: 12 }}>Nobody has searched yet.</p>
+                <p className="muted" style={{ fontSize: 12 }}>Nobody has signed in yet.</p>
               ) : (
                 <table className="dtable dense">
                   <thead>
-                    <tr><th>Reviewer</th><th>Searches</th><th>Companies</th><th>Last active</th></tr>
+                    <tr><th>Reviewer</th><th>Sign-ins</th><th>Searches</th><th>Companies</th>
+                      <th>Last sign-in</th></tr>
                   </thead>
                   <tbody>
                     {overview.per_user.map((u) => (
                       <tr key={u.oid} style={{ cursor: "default" }}>
                         <td>{u.upn || u.oid}</td>
-                        <td>{u.searches}</td>
-                        <td>{u.companies}</td>
-                        <td>{(u.last_seen || "").slice(0, 16).replace("T", " ")}</td>
+                        <td>{u.sign_ins || 0}</td>
+                        {/* Someone who signed in and never searched is a real row now, so the
+                            search columns need an empty state rather than a misleading 0. */}
+                        <td>{u.searches || "—"}</td>
+                        <td>{u.companies || "—"}</td>
+                        <td>{(u.last_sign_in || "").slice(0, 16).replace("T", " ") || "—"}</td>
                       </tr>
                     ))}
                   </tbody>

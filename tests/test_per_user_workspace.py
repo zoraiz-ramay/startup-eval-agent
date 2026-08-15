@@ -148,6 +148,56 @@ def test_admin_overview_counts_users_sessions_and_searches(db):
     assert ov["top_companies"][0] == {"company": "Aeroview", "searches": 2}
 
 
+def test_unique_sign_ins_counts_people_not_sessions(db):
+    store.record_session({"oid": "oid-alice", "upn": "alice@siemens.com"})
+    store.record_session({"oid": "oid-alice", "upn": "alice@siemens.com"})
+    store.record_session({"oid": "oid-alice", "upn": "alice@siemens.com"})
+    store.record_session({"oid": "oid-bob", "upn": "bob@siemens.com"})
+
+    ov = store.admin_overview()
+    assert ov["sessions"]["total"] == 4         # four sign-ins
+    assert ov["users"]["total"] == 2            # by two people
+    assert ov["users"]["recent"] == 2           # both inside the default 30-day window
+
+
+def test_recent_sign_ins_are_counted_from_sessions_not_searches(db):
+    """The regression this pair exists for: `recent` used to come from `searches`, so a
+    reviewer who signed in and read someone else's evaluation was missing from it."""
+    store.record_session({"oid": "oid-alice", "upn": "alice@siemens.com"})
+    store.record_session({"oid": "oid-lurker", "upn": "lurker@siemens.com"})
+    store.save_run(_result("Aeroview"))
+    store.record_search({"oid": "oid-alice", "upn": "alice@siemens.com"}, "aeroview",
+                        company_name="Aeroview")
+
+    ov = store.admin_overview()
+    assert ov["users"]["recent"] == 2           # both signed in
+    assert ov["users"]["searched_recent"] == 1  # only one of them searched
+
+
+def test_a_reviewer_who_never_searched_still_appears_in_the_table(db):
+    """Otherwise the headline count and the list of who makes it up disagree."""
+    store.record_session({"oid": "oid-lurker", "upn": "lurker@siemens.com"})
+    store.record_session({"oid": "oid-lurker", "upn": "lurker@siemens.com"})
+
+    rows = {r["oid"]: r for r in store.admin_overview()["per_user"]}
+    assert "oid-lurker" in rows
+    assert rows["oid-lurker"]["sign_ins"] == 2
+    assert rows["oid-lurker"]["searches"] == 0
+    assert rows["oid-lurker"]["last_sign_in"]
+
+
+def test_searchers_are_ordered_ahead_of_sign_in_only_reviewers(db):
+    store.record_session({"oid": "oid-lurker", "upn": "lurker@siemens.com"})
+    store.record_session({"oid": "oid-lurker", "upn": "lurker@siemens.com"})
+    store.record_session({"oid": "oid-alice", "upn": "alice@siemens.com"})
+    store.save_run(_result("Aeroview"))
+    store.record_search({"oid": "oid-alice", "upn": "alice@siemens.com"}, "aeroview",
+                        company_name="Aeroview")
+
+    # Alice has fewer sign-ins but did the work, so she leads the table.
+    assert [r["oid"] for r in store.admin_overview()["per_user"]] == ["oid-alice", "oid-lurker"]
+
+
 # ------------------------------------------------------------- the admin gate
 
 @pytest.fixture()

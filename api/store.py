@@ -698,8 +698,16 @@ def admin_overview(recent_days: int = 30, top: int = 10) -> dict:
         sessions_recent = q("SELECT COUNT(*) FROM sessions WHERE started_at>=?", (since,))
         searches_total = q("SELECT COUNT(*) FROM searches")
         searches_recent = q("SELECT COUNT(*) FROM searches WHERE created_at>=?", (since,))
+        # Both from `sessions`, so total and recent answer the same question at two scales.
+        # `recent` used to count DISTINCT oid in `searches`, which made the pair incomparable:
+        # a reviewer who signed in and read someone else's evaluation without searching was
+        # absent from the second number and present in the first. Who searched is still worth
+        # knowing, so it stays — under a name that says which of the two it is.
         users_total = q("SELECT COUNT(DISTINCT user_oid) FROM sessions")
-        users_recent = q("SELECT COUNT(DISTINCT user_oid) FROM searches WHERE created_at>=?", (since,))
+        users_recent = q("SELECT COUNT(DISTINCT user_oid) FROM sessions WHERE started_at>=?",
+                         (since,))
+        searchers_recent = q("SELECT COUNT(DISTINCT user_oid) FROM searches WHERE created_at>=?",
+                             (since,))
         companies_searched = q("SELECT COUNT(DISTINCT LOWER(company_name)) FROM searches "
                                "WHERE company_name<>''")
         cache_hits = q("SELECT COUNT(*) FROM searches WHERE served_from='cache'")
@@ -708,16 +716,31 @@ def admin_overview(recent_days: int = 30, top: int = 10) -> dict:
         top_companies = [{"company": r[0], "searches": r[1]} for r in con.execute(
             "SELECT company_name, COUNT(*) c FROM searches WHERE company_name<>'' "
             "GROUP BY LOWER(company_name) ORDER BY c DESC, company_name LIMIT ?", (top,)).fetchall()]
-        per_user = [{"upn": r[0] or r[1], "oid": r[1], "searches": r[2], "companies": r[3],
-                     "last_seen": r[4]} for r in con.execute(
-            "SELECT MAX(user_upn), user_oid, COUNT(*), COUNT(DISTINCT LOWER(company_name)), "
-            "MAX(created_at) FROM searches GROUP BY user_oid "
-            "ORDER BY COUNT(*) DESC LIMIT ?", (top,)).fetchall()]
+        # Keyed on oid and filled from both tables, because the table is the explanation for
+        # the headline count above it. Built from `searches` alone, a reviewer who has signed
+        # in but never searched was counted in "Reviewers" and then missing from the list of
+        # them — the kind of disagreement that makes someone distrust the whole dashboard.
+        by_oid: dict[str, dict] = {}
+        for oid, upn, n, companies, last_seen in con.execute(
+                "SELECT user_oid, MAX(user_upn), COUNT(*), COUNT(DISTINCT LOWER(company_name)), "
+                "MAX(created_at) FROM searches GROUP BY user_oid").fetchall():
+            by_oid[oid] = {"upn": upn or oid, "oid": oid, "searches": n, "companies": companies,
+                           "last_seen": last_seen, "sign_ins": 0, "last_sign_in": ""}
+        for oid, upn, n, last_in in con.execute(
+                "SELECT user_oid, MAX(user_upn), COUNT(*), MAX(started_at) "
+                "FROM sessions GROUP BY user_oid").fetchall():
+            row = by_oid.setdefault(oid, {"upn": upn or oid, "oid": oid, "searches": 0,
+                                          "companies": 0, "last_seen": ""})
+            row["sign_ins"] = n
+            row["last_sign_in"] = last_in
+        per_user = sorted(by_oid.values(),
+                          key=lambda r: (r["searches"], r["sign_ins"]), reverse=True)[:top]
     return {
         "window_days": recent_days,
         "sessions": {"total": sessions_total, "recent": sessions_recent},
         "searches": {"total": searches_total, "recent": searches_recent},
-        "users": {"total": users_total, "recent": users_recent},
+        "users": {"total": users_total, "recent": users_recent,
+                  "searched_recent": searchers_recent},
         "companies": {"searched": companies_searched, "evaluated": companies_total},
         "runs": runs_total,
         # The share of searches answered from the database instead of the pipeline — the
