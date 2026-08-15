@@ -100,9 +100,15 @@ function OverviewTab({ res }) {
           <div className="v">{dp.employees || p.employees_count || p.employee_band || "—"} <WebSourced src={psrc.employees_count} field="employees" /></div></div>
         <div className="metric"><div className="k">Founded</div>
           <div className="v">{p.founded_year || "—"} <WebSourced src={psrc.founded_year} field="founded year" /></div></div>
-        <div className="metric"><div className="k">Completeness</div><div className="v">{Math.round((sc.data_completeness || 0) * 100)}%</div></div>
+        {/* Funding and location, not completeness and trend: this row answers "what is this
+            company" for a reviewer scanning it, and both of those are elsewhere — completeness
+            inside the score derivation below, the trend verdict on the Market tab. */}
+        <div className="metric"><div className="k">Funding</div>
+          <div className="v" style={{ fontSize: 13 }} title={p.funding || ""}>
+            {p.funding || "—"}{p.funding && <> <WebSourced src={psrc.funding} field="funding" /></>}</div></div>
         <div className="metric"><div className="k">Verified customers</div><div className="v">{sc.verified_customers ?? "—"}</div></div>
-        <div className="metric"><div className="k">Market signal</div><div className="v" style={{ fontSize: 13 }}>{trend.label || "—"}</div></div>
+        <div className="metric"><div className="k">Location</div>
+          <div className="v" style={{ fontSize: 13 }} title={p.hq || ""}>{p.hq || "—"}</div></div>
       </div>
       <div className="grid2">
         <div>
@@ -574,9 +580,9 @@ export default function Profile() {
               {(rt.secondary || []).map((s) => <span key={s} className={`pill ghost ${s}`}>+{s}</span>)}
             </h1>
             <p className="ph-desc">{res.summary}</p>
+            {/* HQ and funding moved to the metric row below, where they sit beside the other
+                company facts instead of competing with the score for the same line. */}
             <div className="ph-meta">
-              {p.hq && <span>📍 {p.hq}</span>}
-              {p.funding && <span>💰 {p.funding}</span>}
               <span>Score <strong>{Number(sc.final_score || 0).toFixed(0)}</strong></span>
               <span>Confidence {Math.round((rt.confidence || 0) * 100)}%</span>
               <span className="muted">{res.engine}</span>

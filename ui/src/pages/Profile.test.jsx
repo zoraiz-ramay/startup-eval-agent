@@ -332,3 +332,52 @@ describe("what-if routing (PROF-15)", () => {
     expect(screen.getAllByRole("status")).toHaveLength(1);
   });
 });
+
+/**
+ * The overview metric row answers "what is this company", so it carries funding and location.
+ * Completeness and the trend verdict are not lost — the first is inside the score derivation
+ * further down the tab, the second is the Market tab's headline.
+ */
+const RUN_WITH_FACTS = {
+  ...RUN,
+  profile: { ...RUN.profile, hq: "Istanbul, Turkey", funding: "EUR 2.4M seed" },
+};
+
+describe("Profile — headline facts", () => {
+  const metric = (label) =>
+    screen.getByText(label, { selector: ".metric .k" }).closest(".metric");
+
+  async function renderWithFacts() {
+    const { api } = await import("../api.js");
+    api.run.mockResolvedValueOnce(RUN_WITH_FACTS);
+    await renderProfile();
+    await screen.findByRole("tablist");
+  }
+
+  it("shows funding and location as metric tiles", async () => {
+    await renderWithFacts();
+    expect(metric("Funding")).toHaveTextContent("EUR 2.4M seed");
+    expect(metric("Location")).toHaveTextContent("Istanbul, Turkey");
+  });
+
+  it("no longer spends a tile on completeness or the trend label", async () => {
+    await renderWithFacts();
+    expect(screen.queryByText("Completeness", { selector: ".metric .k" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Market signal", { selector: ".metric .k" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the header line to the score, not the company facts", async () => {
+    await renderWithFacts();
+    const meta = document.querySelector(".ph-meta");
+    expect(meta).toHaveTextContent(/Score/);
+    expect(meta).not.toHaveTextContent("Istanbul");
+    expect(meta).not.toHaveTextContent("2.4M");
+  });
+
+  it("shows an em dash rather than an empty tile when a fact is missing", async () => {
+    await renderProfile();          // base RUN has no hq and blank funding
+    await screen.findByRole("tablist");
+    expect(metric("Funding")).toHaveTextContent("—");
+    expect(metric("Location")).toHaveTextContent("—");
+  });
+});
