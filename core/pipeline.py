@@ -18,6 +18,7 @@ from .fit import match_siemens_tools
 from .trend import analyze_trend
 from .score import score_startup
 from .route import route
+from .text import format_funding
 from .profile import research_profile
 
 
@@ -25,6 +26,24 @@ from .profile import research_profile
 # the researched deep profile.
 _BACKFILL_FIELDS = (("founded_year", "founded_year"), ("funding", "funding"),
                     ("employees_count", "employees"))
+
+
+def _cell(value) -> str:
+    """Stringify a spreadsheet cell without pandas' float artefacts.
+
+    A column holding any blank is read as float64, so every value in it stringifies with a
+    trailing ".0": an 8-person company displayed "8.0", a year "2024.0", a funding amount
+    "2831100.0". Only whole floats are narrowed — a genuine 2.5 keeps its fraction — and NaN
+    becomes the empty string the rest of the pipeline already treats as "no value".
+    """
+    if value is None:
+        return ""
+    if isinstance(value, float):        # numpy.float64 subclasses float; numpy.int64 does not
+        if value != value:              # NaN
+            return ""
+        if value.is_integer():
+            return str(int(value))
+    return str(value)
 
 
 def backfill_profile(profile: dict, deep_profile: dict) -> dict:
@@ -203,11 +222,13 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
     if source == "glassdollar":
         # row.index, not df.columns: a row resolved by domain never came out of `df` at all,
         # and reading the column list off the search frame would leave its profile empty.
-        profile = {c: str(row.get(c, "")) for c in profile_cols if c in row.index}
+        profile = {c: _cell(row.get(c, "")) for c in profile_cols if c in row.index}
     else:                       # web row: keep only the fields we actually populated
-        profile = {c: str(row.get(c, "")) for c in profile_cols if str(row.get(c, "")).strip()}
-
+        profile = {c: _cell(row.get(c, "")) for c in profile_cols if _cell(row.get(c, "")).strip()}
     profile_sources = backfill_profile(profile, deep_profile)
+    # After the backfill, not before: a blank funding column gets filled from web research
+    # here, and that value needs the same treatment. Free text passes through untouched.
+    profile["funding"] = format_funding(profile.get("funding", ""))
 
     engine = "openai:" + LLM_MODEL if llm.available else "offline-fallback"
     if source == "web":

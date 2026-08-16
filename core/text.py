@@ -24,6 +24,32 @@ def has_funding_signal(value) -> bool:
     return bool(FUNDING_SIGNAL.search(str(value or "")))
 
 
+def format_funding(value) -> str:
+    """Render a raw funding amount compactly; pass any non-numeric string through unchanged.
+
+    Both sources that carry an amount give a bare number in currency units — the API as a
+    bigint, the applications xlsx as a spreadsheet cell — so "2831100.0" reached the profile
+    verbatim and a reviewer had to count digits. Free text ("Pre-Seed, amount undisclosed")
+    is already the most precise statement available and must survive untouched.
+
+    The € is inherited from the API mapping this used to live in, and is an assumption: no
+    source states a currency. It is applied consistently rather than to one source only.
+    """
+    if value in (None, "", 0):
+        return ""
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if amount >= 1_000_000_000:
+        return f"€{amount / 1_000_000_000:.1f}B"
+    if amount >= 1_000_000:
+        return f"€{amount / 1_000_000:.1f}M"
+    if amount >= 1_000:
+        return f"€{amount / 1_000:.0f}K"
+    return f"€{amount:.0f}"
+
+
 def _norm(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", str(s).lower()).strip()
 
