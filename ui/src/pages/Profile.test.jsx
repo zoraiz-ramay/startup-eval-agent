@@ -381,3 +381,42 @@ describe("Profile — headline facts", () => {
     expect(metric("Location")).toHaveTextContent("—");
   });
 });
+
+/**
+ * An empty headcount series has three causes and they are not interchangeable: one is about
+ * the company, one about the evidence, one about our own run. Reporting all three as "no cited
+ * headcount history" told reviewers a company had been checked when it had not.
+ */
+describe("Profile — headcount trend empty states", () => {
+  const withStatus = async (status) => {
+    const { api } = await import("../api.js");
+    api.run.mockResolvedValueOnce({
+      ...RUN,
+      deep_profile: { ...RUN.deep_profile, employees_over_time: [],
+                      employees_history_status: status },
+    });
+    await renderProfile();
+    await screen.findByRole("tablist");
+  };
+
+  it("says a young company is too new rather than unsourced", async () => {
+    await withStatus("too_young");
+    expect(screen.getByText(/too new for a headcount trend/i)).toBeInTheDocument();
+  });
+
+  it("distinguishes a failed run from an absence of evidence", async () => {
+    await withStatus("unavailable");
+    expect(screen.getByText(/could not be retrieved on this run/i)).toBeInTheDocument();
+    expect(screen.queryByText(/fewer than two independently sourced/i)).not.toBeInTheDocument();
+  });
+
+  it("still reports genuine absence as absence", async () => {
+    await withStatus("not_found");
+    expect(screen.getByText(/fewer than two independently sourced/i)).toBeInTheDocument();
+  });
+
+  it("falls back to the absence wording for a run stored before the status existed", async () => {
+    await withStatus(undefined);
+    expect(screen.getByText(/fewer than two independently sourced/i)).toBeInTheDocument();
+  });
+});

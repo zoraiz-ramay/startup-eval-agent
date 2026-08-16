@@ -63,6 +63,11 @@ EMPTY_PROFILE = {
     "advisors": [],           # [{name, role, affiliation, source_url}]
     "employees": "",          # best-evidence headcount
     "employees_over_time": [],  # [{year, count, source_url}] — evidence-cited points only
+    # Why the series above is empty, which an empty list cannot say: "too_young" (fewer than
+    # two calendar years exist to cite), "not_found" (searched, nothing cited), "unavailable"
+    # (the search wave was throttled or the model was off, so nothing was actually looked at).
+    # Without this the UI reported "no cited headcount history" for a company it never checked.
+    "employees_history_status": "",
     "parent_group": "",       # part of a major group / corporate parent
     "founded_year": "",       # web-researched; backfills a blank DB column (see pipeline)
     "founded_year_source": "",  # URL supporting founded_year, when the evidence cited one
@@ -883,23 +888,49 @@ def _employee_history(company: str, row: pd.Series, results: dict,
     Runs a small dedicated wave of historical-headcount queries, then asks the LLM to pull
     ONLY year+count pairs the evidence supports, each with the supporting URL. The result is
     passed through _clean_employee_series, so anything uncited or implausible is discarded and
-    a series with <2 cited points collapses to []. Returns [] on any failure — never raises."""
+    a series with <2 cited points collapses to []. Never raises.
+
+    Returns (series, status); see EMPTY_PROFILE for what the statuses mean. An empty list on
+    its own cannot distinguish "this company has no history to find" from "we never managed to
+    look", and the second was being reported to reviewers as the first."""
+    import datetime
     if not llm.available:
-        return []
+        return [], "unavailable"
+
+    # A company that started this calendar year cannot produce the two distinct annual points
+    # _clean_employee_series requires, so the wave can only ever return []. Skipping is not a
+    # heuristic about what is "probably" worth trying — it is the same arithmetic the gate
+    # downstream applies. It also returns three searches and a model call to the shared budget,
+    # which is what the companies that CAN answer are being starved of.
+    try:
+        founded = int(str(row.get("founded_year", "") or "")[:4])
+    except (TypeError, ValueError):
+        founded = 0
+    if founded and datetime.date.today().year - founded < 1:
+        return [], "too_young"
+
     queries = {
         "h1": f"{company} number of employees 2021 2022 2023 2024 headcount growth",
         "h2": f"{company} linkedin employees company size over time",
         "h3": f"{company} crunchbase employee count history",
     }
+    # No overall_timeout override. This used to pass 18s — under half _ddg_many's default —
+    # for queries issued in the recovery block, after the main wave, while four other pipeline
+    # stages are also searching. That is the most throttled moment of a run, and web.py's own
+    # docstring warns that too tight a deadline turns throttling into a silently empty result.
+    # Run alone the same queries return a clean four-point series for Uber; inside a full run
+    # they returned nothing.
+    stats: dict = {}
     try:
-        extra = _ddg_many(queries, max_results=5, overall_timeout=18.0)
+        extra = _ddg_many(queries, max_results=5, stats=stats)
     except Exception:
         extra = {}
     combined = dict(results or {})
     combined.update(extra)
     corpus = _corpus(combined)
     if not corpus:
-        return []
+        # Abandoned in flight is not the same fact as "the web knows nothing about this".
+        return [], ("unavailable" if stats.get("timed_out") else "not_found")
     data = LLMClient.parse_json(llm.complete(
         f"Web results about the headcount of the startup '{company}':\n\n{corpus}\n\n"
         "Extract the number of EMPLOYEES per YEAR, using ONLY figures the evidence states "
@@ -909,7 +940,10 @@ def _employee_history(company: str, row: pd.Series, results: dict,
         'Return ONLY JSON: {"employees_over_time":[{"year":2023,"count":42,"source_url":""}]}',
         system="You extract structured facts strictly from supplied evidence. JSON only.",
         max_tokens=600, reasoning="none")) or {}
-    return _clean_employee_series(data.get("employees_over_time", []))
+    series = _clean_employee_series(data.get("employees_over_time", []))
+    if series:
+        return series, "ok"
+    return [], ("unavailable" if stats.get("timed_out") else "not_found")
 
 
 def research_profile(row: pd.Series, llm: LLMClient, do_web: bool = True,
@@ -985,7 +1019,9 @@ def research_profile(row: pd.Series, llm: LLMClient, do_web: bool = True,
                     except Exception:
                         out = None
                     if name == "history":
-                        prof["employees_over_time"] = out or []
+                        series, status = out if isinstance(out, tuple) else ([], "unavailable")
+                        prof["employees_over_time"] = series
+                        prof["employees_history_status"] = status
         # Grade the surviving (grounded) memberships by prestige tier so the ecosystem score
         # can weight a top-tier accelerator above a generic one. Must follow the program
         # recheck — it grades whatever that found. In place; never adds or removes a program.

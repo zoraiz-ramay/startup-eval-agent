@@ -604,7 +604,7 @@
     },
     {
       "path": "ui/src/pages/Profile.jsx",
-      "lines": 649,
+      "lines": 658,
       "exports": [
         "Profile"
       ],
@@ -658,7 +658,7 @@
     },
     {
       "path": "ui/src/pages/Profile.test.jsx",
-      "lines": 384,
+      "lines": 423,
       "exports": [],
       "css_classes": []
     },
@@ -756,6 +756,6 @@
     "api_methods": 24,
     "design_tokens": 37,
     "jsx_files": 36,
-    "jsx_lines": 4619
+    "jsx_lines": 4667
   }
 }

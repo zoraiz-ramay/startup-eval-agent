@@ -56,7 +56,18 @@ function WebSourced({ src, field }) {
 // every point is guaranteed an http(s) source_url). A length-1 array is a contract violation
 // upstream, not something this component needs to guard against — but it still only renders the
 // list when there's enough to call a trend, matching the engine's own bar.
-function HeadcountTrend({ points }) {
+// An empty series has three different causes and they are not interchangeable to a reviewer:
+// one is a fact about the company, one is a fact about the evidence, and one is a fact about
+// our run. Reporting all three as "no cited headcount history" told people a young company had
+// been checked and a throttled search had found nothing.
+const EMPTY_HEADCOUNT = {
+  too_young: "Too new for a headcount trend — a company needs at least two calendar years "
+    + "for two datable points.",
+  not_found: "No cited headcount history — fewer than two independently sourced data points.",
+  unavailable: "Headcount history could not be retrieved on this run. Re-evaluate to try again.",
+};
+
+function HeadcountTrend({ points, status }) {
   const pts = points || [];
   return (
     <div className="panel">
@@ -75,9 +86,7 @@ function HeadcountTrend({ points }) {
           ))}
         </>
       ) : (
-        <p className="muted" style={{ margin: 0 }}>
-          No cited headcount history — fewer than two independently sourced data points.
-        </p>
+        <p className="muted" style={{ margin: 0 }}>{EMPTY_HEADCOUNT[status] || EMPTY_HEADCOUNT.not_found}</p>
       )}
     </div>
   );
@@ -123,7 +132,7 @@ function OverviewTab({ res }) {
             <Spec k="LinkedIn"><ExtLink href={p.linkedin_url} /></Spec>
             {dp.parent_group && <Spec k="Part of group">{dp.parent_group}</Spec>}
           </div>
-          <HeadcountTrend points={dp.employees_over_time} />
+          <HeadcountTrend points={dp.employees_over_time} status={dp.employees_history_status} />
         </div>
         <div>
           <div className="panel">

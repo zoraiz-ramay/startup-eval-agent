@@ -11,7 +11,9 @@ silently break:
 
 1. `_employee_history` (core/profile.py) never fabricates a point — no LLM, no search hits, and
    an uncited LLM answer all collapse to the same honest `[]`, exactly like a missing field
-   everywhere else in this codebase.
+   everywhere else in this codebase. It now returns `(series, status)`: the series is still
+   empty in every failure case, but "we could not look" no longer reaches the reader as "there
+   is nothing to find".
 2. The series and its per-point `source_url` survive a full save_run/get_run round trip through
    api/store.py untouched — the persistence layer must not be the place that quietly drops
    provenance.
@@ -67,8 +69,9 @@ def test_llm_unavailable_returns_empty_series_without_searching(monkeypatch):
     def _boom(*a, **k):
         raise AssertionError("_ddg_many must not be called when the LLM is unavailable")
     monkeypatch.setattr(profile_mod, "_ddg_many", _boom)
-    out = _employee_history("Acme Robotics", _row(), {}, _Unavailable())
-    assert out == []
+    series, status = _employee_history("Acme Robotics", _row(), {}, _Unavailable())
+    assert series == []
+    assert status == "unavailable"      # we did not look; that is not "nothing to find"
 
 
 def test_no_search_results_returns_empty_series_without_calling_the_llm(monkeypatch):
@@ -80,8 +83,9 @@ def test_no_search_results_returns_empty_series_without_calling_the_llm(monkeypa
     def _no_calls(*a, **k):
         raise AssertionError("llm.complete must not be called with an empty corpus")
     llm.complete = _no_calls
-    out = _employee_history("Acme Robotics", _row(), {}, llm)
-    assert out == []
+    series, status = _employee_history("Acme Robotics", _row(), {}, llm)
+    assert series == []
+    assert status == "not_found"        # searched, nothing came back
 
 
 def test_search_wave_failure_is_absorbed_not_raised(monkeypatch):
@@ -91,9 +95,10 @@ def test_search_wave_failure_is_absorbed_not_raised(monkeypatch):
         raise TimeoutError("ddg timed out")
     monkeypatch.setattr(profile_mod, "_ddg_many", _boom)
     llm = _FakeLLM('{"employees_over_time": []}')
-    out = _employee_history("Acme Robotics", _row(), {}, llm)
-    assert out == []
+    series, status = _employee_history("Acme Robotics", _row(), {}, llm)
+    assert series == []
     assert llm.calls == 0        # no evidence survived the failed search -> no point asking
+    assert status == "not_found"
 
 
 def test_llm_answer_without_a_source_is_dropped_not_shown(monkeypatch):
@@ -107,17 +112,85 @@ def test_llm_answer_without_a_source_is_dropped_not_shown(monkeypatch):
         '{"employees_over_time": ['
         '{"year": 2023, "count": 10, "source_url": ""}, '
         '{"year": 2024, "count": 40, "source_url": ""}]}')
-    out = _employee_history("Acme Robotics", _row(), existing, llm)
-    assert out == []
+    series, status = _employee_history("Acme Robotics", _row(), existing, llm)
+    assert series == []
+    assert status == "not_found"
 
 
-def test_llm_unavailability_and_missing_evidence_are_indistinguishable_to_the_ui(monkeypatch):
-    """Both honest-failure modes above must converge on exactly the same shape ([]), so the UI
-    needs only one empty-state branch rather than guessing at a reason."""
+def test_not_looking_is_reported_differently_from_finding_nothing(monkeypatch):
+    """Replaces a test that required these two to be indistinguishable.
+
+    Converging them on [] was convenient for the UI and wrong for the reader: a reviewer was
+    told "no cited headcount history" about a company whose history had never been searched
+    for, because the model was unavailable or the wave was throttled. The series is still []
+    in both cases -- nothing is fabricated -- but the reason travels with it."""
     monkeypatch.setattr(profile_mod, "_ddg_many", _no_search)
-    a = _employee_history("Acme Robotics", _row(), {}, _Unavailable())
-    b = _employee_history("Acme Robotics", _row(), {}, _FakeLLM('{"employees_over_time": []}'))
-    assert a == b == []
+    a_series, a_status = _employee_history("Acme Robotics", _row(), {}, _Unavailable())
+    b_series, b_status = _employee_history(
+        "Acme Robotics", _row(), {}, _FakeLLM('{"employees_over_time": []}'))
+    assert a_series == b_series == []
+    assert a_status == "unavailable"
+    assert b_status == "not_found"
+
+
+def test_a_company_founded_this_year_is_not_searched_at_all(monkeypatch):
+    """Two distinct calendar years cannot exist yet, so _clean_employee_series would reject
+    whatever came back. Skipping is the same arithmetic applied earlier, and it returns three
+    searches and a model call to the budget the companies that CAN answer are competing for."""
+    import datetime
+
+    def _boom(*a, **k):
+        raise AssertionError("no search should be issued for a company with no history")
+    monkeypatch.setattr(profile_mod, "_ddg_many", _boom)
+    row = pd.Series({"company_name": "Acme Robotics", "domain": "acme.example",
+                     "founded_year": str(datetime.date.today().year)})
+    llm = _FakeLLM('{"employees_over_time": []}')
+    series, status = _employee_history("Acme Robotics", row, {}, llm)
+    assert series == []
+    assert status == "too_young"
+    assert llm.calls == 0
+
+
+def test_an_established_company_is_still_searched(monkeypatch):
+    """The age gate must not swallow the case it exists to protect."""
+    called = {"n": 0}
+
+    def _counting(*a, **k):
+        called["n"] += 1
+        return {}
+    monkeypatch.setattr(profile_mod, "_ddg_many", _counting)
+    row = pd.Series({"company_name": "Acme Robotics", "domain": "acme.example",
+                     "founded_year": "2015"})
+    _employee_history("Acme Robotics", row, {}, _FakeLLM('{"employees_over_time": []}'))
+    assert called["n"] == 1
+
+
+def test_an_unknown_founding_year_does_not_block_the_search(monkeypatch):
+    """A blank founded_year is the common case for the companies this feature is for. Treating
+    it as "too young" would disable the trend for most of them."""
+    called = {"n": 0}
+
+    def _counting(*a, **k):
+        called["n"] += 1
+        return {}
+    monkeypatch.setattr(profile_mod, "_ddg_many", _counting)
+    _employee_history("Acme Robotics", _row(), {}, _FakeLLM('{"employees_over_time": []}'))
+    assert called["n"] == 1
+
+
+def test_a_throttled_wave_is_reported_as_unavailable_not_as_absence(monkeypatch):
+    """The bug behind this whole change: _ddg_many abandons queries still in flight at its
+    deadline and returns empty lists, which read downstream exactly like "the web knows
+    nothing". stats["timed_out"] is the only thing that can tell them apart."""
+    def _timed_out(queries, *a, stats=None, **k):
+        if isinstance(stats, dict):
+            stats.update({"requested": 3, "returned": 0, "empty": 0, "timed_out": 3})
+        return {}
+    monkeypatch.setattr(profile_mod, "_ddg_many", _timed_out)
+    series, status = _employee_history(
+        "Acme Robotics", _row(), {}, _FakeLLM('{"employees_over_time": []}'))
+    assert series == []
+    assert status == "unavailable"
 
 
 # ---------------------------------------------------------------------- honest-success path
@@ -132,12 +205,13 @@ def test_cited_points_survive_with_their_source_urls(monkeypatch):
         '{"employees_over_time": ['
         '{"year": 2024, "count": 60, "source_url": "https://linkedin.example/acme"}, '
         '{"year": 2022, "count": 3, "source_url": "https://crunchbase.example/acme"}]}')
-    out = _employee_history("Acme Robotics", _row(), existing, llm)
+    out, status = _employee_history("Acme Robotics", _row(), existing, llm)
     assert out == [
         {"year": 2022, "count": 3, "source_url": "https://crunchbase.example/acme"},
         {"year": 2024, "count": 60, "source_url": "https://linkedin.example/acme"},
     ]
     assert all(p["source_url"].startswith("http") for p in out)
+    assert status == "ok"
 
 
 # --------------------------------------------------------- persistence round trip (api/store.py)
