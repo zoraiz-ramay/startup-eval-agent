@@ -213,31 +213,74 @@ If a field cannot be evidenced it stays empty and the UI shows "—".
 | founder | 0.10 |
 | ecosystem | 0.08 |
 
+### What each dimension reads
+
+| Dimension | Built from | Where |
+|---|---|---|
+| traction | verification-weighted reference customers (≤45), round size (15/22/30), headcount (5/12/20), a described customer segment where accounts are not nameable (+10) | `score.py:146-158` |
+| siemens_fit | best tool match × relation factor, blended 0.7/0.3 with the challenge match when the library has entries | `:161-173` |
+| product | the pitch form's Stage checkbox, else the free-text stage description, else a neutral 55; lifted to ≥75 by a corroborated customer | `:176-194` |
+| market | 50, plus round size, plus half the researched trend momentum's distance from a neutral 50 | `:196-207` |
+| founder | identified founders, their backgrounds, advisors; contact presence as a fallback | `:209-221` |
+| ecosystem | verified web presence, prestige-weighted programs, corporate parent | `:223-258` |
+
+Three of these were, until recently, effectively constants — which is why the highest score across
+fifteen real stored runs was 54.4 and only two of the fifteen cleared 50:
+
+- **The Stage columns hold `0`/`1`**, and were tested for *non-emptiness*. `"0"` is a non-empty
+  string, so every application row scored as growth stage and every web-sourced row — which has no
+  Stage column at all — scored as no stage. `_flag` (`score.py:73`) reads them as checkboxes, and
+  the free-text `Development stage of your solution`, which web rows *do* have, is the fallback.
+- **Traction was reachable only through nameable reference customers** (35 points each), so any
+  company that does not sell to nameable accounts was capped at the 20 points a funding round was
+  worth, however large the round or the payroll.
+- **Market was a yes/no on funding**, a second and coarser reading of traction. The trend momentum
+  that `analyze_trend` researches on every run (§4) is now passed in and centred on 50, so an
+  unanalysed niche moves nothing rather than reading as a bad market.
+
+An unknown stage lands mid-scale rather than at the bottom, because not knowing is already priced
+in by the confidence multiplier below; charging for it twice made a researched company score below
+an applicant who ticked a box.
+
 ### From dimensions to the stored score
 
 ```python
-raw          = Σ dims[k] × WEIGHTS[k]                       # score.py:121
-completeness = (# of 8 key fields present) / 8              # score.py:125
-confidence   = 0.5 + 0.5 × completeness                     # score.py:126
-final        = raw × confidence                             # score.py:127
-if completeness < 0.5: final = min(final, THIN_PROFILE_CAP) # score.py:128-129
+raw          = Σ dims[k] × WEIGHTS[k]                       # score.py:260
+completeness = (# of 8 key fields the run KNOWS) / 8        # score.py:264-265
+confidence   = 0.5 + 0.5 × completeness                     # score.py:266
+final        = raw × confidence                             # score.py:267
+if completeness < 0.5: final = min(final, THIN_PROFILE_CAP) # score.py:268-269
 ```
 
 So a sparse profile cannot score well no matter how good its dimensions look: confidence multiplies
 everything, and below half-complete the result is capped at 75 (`config.py:27`). The eight key
 fields are `company_name`, `hq`, `founded_year`, `employees_count`, `funding`, `customers`,
-`linkedin_url`, `Your pitch` (`score.py:123-124`).
+`linkedin_url`, `Your pitch` (`score.py:262-263`).
+
+**"Knows" means the run, not the form.** `_known` (`score.py:93`) checks the application row and
+then the researched profile — `founded_year`, `employees`, `funding`, `reference_customers` /
+`customer_segment` — and accepts `crunchbase_url` / `website` / `domain` in place of the
+`linkedin_url` that `web_profile_row` hardcodes empty (§6). This used to read the row alone, which
+made it a measure of how much of the pitch form an applicant filled in: a web-sourced company has
+no form at all, and the researched values are merged into the profile by `backfill_profile`
+*after* scoring (§9), so a company whose headline facts had all been found and cited was still
+scored as a thin profile and lost a third of its score. `missing_evidence` uses the same test
+(`score.py:283`), so the list a reviewer reads cannot disagree with the number that caps the score.
+
+The formula's *shape* is unchanged, and deliberately so: `ui/src/scoring/index.js` re-implements
+these five lines for the browser what-if, and `tests/test_whatif_weight_parity.py` fails if they
+drift.
 
 ### Anti-gaming on traction
 
 Reference customers are weighted by verification status, not counted
-(`score.py:31`): `verified` 1.0, `partial` 0.5, `unverified` 0.25, **`contradicted` 0.0**.
+(`score.py:122`): `verified` 1.0, `partial` 0.5, `unverified` 0.25, **`contradicted` 0.0**.
 
 ### Programs are discounted when self-asserted
 
 An evidenced membership earns its full prestige tier (`tier1` 16 pts, `tier2` 11, `tier3` 6,
 capped at 36). A membership evidenced *only* by the company's own site earns half, under its own
-lower cap of 18 (`config.py:39-46`, applied at `score.py:113-115`).
+lower cap of 18 (`config.py:39-46`, applied at `score.py:252-254`).
 
 Neither treating them as equal nor discarding them is right: a startup can put any logo on its
 `/partners` page, but NVIDIA Inception and Microsoft for Startups publish no searchable member
@@ -245,12 +288,12 @@ directory, so a genuine membership there is frequently impossible to corroborate
 
 ### Missing evidence is not a red flag
 
-Kept strictly separate (`score.py:141` and `:144`): `missing_evidence` is absence of data,
+Kept strictly separate (`score.py:283` and `:286`): `missing_evidence` is absence of data,
 `red_flags` is negative evidence. "We don't know" must never read as "it's bad".
 
 ### Route scorecards
 
-The same dimensions, re-weighted three times (`score.py:11-20`, computed at `:134-137`), because
+The same dimensions, re-weighted three times (`score.py:14-21`, computed at `:274-277`), because
 what makes a good Connect candidate (deployable traction) is not what makes a good Empower
 candidate (technical promise Siemens tools can accelerate):
 

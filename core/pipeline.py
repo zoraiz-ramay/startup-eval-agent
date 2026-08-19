@@ -209,7 +209,7 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
     deep_profile = prof_res["profile"]
     enrichment["facts"].extend(prof_res["facts"])
     _step("SCORE", "running")
-    sc = score_startup(row, enrichment, verification, fit, deep_profile)
+    sc = score_startup(row, enrichment, verification, fit, deep_profile, trend)
     _step("SCORE", "done")
     _step("ROUTE", "running")
     rt = route(sc, fit, row, llm, deep_profile)

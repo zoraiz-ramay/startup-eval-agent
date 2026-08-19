@@ -50,6 +50,44 @@ def format_funding(value) -> str:
     return f"€{amount:.0f}"
 
 
+_MAGNITUDES = {"k": 1e3, "thousand": 1e3, "mn": 1e6, "m": 1e6, "million": 1e6,
+               "bn": 1e9, "b": 1e9, "billion": 1e9}
+# Longest alternatives first: "m" must not win against "million".
+_AMOUNT = re.compile(r"(?P<sym>[$€£])?\s*(?P<num>\d[\d,]*(?:\.\d+)?)\s*"
+                     r"(?P<mag>billion|million|thousand|bn|mn|[kmb])?\b", re.I)
+
+
+def parse_funding_amount(value) -> float:
+    """The currency amount a funding string states, or 0.0 when it states none.
+
+    Scoring used to ask only whether a funding string *existed*, which made "€250K pre-seed"
+    and "$1.4B Series F" the same signal. It also missed the amount entirely for GlassDollar
+    rows, whose funding cell is a bare number that `FUNDING_SIGNAL` does not match at all.
+
+    A bare number in prose is ignored unless it carries a currency symbol or a magnitude
+    suffix — "Seed round, 2023" would otherwise read as a 2023-unit raise. The whole-string
+    case is exempt because that is exactly the shape the xlsx cell and the API bigint take.
+    Like `format_funding`, this returns a magnitude and not a currency: no source states one.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return 0.0
+    try:
+        return max(0.0, float(text.replace(",", "")))
+    except ValueError:
+        pass
+    best = 0.0
+    for m in _AMOUNT.finditer(text):
+        if not (m.group("sym") or m.group("mag")):
+            continue
+        try:
+            num = float(m.group("num").replace(",", ""))
+        except ValueError:
+            continue
+        best = max(best, num * _MAGNITUDES.get((m.group("mag") or "").lower(), 1.0))
+    return best
+
+
 def _norm(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", str(s).lower()).strip()
 
