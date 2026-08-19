@@ -252,10 +252,17 @@ def score_startup(row: pd.Series, enrichment: dict, verification: dict, fit: dic
     prestige_pts = min(sum(_tier_pts(p) for p in evidenced_programs), PROGRAM_PRESTIGE_CAP)
     claimed_pts = min(PROGRAM_SELF_ASSERTED_FACTOR * sum(_tier_pts(p) for p in claimed_programs),
                       PROGRAM_SELF_ASSERTED_CAP)
-    eco = 30 + 20 * len([f for f in facts if f.method == "ddg_search" and f.verified])
+    # Web presence is a THRESHOLD, not a ladder: that the open web corroborates a company at
+    # all says it is real, and the fifth corroborated search result says nothing the fourth
+    # did not. At 30 + 20 per verified fact, four of them — which a normal enrichment wave
+    # produces for almost anyone — already reached 110, so this dimension scored exactly 100
+    # in every one of fifteen real runs and the prestige tiers, the self-asserted discount and
+    # the corporate parent below decided nothing at all.
+    corroborated = len([f for f in facts if f.method == "ddg_search" and f.verified])
+    eco = 15.0 + min(25.0, 5.0 * corroborated)
     eco += prestige_pts + claimed_pts
-    eco += 10 if str(profile.get("parent_group", "")).strip() else 0
-    dims["ecosystem"] = min(100, eco)
+    eco += 10 if _txt(profile.get("parent_group", "")) else 0
+    dims["ecosystem"] = min(100.0, eco)
 
     raw = sum(dims[k] * WEIGHTS[k] for k in WEIGHTS)
 

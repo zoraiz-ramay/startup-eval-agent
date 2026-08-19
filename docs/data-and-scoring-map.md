@@ -222,10 +222,11 @@ If a field cannot be evidenced it stays empty and the UI shows "—".
 | product | the pitch form's Stage checkbox, else the free-text stage description, else a neutral 55; lifted to ≥75 by a corroborated customer | `:176-194` |
 | market | 50, plus round size, plus half the researched trend momentum's distance from a neutral 50 | `:196-207` |
 | founder | identified founders, their backgrounds, advisors; contact presence as a fallback | `:209-221` |
-| ecosystem | verified web presence, prestige-weighted programs, corporate parent | `:223-258` |
+| ecosystem | web presence 15-40, prestige-weighted programs (≤36, ≤18 self-asserted), corporate parent (+10) | `:223-265` |
 
-Three of these were, until recently, effectively constants — which is why the highest score across
-fifteen real stored runs was 54.4 and only two of the fifteen cleared 50:
+Four of these were, until recently, effectively constants — which is why the highest score across
+fifteen real stored runs was 54.4, only two of the fifteen cleared 50, and every single one scored
+ecosystem exactly 100:
 
 - **The Stage columns hold `0`/`1`**, and were tested for *non-emptiness*. `"0"` is a non-empty
   string, so every application row scored as growth stage and every web-sourced row — which has no
@@ -237,6 +238,12 @@ fifteen real stored runs was 54.4 and only two of the fifteen cleared 50:
 - **Market was a yes/no on funding**, a second and coarser reading of traction. The trend momentum
   that `analyze_trend` researches on every run (§4) is now passed in and centred on 50, so an
   unanalysed niche moves nothing rather than reading as a bad market.
+- **Web presence was a ladder rather than a threshold** — 30 points plus 20 per corroborated search
+  fact, so four of them (which a normal enrichment wave produces for almost anyone) reached 110
+  before a single programme was counted. Everything below decided nothing. It is now `15 + 5×n`
+  capped at 40 (`score.py:261-262`), which leaves the prestige tiers room to be the signal they
+  were built to be: 15 for a company the web has never heard of, 40 for a well-corroborated one
+  with no affiliations, 77 with two top-tier programmes and a corporate parent.
 
 An unknown stage lands mid-scale rather than at the bottom, because not knowing is already priced
 in by the confidence multiplier below; charging for it twice made a researched company score below
@@ -245,17 +252,17 @@ an applicant who ticked a box.
 ### From dimensions to the stored score
 
 ```python
-raw          = Σ dims[k] × WEIGHTS[k]                       # score.py:260
-completeness = (# of 8 key fields the run KNOWS) / 8        # score.py:264-265
-confidence   = 0.5 + 0.5 × completeness                     # score.py:266
-final        = raw × confidence                             # score.py:267
-if completeness < 0.5: final = min(final, THIN_PROFILE_CAP) # score.py:268-269
+raw          = Σ dims[k] × WEIGHTS[k]                       # score.py:267
+completeness = (# of 8 key fields the run KNOWS) / 8        # score.py:271-272
+confidence   = 0.5 + 0.5 × completeness                     # score.py:273
+final        = raw × confidence                             # score.py:274
+if completeness < 0.5: final = min(final, THIN_PROFILE_CAP) # score.py:275-276
 ```
 
 So a sparse profile cannot score well no matter how good its dimensions look: confidence multiplies
 everything, and below half-complete the result is capped at 75 (`config.py:27`). The eight key
 fields are `company_name`, `hq`, `founded_year`, `employees_count`, `funding`, `customers`,
-`linkedin_url`, `Your pitch` (`score.py:262-263`).
+`linkedin_url`, `Your pitch` (`score.py:269-270`).
 
 **"Knows" means the run, not the form.** `_known` (`score.py:93`) checks the application row and
 then the researched profile — `founded_year`, `employees`, `funding`, `reference_customers` /
@@ -265,7 +272,7 @@ made it a measure of how much of the pitch form an applicant filled in: a web-so
 no form at all, and the researched values are merged into the profile by `backfill_profile`
 *after* scoring (§9), so a company whose headline facts had all been found and cited was still
 scored as a thin profile and lost a third of its score. `missing_evidence` uses the same test
-(`score.py:283`), so the list a reviewer reads cannot disagree with the number that caps the score.
+(`score.py:290`), so the list a reviewer reads cannot disagree with the number that caps the score.
 
 The formula's *shape* is unchanged, and deliberately so: `ui/src/scoring/index.js` re-implements
 these five lines for the browser what-if, and `tests/test_whatif_weight_parity.py` fails if they
@@ -288,12 +295,12 @@ directory, so a genuine membership there is frequently impossible to corroborate
 
 ### Missing evidence is not a red flag
 
-Kept strictly separate (`score.py:283` and `:286`): `missing_evidence` is absence of data,
+Kept strictly separate (`score.py:290` and `:293`): `missing_evidence` is absence of data,
 `red_flags` is negative evidence. "We don't know" must never read as "it's bad".
 
 ### Route scorecards
 
-The same dimensions, re-weighted three times (`score.py:14-21`, computed at `:274-277`), because
+The same dimensions, re-weighted three times (`score.py:14-21`, computed at `:281-284`), because
 what makes a good Connect candidate (deployable traction) is not what makes a good Empower
 candidate (technical promise Siemens tools can accelerate):
 

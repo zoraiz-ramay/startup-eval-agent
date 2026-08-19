@@ -155,6 +155,56 @@ def test_a_trend_step_that_did_not_run_is_neutral_not_negative():
         == neutral
 
 
+# --------------------------------------------------------------- ecosystem discriminates
+
+def _verified_facts(n):
+    return [Fact(key=f"f{i}", value="v", method="ddg_search", source_url=f"https://x/{i}",
+                 confidence=0.7, verified=True) for i in range(n)]
+
+
+def _program(name, tier):
+    return {"name": name, "type": "accelerator", "prestige": tier,
+            "source_url": f"https://{name}.org/acme", "confidence": "corroborated"}
+
+
+def test_web_presence_is_a_threshold_not_a_ladder():
+    """At 30 + 20 per verified search fact, four facts — which a normal enrichment wave
+    produces for almost anyone — already reached 110. Ecosystem scored exactly 100 in every
+    one of fifteen real runs."""
+    row = {"company_name": "Acme"}
+    eco = [_score(row, facts=_verified_facts(n))["dimensions"]["ecosystem"] for n in (0, 4, 12)]
+    assert eco[0] < eco[1] < 100          # early corroboration still counts for something
+    assert eco[2] == max(eco)             # but it plateaus rather than filling the whole range
+    assert eco[2] < 100                   # leaving room for the programmes below to decide
+
+
+def test_program_prestige_decides_the_dimension_rather_than_being_swamped():
+    """The tiers, the self-asserted discount and the corporate parent all existed already and
+    all decided nothing, because presence alone had used up the whole range first."""
+    facts = _verified_facts(4)
+    row = {"company_name": "Acme"}
+    none = _score(row, facts=facts)["dimensions"]["ecosystem"]
+    tier3 = _score(row, facts=facts,
+                   profile={"programs": [_program("localhub", "tier3")]})["dimensions"]["ecosystem"]
+    tier1 = _score(row, facts=facts,
+                   profile={"programs": [_program("ycombinator", "tier1")]})["dimensions"]["ecosystem"]
+    parent = _score(row, facts=facts,
+                    profile={"programs": [_program("ycombinator", "tier1")],
+                             "parent_group": "Siemens AG"})["dimensions"]["ecosystem"]
+    assert none < tier3 < tier1 < parent
+
+
+def test_a_well_connected_company_still_reaches_the_top_of_the_dimension():
+    """Discrimination must not mean nobody can score well — two top-tier programmes and a
+    corporate parent is as embedded as a startup gets."""
+    out = _score({"company_name": "Acme"}, facts=_verified_facts(5),
+                 profile={"programs": [_program("ycombinator", "tier1"),
+                                       _program("techstars", "tier1"),
+                                       _program("stationf", "tier2")],
+                          "parent_group": "Siemens AG"})
+    assert out["dimensions"]["ecosystem"] >= 85
+
+
 # ----------------------------------------------------- completeness measures the evaluation
 
 def test_completeness_counts_researched_facts_not_filled_form_cells():
