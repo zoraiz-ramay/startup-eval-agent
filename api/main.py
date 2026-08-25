@@ -73,7 +73,7 @@ except Exception:
 # Give the engine its result cache. Injected rather than imported by core/ so nothing in core/
 # depends on api/ and the engine still runs (uncached) from tests, scripts and Streamlit.
 try:
-    core.web.install_cache(store.cache_get, store.cache_put)
+    core.web.install_cache(store.cache_get, store.cache_put, store.cache_get_entry)
     store.cache_purge_expired()
 except Exception:
     pass

@@ -57,8 +57,28 @@ const COLUMNS = {
       </span>
     ),
   },
-  sfs: { label: "SFS", render: (r) => (r.sfs_relevant ? <span className="pill sfs">SFS</span> : "") },
+  /* Names the line, not just the flag. "SFS" on every row was the old behaviour and it was true of
+     every row — the useful question is which of leasing, vendor finance, project finance or
+     corporate lending applies, and rows evaluated before that was determined stay blank rather
+     than claiming a line nobody established. */
+  sfs: {
+    label: "SFS",
+    render: (r) => (r.sfs_relevant
+      ? <span className="pill sfs" title={r.sfs_line || "Siemens Financial Services relevant"}>
+          {r.sfs_line || "SFS"}
+        </span>
+      : ""),
+  },
   confidence: { label: "Confidence", render: (r) => (r.confidence !== "" ? `${Math.round((r.confidence || 0) * 100)}%` : "—") },
+  /* Portfolio stance — complementary, integrates, adjacent, or competes. Off by default: it is a
+     filtering tool for a specific question ("who overlaps our own products"), not a number a
+     scout reads on every row. */
+  stance: {
+    label: "Portfolio Stance",
+    render: (r) => (r.stance
+      ? <span className={r.competes ? "pill sfs" : "badge"}>{r.stance}</span>
+      : <span className="muted">—</span>),
+  },
   created_at: { label: "Evaluated", render: (r) => <span className="muted">{String(r.created_at).slice(0, 10)}</span> },
 };
 const DEFAULT_COLS = ["final_score", "siemens_fit", "summary", "hq", "stage", "funding",
@@ -236,7 +256,8 @@ export default function Explore() {
     const out = new Map();
     for (const r of runs) {
       if (!r.dimensions || !Object.keys(r.dimensions).length) continue;
-      const scoreLike = { dimensions: r.dimensions, data_completeness: r.data_completeness };
+      const scoreLike = { dimensions: r.dimensions, data_completeness: r.data_completeness,
+                          contradicted: r.contradicted };
       const re = reweight(scoreLike, weights);
       const rt = whatIfRouting(scoreLike, { aligned: r.fit_aligned }, weights);
       if (!re || !rt) continue;
@@ -310,7 +331,7 @@ export default function Explore() {
       [r.company, ...cols.map((k) => {
         const v = k === "pillar" ? [r.pillar, ...(r.secondary || [])].join("+")
           : k === "evidence" ? `${r.verified_facts}/${r.evidence_count}`
-          : k === "sfs" ? (r.sfs_relevant ? "yes" : "")
+          : k === "sfs" ? (r.sfs_relevant ? (r.sfs_line || "yes") : "")
           : r[k] ?? "";
         return `"${String(v).replace(/"/g, '""')}"`;
       })].join(","));

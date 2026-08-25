@@ -1,0 +1,47 @@
+{
+  "_comment": "Ground truth for benchmarks/routing_eval.py. `pillar` is the route a reviewer judges the company should get; `sfs` is whether Siemens Financial Services is genuinely an avenue. Leave a field null to mark it unlabelled — the report counts coverage and never guesses. Add `note` to record why, so a later disagreement is a conversation and not a mystery.",
+  "labels": [
+    {
+      "company": "3dverse technologies inc",
+      "pillar": null,
+      "sfs": null,
+      "labelled_by": "",
+      "note": ""
+    },
+    {
+      "company": "Datasaki",
+      "pillar": null,
+      "sfs": null,
+      "labelled_by": "",
+      "note": ""
+    },
+    {
+      "company": "Makkook AI",
+      "pillar": null,
+      "sfs": null,
+      "labelled_by": "",
+      "note": ""
+    },
+    {
+      "company": "Phena",
+      "pillar": null,
+      "sfs": null,
+      "labelled_by": "",
+      "note": ""
+    },
+    {
+      "company": "Radical Dot",
+      "pillar": null,
+      "sfs": null,
+      "labelled_by": "",
+      "note": ""
+    },
+    {
+      "company": "Snap SOP",
+      "pillar": null,
+      "sfs": null,
+      "labelled_by": "",
+      "note": ""
+    }
+  ]
+}

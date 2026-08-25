@@ -521,7 +521,7 @@
     },
     {
       "path": "ui/src/pages/Explore.jsx",
-      "lines": 502,
+      "lines": 523,
       "exports": [
         "Explore"
       ],
@@ -604,7 +604,7 @@
     },
     {
       "path": "ui/src/pages/Profile.jsx",
-      "lines": 658,
+      "lines": 818,
       "exports": [
         "Profile"
       ],
@@ -613,6 +613,7 @@
         "ai",
         "badge",
         "big",
+        "body",
         "btn",
         "chip",
         "dense",
@@ -623,8 +624,10 @@
         "info-box",
         "input",
         "k",
+        "label",
         "list-main",
         "list-row",
+        "mark",
         "metric",
         "metric-row",
         "muted",
@@ -647,18 +650,26 @@
         "skel",
         "spec",
         "spinner",
+        "sr-only",
         "src",
         "status-dot",
         "step",
         "sticky-header",
         "tabs",
         "tool-btn",
-        "v"
+        "v",
+        "why"
       ]
     },
     {
       "path": "ui/src/pages/Profile.test.jsx",
       "lines": 423,
+      "exports": [],
+      "css_classes": []
+    },
+    {
+      "path": "ui/src/pages/ProgrammeCriteria.test.jsx",
+      "lines": 226,
       "exports": [],
       "css_classes": []
     },
@@ -755,7 +766,7 @@
     "routes": 8,
     "api_methods": 24,
     "design_tokens": 37,
-    "jsx_files": 36,
-    "jsx_lines": 4667
+    "jsx_files": 37,
+    "jsx_lines": 5074
   }
 }

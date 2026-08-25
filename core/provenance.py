@@ -51,6 +51,10 @@ class Fact:
 
     @property
     def freshness_days(self) -> int:
+        """Days since this evidence was retrieved, or -1 when the timestamp is unusable.
+
+        Only meaningful against a LIVE Fact. It is deliberately not serialised — see `as_dict`.
+        """
         try:
             ts = _dt.datetime.fromisoformat(self.retrieved_at)
             return max(0, (_dt.datetime.now(_dt.timezone.utc) - ts).days)
@@ -58,6 +62,13 @@ class Fact:
             return -1
 
     def as_dict(self) -> dict:
-        d = asdict(self)
-        d["freshness_days"] = self.freshness_days
-        return d
+        """The stored form. Note what is NOT in it: `freshness_days`.
+
+        It used to be, and it was a stored constant zero — every Fact is built during the run that
+        gathers it, so the age is always 0 at serialisation time, and it then sat frozen in
+        `result_json` while the run aged. A two-year-old evaluation reported its evidence as
+        retrieved today. Nothing ever read the field, which is the only reason it was never
+        noticed. `retrieved_at` is the durable fact; age is derived from it at read time, by
+        whoever is doing the reading and against their own clock.
+        """
+        return asdict(self)

@@ -349,6 +349,36 @@ a:hover { text-decoration: underline; }
 .empty h4 { margin: 0 0 4px; color: var(--text-1); font-size: 15px; }
 .error-box { border: 1px solid #eec4c1; background: var(--danger-soft); color: var(--danger);
   border-radius: var(--radius); padding: 9px 13px; margin: 8px 0; font-size: var(--fs-body); }
+/* Text for screen readers only. The criteria checklist encodes met/unmet/unknown in colour and a
+   glyph, and neither survives being read aloud — WCAG 1.4.1 requires the state to be available
+   some other way than colour, so the word itself is in the DOM. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+
+/* Programme criteria checklist (Connect / Collaborate / Empower).
+   Three states, and the third is the point: `unknown` means the run never established the fact,
+   which is not the same claim as `unmet` and must not be coloured like it. Semantic tokens only —
+   scripts/ix_lint.mjs rejects a raw hex outside tokens.css. */
+.crit { display: flex; gap: 8px; padding: 5px 0; border-bottom: 1px dashed var(--border);
+  font-size: var(--fs-body); align-items: baseline; }
+.crit:last-child { border-bottom: none; }
+.crit .mark { width: 14px; flex-shrink: 0; text-align: center; font-weight: 600; }
+.crit.met .mark { color: var(--success); }
+.crit.unmet .mark { color: var(--danger); }
+.crit.unknown .mark { color: var(--text-3); }
+.crit .body { flex: 1; overflow-wrap: anywhere; }
+.crit.unknown .label { color: var(--text-2); }
+.crit .why { color: var(--text-2); font-size: 12.5px; display: block; }
+/* The pillar's own verdict, so a reviewer reads "blocked" and "not yet shown" differently. */
+.verdict { display: inline-block; border: 1px solid var(--border); border-radius: 3px;
+  padding: 1px 7px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.verdict.eligible { background: var(--success-soft); color: var(--success); }
+.verdict.unproven { background: var(--surface-2); color: var(--text-2); }
+.verdict.blocked { background: var(--danger-soft); color: var(--danger); }
+.verdict.unassessed { background: var(--surface-2); color: var(--text-3); }
+
 .info-box { border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2);
   border-radius: var(--radius); padding: 9px 13px; margin: 8px 0; font-size: var(--fs-body); }
 .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border-2);

@@ -86,7 +86,24 @@ def match_siemens_tools(row: pd.Series, pitch_pdf: str, tools: list[dict], llm: 
                 "- integration: the startup plugs into / extends the tool\n"
                 "- substitute: the startup does the same thing (competitor — weak partnership fit)\n"
                 "- adjacent: same domain, different function\n"
+                "A relation is REQUIRED for every match; omit the match rather than leave it blank.\n"
                 "If NONE are a credible fit, return aligned=false with an empty matches list.\n\n"
+                # Calibration anchors. Left to itself the model returns 85-100 for EVERY match it
+                # has ever made -- across the 54 matches in the stored corpus the range was 85 to
+                # 100, median 90 -- so the number carried almost no information and siemens_fit
+                # varied only with the relation multiplier. Anchoring each band to an observable
+                # consequence, and naming the expected shape of the distribution, is what makes a
+                # weak match scoreable as weak rather than unsayable.
+                "CONFIDENCE is calibrated, not enthusiasm. Use these anchors:\n"
+                "- 90-100: a Siemens business unit could put this in front of a customer alongside "
+                "the tool as it stands; the overlap is in the tool's own documented capability.\n"
+                "- 70-89: clearly the same problem space and a real engagement is plausible, but it "
+                "would need scoping work first.\n"
+                "- 40-69: related domain, credible but speculative link; a reviewer would have to "
+                "argue for it.\n"
+                "- 1-39: only a thematic or keyword resemblance.\n"
+                "Most genuine matches land in 40-89. Reserve 90+ for cases you would defend to a "
+                "business-unit head. Do not compress the scale.\n\n"
                 f"STARTUP:\n{startup_text}\n\n"
                 f"SIEMENS PORTFOLIO (top {len(shortlist)} candidates):\n{catalogue}\n\n"
                 'Return ONLY JSON: {"aligned": true/false, "matches": '

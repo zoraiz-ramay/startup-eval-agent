@@ -261,6 +261,104 @@ function OverridePanel({ runId, currentPillar }) {
   );
 }
 
+/* Siemens' own published criteria for each pillar, as a checklist.
+   The three states are not decoration. `blocked` means something about the company makes this the
+   wrong programme and no further evidence changes it; `unproven` means nothing disqualifies it but
+   a requirement is unevidenced — and those two were previously both rendered as the pillar simply
+   not appearing, which told a reviewer nothing about which one it was or what to do next. */
+const VERDICT_TEXT = {
+  eligible: "Meets every published criterion.",
+  unproven: "Nothing disqualifies it — these still need evidence:",
+  blocked: "Wrong programme for this company:",
+};
+const MARK = { met: "✓", unmet: "✕", unknown: "?" };
+
+function PillarCriteria({ assessment, routed }) {
+  if (!assessment?.criteria?.length) return null;
+  const { pillar, status, criteria, blockers } = assessment;
+  // Two gates decide a route and they answer different questions: these criteria ask whether
+  // Siemens' programme would take the company, the route scorecard asks whether it is strong
+  // enough yet. A pillar can meet every published criterion and still not be recommended — say
+  // so here, or "Collaborate: eligible" beside a scorecard list that omits Collaborate reads as
+  // the page contradicting itself.
+  const meetsButNotRouted = status === "eligible" && routed === false;
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+        <span className={`pill ${pillar}`}>{pillar}</span>
+        <span className={`verdict ${status}`}>{status}</span>
+      </div>
+      <p className="muted" style={{ fontSize: 12.5, margin: "0 0 4px" }}>
+        {VERDICT_TEXT[status]}
+        {meetsButNotRouted && (
+          <> Not a recommended route on this run, though — the {pillar} scorecard gate is what it
+            has not cleared, not the programme&apos;s criteria.</>
+        )}
+      </p>
+      {criteria.map((c) => (
+        <div key={c.id} className={`crit ${c.status}`}>
+          {/* aria-hidden: the glyph repeats what the visually-hidden status word already says,
+              so a screen reader would otherwise hear "check mark" before every criterion. */}
+          <span className="mark" aria-hidden="true">{MARK[c.status] || "?"}</span>
+          <span className="body">
+            <span className="label">{c.label}</span>
+            <span className="sr-only"> — {c.status}</span>
+            {c.note && <span className="why">{c.note}</span>}
+            {/^https?:\/\//.test(c.evidence_url || "") && (
+              <ExtLink href={c.evidence_url}>{c.status === "met" ? "evidence" : "criterion"}</ExtLink>
+            )}
+          </span>
+        </div>
+      ))}
+      {blockers?.length > 0 && blockers.map((b, i) => (
+        <div key={i} className="risk" style={{ borderLeftColor: "var(--danger)", background: "var(--danger-soft)" }}>{b}</div>
+      ))}
+    </div>
+  );
+}
+
+/* Which SFS line applies, not merely whether one does.
+   `unassessed` is a real state: a run from before the commercial posture was extracted knows
+   nothing either way, and showing that as "not relevant" would be a negative finding the
+   evidence does not support. */
+function SfsPanel({ rt }) {
+  const lines = rt.sfs_lines || [];
+  const blockers = rt.sfs_blockers || [];
+  const status = lines.length ? (rt.sfs_relevant ? "relevant" : "conditional")
+    : (blockers.length ? "not relevant" : "not assessed");
+  return (
+    <div className="panel">
+      <h3>Siemens Financial Services</h3>
+      <p style={{ margin: "0 0 8px" }}>
+        <span className={`verdict ${rt.sfs_relevant ? "eligible" : blockers.length ? "blocked" : "unassessed"}`}>
+          {status}
+        </span>
+        {rt.sfs_line && <span className="pill sfs" style={{ marginLeft: 8 }}>{rt.sfs_line}</span>}
+      </p>
+      {lines.map((l, i) => (
+        <div key={i} className="spec">
+          <div className="k">{l.line}</div>
+          <div className="v">
+            <span className="badge">{l.fit}</span>
+            <div className="muted" style={{ fontSize: 12.5 }}>{l.rationale}</div>
+            {l.missing?.length > 0 && (
+              <div className="muted" style={{ fontSize: 12.5 }}>Still needed: {l.missing.join("; ")}</div>
+            )}
+            {/^https?:\/\//.test(l.evidence_url || "") && <ExtLink href={l.evidence_url}>evidence</ExtLink>}
+          </div>
+        </div>
+      ))}
+      {lines.length === 0 && blockers.length === 0 && (
+        <p className="muted" style={{ margin: 0 }}>{rt.sfs_rationale
+          || "Commercial posture was not established on this run. Re-evaluate to assess it."}</p>
+      )}
+      {blockers.map((b, i) => (
+        <p key={i} className="muted" style={{ fontSize: 12.5, margin: "4px 0 0" }}>{b}</p>
+      ))}
+    </div>
+  );
+}
+
 function ScoringTab({ res, runId }) {
   const sc = res.score || {}, fit = res.fit || {}, rt = res.routing || {};
   const dims = sc.dimensions || {};
@@ -290,8 +388,15 @@ function ScoringTab({ res, runId }) {
           <p style={{ margin: "0 0 6px" }}>
             <span className={`pill ${rt.pillar}`}>{rt.pillar}</span>{" "}
             {(rt.secondary || []).map((s) => <span key={s} className={`pill ghost ${s}`}>+{s}</span>)}{" "}
-            {rt.sfs_relevant && <span className="pill sfs" title={rt.sfs_rationale}>SFS financing</span>}
+            {rt.sfs_relevant && (
+              <span className="pill sfs" title={rt.sfs_rationale}>
+                SFS{rt.sfs_line ? ` · ${rt.sfs_line}` : " financing"}
+              </span>
+            )}
             <span className="badge">confidence {Math.round((rt.confidence || 0) * 100)}%</span>
+            {rt.pillar_status && rt.pillar_status !== "eligible" && rt.pillar !== "Pass" && (
+              <span className={`verdict ${rt.pillar_status}`}>{rt.pillar_status}</span>
+            )}
           </p>
           {(rt.reasons || []).map((r, i) => <div key={i} className="reason">{r}</div>)}
           {(rt.risks || []).map((r, i) => <div key={i} className="risk">{r}</div>)}
@@ -303,6 +408,7 @@ function ScoringTab({ res, runId }) {
                   <div className="k"><span className={`pill ${r.route}`}>{r.route}</span></div>
                   <div className="v">
                     <span className="num">{r.score}</span>
+                    {r.status && <span className={`verdict ${r.status}`} style={{ marginLeft: 6 }}>{r.status}</span>}
                     <div className="muted" style={{ fontSize: 12.5 }}>{r.recommendation}</div>
                   </div>
                 </div>
@@ -310,6 +416,21 @@ function ScoringTab({ res, runId }) {
             </>
           )}
         </div>
+        {/* Only for runs evaluated since the criteria layer existed — an older run has no
+            assessments, and inventing an empty checklist for it would read as "nothing met". */}
+        {Object.keys(rt.pillar_assessments || {}).length > 0 && (
+          <div className="panel">
+            <h3>Siemens programme criteria</h3>
+            <p className="muted" style={{ fontSize: 12.5, marginTop: 0 }}>
+              What each programme actually requires, checked against this run&apos;s evidence.
+            </p>
+            {["Connect", "Collaborate", "Empower"].map((p) => (
+              <PillarCriteria key={p} assessment={rt.pillar_assessments[p]}
+                routed={(rt.route_recommendations || []).some((r) => r.route === p)} />
+            ))}
+          </div>
+        )}
+        <SfsPanel rt={rt} />
         {((sc.red_flags || []).length > 0 || (sc.missing_evidence || []).length > 0) && (
           <div className="panel">
             <h3>Red flags &amp; gaps</h3>
@@ -338,6 +459,14 @@ function ScoringTab({ res, runId }) {
         </div>
         <div className="panel">
           <h3>Siemens portfolio fit</h3>
+          {rt.portfolio_stance?.label && (
+            <p style={{ margin: "0 0 8px" }}>
+              <span className={`verdict ${rt.portfolio_stance.competes ? "blocked" : "eligible"}`}>
+                {rt.portfolio_stance.label}
+              </span>{" "}
+              <span className="muted" style={{ fontSize: 12.5 }}>{rt.portfolio_stance.note}</span>
+            </p>
+          )}
           {fit.aligned && (fit.matches || []).length ? fit.matches.map((m, i) => (
             <div key={i} style={{ marginBottom: 10 }}>
               <strong>{m.tool}</strong>
@@ -404,6 +533,21 @@ function MarketTab({ res }) {
   );
 }
 
+/* Age of a piece of evidence, computed against the reader's clock rather than read from the run.
+   The engine deliberately does not store an age (core/provenance.py::as_dict explains why: it was
+   a frozen zero that decayed into a lie). `retrieved_at` is the durable fact, and for a search
+   replayed from cache it is the timestamp of the search that actually produced the result — so a
+   re-evaluation shows genuinely older evidence as older instead of inheriting its own clock. */
+function evidenceAge(retrievedAt) {
+  if (!retrievedAt) return null;
+  const ms = Date.now() - new Date(retrievedAt).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return null;
+  const days = Math.floor(ms / 86400000);
+  if (days >= 1) return { text: `${days}d ago`, stale: days > 7 };
+  const hours = Math.floor(ms / 3600000);
+  return { text: hours >= 1 ? `${hours}h ago` : "just now", stale: false };
+}
+
 function EvidenceTab({ res }) {
   const [filter, setFilter] = useState("");
   const facts = (res.facts || []).filter((f) =>
@@ -421,21 +565,28 @@ function EvidenceTab({ res }) {
       <div style={{ overflowX: "auto" }}>
         <table className="dtable dense">
           <thead>
-            <tr><th>Status</th><th>Claim</th><th>Value</th><th>Method</th><th>Source</th></tr>
+            <tr><th>Status</th><th>Claim</th><th>Value</th><th>Method</th><th>Retrieved</th><th>Source</th></tr>
           </thead>
           <tbody>
-            {facts.slice(0, 120).map((f, i) => (
-              <tr key={i} style={{ cursor: "default" }}>
-                <td>{dot(f.verified === true || f.verified === "True")}
-                  {f.verified === true || f.verified === "True" ? "verified" : "unverified"}</td>
-                <td>{f.key}</td>
-                <td style={{ whiteSpace: "normal", maxWidth: 380, overflowWrap: "anywhere" }}>{f.value}</td>
-                <td className="muted">{f.method}</td>
-                <td>{/^https?:\/\//.test(f.source_url || "")
-                  ? <ExtLink href={f.source_url}>link</ExtLink>
-                  : <span className="muted">{f.source_url || "—"}</span>}</td>
-              </tr>
-            ))}
+            {facts.slice(0, 120).map((f, i) => {
+              const age = evidenceAge(f.retrieved_at);
+              return (
+                <tr key={i} style={{ cursor: "default" }}>
+                  <td>{dot(f.verified === true || f.verified === "True")}
+                    {f.verified === true || f.verified === "True" ? "verified" : "unverified"}</td>
+                  <td>{f.key}</td>
+                  <td style={{ whiteSpace: "normal", maxWidth: 380, overflowWrap: "anywhere" }}>{f.value}</td>
+                  <td className="muted">{f.method}</td>
+                  <td className="muted" title={f.retrieved_at || ""}
+                    style={age?.stale ? { color: "var(--warning)" } : undefined}>
+                    {age ? age.text : "—"}
+                  </td>
+                  <td>{/^https?:\/\//.test(f.source_url || "")
+                    ? <ExtLink href={f.source_url}>link</ExtLink>
+                    : <span className="muted">{f.source_url || "—"}</span>}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -587,6 +738,15 @@ export default function Profile() {
               {res.company}
               <span className={`pill ${rt.pillar}`} style={{ marginLeft: 10, verticalAlign: "middle" }}>{rt.pillar}</span>{" "}
               {(rt.secondary || []).map((s) => <span key={s} className={`pill ghost ${s}`}>+{s}</span>)}
+              {/* Only the competing case earns a place in the headline. A complementary or
+                  adjacent startup is the ordinary situation and belongs in the fit panel; one
+                  that does what a Siemens product already does is a different conversation
+                  entirely — competitive watch, or buy-instead-of-build — and used to be visible
+                  only as a quietly reduced fit score. */}
+              {rt.portfolio_stance?.competes && (
+                <span className="pill sfs" style={{ marginLeft: 6, verticalAlign: "middle" }}
+                  title={rt.portfolio_stance.note}>Competes</span>
+              )}
             </h1>
             <p className="ph-desc">{res.summary}</p>
             {/* HQ and funding moved to the metric row below, where they sit beside the other

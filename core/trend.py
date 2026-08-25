@@ -99,17 +99,41 @@ def analyze_trend(row: "pd.Series", summary: str, niche_terms: list[str],
         context  = f"WEB SEARCH RESULTS:\n{web_text}\n\n" if grounded else ""
         instruct = ("Use ONLY the web results above." if grounded
                     else "Use your training knowledge (no live data available).")
+        # Momentum is CALIBRATED against named reference points, and counted rather than felt.
+        # Left to itself the model returned 90, 92, 92 and 92 across every niche it was ever
+        # asked about — plastic upcycling, industrial vision, enterprise decision intelligence —
+        # so `market` sat at ~70 for every company and the dimension decided nothing. The scale
+        # was not being used; only its top was. Anchoring each band to a real sector and asking
+        # for the count of funding events actually present in the evidence gives the number
+        # something to be wrong about.
         q3_prompt = (
             f"{context}"
             f"Based on the above, assess the global market trend for the niche: '{niche}'.\n"
             f"{instruct}\n\n"
+            "MOMENTUM IS A CALIBRATED SCALE, not a verdict on whether the niche is interesting. "
+            "Place it against these reference points:\n"
+            "  90-100 : among the fastest-growing sectors in the world right now — the scale of "
+            "AI infrastructure in 2024, or grid-scale storage. Multiple billion-dollar rounds "
+            "inside twelve months. Rare; most niches are not here.\n"
+            "  70-89  : clearly expanding, well funded, widely reported. Several sizeable raises "
+            "and a published CAGR above roughly 15%.\n"
+            "  40-69  : real and growing at about the rate of industry generally. A handful of "
+            "raises, steady adoption, no surge. THIS IS THE MOST COMMON ANSWER.\n"
+            "  20-39  : flat or consolidating; funding thin, incumbents entrenched.\n"
+            "  0-19   : contracting, or so specialised the question barely applies.\n"
+            "Justify the number from what the evidence COUNTS — how many funding events appear "
+            "above, what CAGR figures are actually cited, how many distinct competitors are "
+            "named — not from how promising the technology sounds. A niche you cannot find "
+            "funding evidence for is not a 90.\n\n"
             "Return ONLY JSON with these keys:\n"
-            "  momentum  : integer 0-100 (100 = fastest growing, 0 = declining)\n"
+            "  momentum  : integer 0-100, placed on the scale above\n"
+            "  basis     : one short sentence naming the counted evidence behind the number\n"
             "  summary   : 2-3 sentence assessment of the trend\n"
             "  signals   : list of 5 short bullet strings covering "
             "funding activity, market size/CAGR, recent news/momentum, "
             "competitor density, and geographic hotspots\n"
-            'example: {"momentum": 74, "summary": "...", "signals": ["...", ...]}'
+            'example: {"momentum": 54, "basis": "Three seed rounds and one Series A cited; no '
+            'CAGR figure in the results.", "summary": "...", "signals": ["...", ...]}'
         )
         data3 = LLMClient.parse_json(llm.complete(q3_prompt, max_tokens=800))
         if data3 and "momentum" in data3:
@@ -121,6 +145,10 @@ def analyze_trend(row: "pd.Series", summary: str, niche_terms: list[str],
                 "momentum": momentum,
                 "niche":    niche,
                 "summary":  str(data3.get("summary", "")).strip(),
+                # What the number was counted from. Stored so a reviewer can see whether a
+                # momentum of 85 rests on four cited rounds or on enthusiasm, which the score
+                # alone cannot distinguish.
+                "basis":    str(data3.get("basis", "")).strip(),
                 "signals":  [str(s) for s in data3.get("signals", [])],
                 "evidence": evidence,
                 "method":   "web+llm" if grounded else "llm-knowledge",

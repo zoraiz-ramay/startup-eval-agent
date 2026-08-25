@@ -28,6 +28,7 @@ If a field cannot be evidenced, leave it empty and let the UI show "—".
 | Path | Role |
 |---|---|
 | `core/` | The engine. Pure Python, no web framework, no `api/` imports. |
+| `core/programs.py` | Siemens' published programme criteria + the SFS gate. Data and pure predicates; no I/O. |
 | `api/` | FastAPI wrapper + SQLite persistence (`api/store.py`, S3-backed). |
 | `ui/` | React 18 + Vite SPA (the product surface). |
 | `tests/` | pytest, backend + engine. |
@@ -70,6 +71,94 @@ The xlsx stays: it carries the pitch-form answers and decks the API does not exp
 only source when no key is set. **The key only resolves inside the Siemens network**, so nothing
 about the live API can be verified from a laptop or CI — `tests/test_glassdollar_first.py` drives
 the client contract with a fake and says so at the top.
+
+## Two gates decide a pillar, and they answer different questions
+
+`core/score.py` produces the six dimensions and three route scorecards; those say how **strong** a
+startup is. `core/programs.py` holds Siemens' **published** Connect / Collaborate / Empower
+criteria and says whether the programme would actually take it. A pillar has to clear both, and
+the criteria layer can only ever remove a route the scorecards admitted — which is what keeps the
+browser what-if (`ui/src/scoring/routing.js`) a sound answer to the question it asks. **Do not
+mirror the criteria client-side**: they read evidence, not weights, so no reviewer weighting can
+move them.
+
+Routing also reports `portfolio_stance` — complementary / integrates / adjacent / **competes** —
+as an outcome in its own right. A startup that substitutes a Siemens product used to be visible
+only as a 0.55 multiplier on `siemens_fit`, which usually pushed it under the alignment gate, so a
+scout read "Pass" and never learned the reason was a product Siemens already sells. That is the
+most strategically interesting thing an evaluation can find and it was being expressed as a
+slightly lower number.
+
+`assess_pillar` returns three states, and collapsing them to two throws away the useful half:
+
+- `blocked` — wrong programme, and no further evidence changes that. A product classified a
+  `substitute` of a Siemens tool cannot be listed beside it as a Marketplace partner offering.
+- `unproven` — nothing disqualifies it, but a requirement is unevidenced. `next_steps` names each.
+- `eligible` — every required criterion met. Outranks `unproven` in the primary-pillar sort
+  regardless of scorecard, so the headline never prefers a higher-scoring guess.
+
+Empower's unconditional append in `route.py` is still there and still the reason a scorecard-only
+run can never be `Pass`; the criteria gate is what makes `Pass` reachable again.
+
+**SFS is a lender, not a grant.** `assess_sfs` requires evidenced financeability — an asset the
+startup sells or needs, contracted/recurring revenue, a project with an offtake, or Series A+
+backing — and then names the product line (vendor finance / equipment & technology finance /
+project finance / corporate lending). The rule that matters: **a startup's customers being
+capital-intensive is not a reason to recommend SFS.** The old one-line judgement inside the
+profile extraction prompt confused the two and returned true for all 18 stored runs, including two
+pure software companies. Its fourth state, `unassessed`, is load-bearing — a run whose commercial
+posture was never extracted knows nothing either way, and reporting that as "not relevant" is the
+same mistake `employees_history_status` exists to prevent.
+
+Everything in `core/profile.py` **transcribes** evidence; nothing there judges. Judgements live in
+`core/programs.py`, over the `commercial` sub-profile (deployment, APIs, certifications, pricing,
+hardware, revenue shape, funding stage, investors) that the profile stage evidences.
+
+## Calibrate anything a model scores, and watch for dimensions going flat
+
+Three scored quantities had independently collapsed to constants, and a green test suite could not
+see any of them, because each individual score was arithmetically correct — only the distribution
+across runs shows it. `scripts/dimension_variance.py` (advisory in `scripts/gates.sh`) is the
+check; read its output rather than skipping past it.
+
+Asked for a 0–100 confidence with no anchors, a model uses the top of the scale and nothing else:
+the fit prompt returned 85–100 for all 54 matches it ever made, and trend momentum returned 90–92
+for every niche. Both prompts now tie each band to an observable consequence and require the
+answer to cite what it counted. **A model-produced number without a rubric is not a measurement.**
+
+## Measuring a scoring change instead of arguing about it
+
+`py -3 -m benchmarks.routing_eval` replays the **current** engine over every stored run and scores
+the result against human labels in `benchmarks/labels.json`. `benchmarks/replay.py` rebuilds the
+inputs from `result_json` and re-runs `score_startup` / `route` — no network, no model, no cost —
+so a change to the decision layer is measurable across the whole history in a second.
+
+What is deliberately *not* replayed: enrichment, extraction, fit and trend. Those are the model's
+reading of the web at the time, and re-running them would move the inputs under the experiment.
+
+**The labels are the gap, and only a reviewer can close it.** `--seed` adds an unlabelled row per
+company; the report leads with coverage and refuses to compute anything until a `pillar` is filled
+in, because a precision of 1.00 over three labels is not a result. Once ~30 are labelled, swap the
+advisory line in `scripts/gates.sh` for `--min-f1 <floor>` and make a routing regression fail.
+
+## Evidence age is about the evidence, not the run
+
+`Fact.retrieved_at` records when a search actually ran. For a result replayed from `web_cache` that
+is the *original* search's timestamp, not this run's — `install_cache`'s optional `entry_getter`
+is what carries it through, and `_ddg_many`'s `stats["cached_at"]` is what maps it back per query.
+A re-evaluation can be reasoning over week-old results and now says so.
+
+`freshness_days` is a live property and is **not serialised**. It used to be, as a stored constant
+zero: every Fact is built during the run that gathers it, so its age is always 0 at write time, and
+it then sat frozen in `result_json` while the run aged. Nothing read it, which is the only reason
+nobody noticed. Age belongs to whoever is reading, against their own clock — the Evidence tab
+computes it from `retrieved_at`.
+
+One more of the same family, and the most expensive: `siemens_fit` blended
+`0.3 × challenge_match` whenever the approved-challenge library was non-empty. With one unrelated
+approved challenge recorded, that taxed every startup ~30% of its tool fit and accounted for
+**all eight** `Pass` verdicts in the corpus. A demand-side match is now a bonus that can only
+raise fit. `tests/test_siemens_fit_scoring.py` pins it.
 
 ## Authentication
 

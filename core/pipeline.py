@@ -194,7 +194,8 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
         f_sum   = _spawn(summarize_offering, row, enrichment["pitch_pdf"], llm)
         f_fit   = _spawn(match_siemens_tools, row, enrichment["pitch_pdf"], tools, llm)
         # deep structured profile: founders / advisors / programs / parent group / SFS relevance
-        f_prof  = _spawn(research_profile, row, llm, do_web, enrichment.get("site"))
+        f_prof  = _spawn(research_profile, row, llm, do_web, enrichment.get("site"),
+                         enrichment.get("web"))
         # trend uses niche keywords derived inside analyze_trend (stage 1); we pass an empty
         # list here and it derives its own terms. We kick it off early so it runs in parallel.
         f_trend = _spawn(analyze_trend, row, "", [], llm, do_web)
