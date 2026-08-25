@@ -25,6 +25,15 @@ WEIGHTS = {
     "ecosystem": 0.08,
 }
 THIN_PROFILE_CAP = 75.0          # sparse/unverifiable profiles top out here
+# A claim the web CONTRADICTS is worse evidence than a claim nobody addressed, and until this
+# existed it cost nothing: completeness measures how much a run knows and cannot notice that what
+# it knows disagrees with itself. Applied to data confidence rather than to a dimension, because
+# the doubt is about the whole record. Floored, because these contradictions are frequently
+# aggregators being stale rather than a startup misreporting — one disagreement between Tracxn and
+# CB Insights should dent the confidence, not condemn the company.
+# Mirrored in ui/src/scoring/engine-constants.json; pinned by tests/test_whatif_weight_parity.py.
+CONTRADICTION_PENALTY = 0.05     # per contradicted claim
+CONTRADICTION_FLOOR = 0.85       # never costs more than 15% of confidence
 FIT_ALIGN_THRESHOLD = 50.0       # below this, "not aligned with Siemens portfolio"
 MIN_OFFLINE_OVERLAP = 2          # offline mode needs >=2 meaningful shared terms to count
 LLM_MODEL = os.getenv("LLM_MODEL", "gpt-5.4")

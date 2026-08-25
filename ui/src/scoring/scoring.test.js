@@ -102,3 +102,32 @@ describe("isDefaultWeights", () => {
     expect(isDefaultWeights({ ...DEFAULT_WEIGHTS, siemens_fit: 40 })).toBe(false);
   });
 });
+
+describe("contradiction penalty", () => {
+  /* Mirrors core/score.py. A claim the web CONTRADICTS is worse evidence than one nobody
+     addressed, and completeness cannot see the difference — it counts what a run knows, not
+     whether what it knows agrees with itself. The engine applies the penalty to confidence, so
+     the browser must too, or every what-if on a company with a conflicting source reads high. */
+  const base = { dimensions: GOLDEN[0].dimensions, data_completeness: GOLDEN[0].data_completeness };
+
+  it("lowers confidence in proportion to the number of contradicted claims", () => {
+    const clean = reweight({ ...base, contradicted: 0 }, DEFAULT_WEIGHTS);
+    const one = reweight({ ...base, contradicted: 1 }, DEFAULT_WEIGHTS);
+    const two = reweight({ ...base, contradicted: 2 }, DEFAULT_WEIGHTS);
+    expect(one.dataConfidence).toBeCloseTo(clean.dataConfidence * 0.95, 10);
+    expect(two.dataConfidence).toBeCloseTo(clean.dataConfidence * 0.9, 10);
+    expect(two.finalScore).toBeLessThan(clean.finalScore);
+  });
+
+  it("floors the penalty at 15%, because aggregators disagree constantly", () => {
+    const clean = reweight({ ...base, contradicted: 0 }, DEFAULT_WEIGHTS);
+    const many = reweight({ ...base, contradicted: 40 }, DEFAULT_WEIGHTS);
+    expect(many.dataConfidence).toBeCloseTo(clean.dataConfidence * 0.85, 10);
+  });
+
+  it("reads a run stored before the penalty existed as uncontradicted, not as broken", () => {
+    // `contradicted` is simply absent on those rows, and 0 is the honest reading of that.
+    expect(reweight(base, DEFAULT_WEIGHTS).dataConfidence)
+      .toBeCloseTo(reweight({ ...base, contradicted: 0 }, DEFAULT_WEIGHTS).dataConfidence, 10);
+  });
+});

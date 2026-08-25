@@ -6,7 +6,8 @@ import re
 import pandas as pd
 
 from .config import (WEIGHTS, THIN_PROFILE_CAP, PROGRAM_PRESTIGE_WEIGHTS, PROGRAM_PRESTIGE_CAP,
-                     PROGRAM_SELF_ASSERTED_FACTOR, PROGRAM_SELF_ASSERTED_CAP)
+                     PROGRAM_SELF_ASSERTED_FACTOR, PROGRAM_SELF_ASSERTED_CAP,
+                     CONTRADICTION_PENALTY, CONTRADICTION_FLOOR)
 from .text import has_funding_signal, parse_funding_amount
 
 # Per-route weight profiles (each sums to 1.0). The universal WEIGHTS remain the
@@ -158,19 +159,32 @@ def score_startup(row: pd.Series, enrichment: dict, verification: dict, fit: dic
     dims["traction"] = min(100.0, traction)
 
     # siemens_fit: supply-side tool match, relation-aware (a substitute/competitor is a much
-    # weaker partnership signal than a complement), blended with the demand-side challenge
-    # match when the challenge library has entries.
+    # weaker partnership signal than a complement), lifted -- never lowered -- by the
+    # demand-side challenge match. See the note below the tool match for why the direction
+    # matters.
     _REL = {"complement": 1.0, "integration": 0.95, "adjacent": 0.75, "substitute": 0.55}
+    # An UNSTATED relation takes the cautious multiplier, not the generous one. The default was
+    # 1.0, so a match the model declined to classify scored exactly as well as one it explicitly
+    # called a complement -- and 15 of the 54 matches in the stored corpus carry no relation at
+    # all. Failing to commit is not evidence of the best case.
     if fit.get("matches"):
         m0 = fit["matches"][0]
-        tool_fit = float(m0.get("confidence", 0)) * _REL.get(str(m0.get("relation", "")).lower(), 1.0)
+        tool_fit = float(m0.get("confidence", 0)) * _REL.get(str(m0.get("relation", "")).lower(),
+                                                             _REL["adjacent"])
     else:
         tool_fit = 0.0
+    # The demand-side challenge match is a BONUS, never a penalty. This was a fixed 0.7/0.3
+    # blend applied whenever the library held anything at all, which taxed every startup 30% of
+    # its tool fit against whatever unrelated problem happened to be the nearest one recorded.
+    # With one approved challenge in the library the best match scored 0-5.6 for every company
+    # in the corpus, so Phena's tool fit of 52.2 became 36.6 and Makkook AI's became 38.3 --
+    # both under FIT_ALIGN_THRESHOLD, and both routed to Pass by a challenge neither had any
+    # reason to match. The library is a small, opt-in, human-curated list of problems Siemens
+    # people happened to type in; its silence about a startup is not evidence against it.
+    # A challenge match can now only pull fit UP, and only insofar as it beats the tool match.
     ch = fit.get("challenge_match", {}) or {}
-    if ch.get("library_size"):
-        dims["siemens_fit"] = min(100.0, 0.7 * tool_fit + 0.3 * float(ch.get("score", 0)))
-    else:
-        dims["siemens_fit"] = min(100.0, tool_fit)
+    ch_score = float(ch.get("score", 0) or 0) if ch.get("library_size") else 0.0
+    dims["siemens_fit"] = min(100.0, tool_fit + 0.3 * max(0.0, ch_score - tool_fit))
     # product: how far the solution has actually got. The pitch form's three Stage checkboxes
     # first; failing those, the free-text stage description, which is the only stage answer a
     # web-sourced company has and which used to score every one of them 40.
@@ -271,6 +285,15 @@ def score_startup(row: pd.Series, enrichment: dict, verification: dict, fit: dic
     known = {c: _known(row, profile, c) for c in key_fields}
     completeness = sum(1 for c in key_fields if known[c]) / len(key_fields)
     data_confidence = 0.5 + 0.5 * completeness
+    # A contradicted claim is worse than a missing one, and until now it cost nothing at all.
+    # Datasaki's run 12 carried four — funding status, founding year and HQ all disagreed between
+    # Crunchbase, Tracxn and CB Insights — and scored exactly as confidently as a run where every
+    # source agreed. Completeness measures how much we know; it cannot notice that what we know
+    # conflicts. Bounded at 15% so a single aggregator disagreement is a dent rather than a
+    # verdict: these contradictions are frequently the aggregators being stale, not the startup
+    # misreporting, which is why this reduces confidence rather than scoring against the company.
+    data_confidence *= max(CONTRADICTION_FLOOR, 1.0 - CONTRADICTION_PENALTY * contradicted)
+    data_confidence = round(data_confidence, 4)
     final = raw * data_confidence
     if completeness < 0.5:               # confidence caps thin profiles
         final = min(final, THIN_PROFILE_CAP)
