@@ -1,10 +1,15 @@
 """Deep structured profile research: founders, advisors, employees, parent group,
 startup programs (Xcelerator / incubators / corporate programs), reference customers,
-and Siemens Financial Services (SFS) relevance.
+and commercial posture (deployment, APIs, certifications, pricing, revenue, investors).
 
 LLM path: LLM-generated queries -> DuckDuckGo -> LLM extraction strictly from evidence,
 every populated field backed by a source URL. Offline fallback: keyword detection over
 the same search corpus, so a profile is always returned.
+
+Everything here TRANSCRIBES evidence; nothing here judges. The Siemens Financial Services
+verdict used to be asked for in the middle of the main extraction prompt and is now decided in
+core/programs.py, which reads the commercial posture this module evidences. That split is the
+reason the answer stopped being "yes" for every company.
 """
 from __future__ import annotations
 
@@ -52,11 +57,6 @@ KNOWN_PROGRAMS = {
     "esa bic": "incubator",
 }
 
-# Signals that Siemens Financial Services (equipment/project financing) is a relevant avenue.
-_SFS_KEYWORDS = ("hardware", "equipment", "machine", "robot", "manufactur", "capex",
-                 "energy", "grid", "infrastructure", "leasing", "asset", "plant",
-                 "factory", "charging", "battery", "solar", "wind", "turbine")
-
 EMPTY_PROFILE = {
     "founders": [],           # [{name, role, background, linkedin, source_url}]
     "key_team": [],           # early/core non-founder team [{name, role, source_url}]
@@ -78,12 +78,69 @@ EMPTY_PROFILE = {
     "programs": [],
     "reference_customers": [],  # NAMED accounts only, grounded in evidence
     "customer_segment": "",    # segment/scale descriptor when customers aren't named (e.g. "7-8 figure e-commerce brands")
-    "sfs": {"relevant": False, "rationale": ""},
+    # Commercial posture — what the Siemens pillar gates and the SFS financeability gate read.
+    # None of this was collected anywhere, so "can this be listed on the Xcelerator Marketplace"
+    # and "is there anything here for SFS to underwrite" were both being answered from the pitch
+    # text, which is the startup describing itself. Every field carries its own source URL under
+    # the same rule as the rest of this profile: no source, not displayed and not scored.
+    "commercial": {
+        "deployment": "",            # cloud | edge | on_prem | hardware | ""
+        "deployment_source": "",
+        "has_public_api": False,
+        "api_source": "",
+        "certifications": [],        # [{name, source_url}] — ISO 27001, IEC 62443, SOC 2, ...
+        "pricing_public": False,
+        "pricing_source": "",
+        "sells_hardware": False,
+        "hardware_source": "",
+        "revenue_signal": "",        # none | customers | contracted | recurring
+        "revenue_source": "",
+        "funding_stage": "",         # pre_seed | seed | series_a | series_b_plus | grant | ""
+        "investors": [],             # [{name, source_url}]
+        "method": "none",
+    },
     "method": "none",
 }
 
+# Site paths whose text actually bears on commercial posture, and the enrichment query keys that
+# search for the same thing. The commercial extraction reads ONLY these rather than sharing the
+# general corpus: the two extractions want different evidence, and one 24k budget split between
+# them means whichever runs second sees whatever the first left.
+_COMMERCIAL_PATHS = ("/pricing", "/security", "/trust", "/docs", "/developers", "/api",
+                     "/integrations", "/product", "/", "/about")
+_COMMERCIAL_QUERIES = ("pricing_web", "security_web", "api_web", "deployment_web",
+                       "marketplace_web", "investors_web", "funding_web", "crunchbase_web",
+                       "customers_web")
+
 
 _CORPUS_CHARS = int(os.getenv("PROFILE_CORPUS_CHARS", "24000"))
+# No single result may take more than this slice of the corpus. A ``__site__`` pseudo-result carries
+# a WHOLE fetched page — fetch_site_text caps each at 12,000 characters — so TWO of them filled the
+# entire 24k budget and the loop returned before a single search result was reached. Downstream that
+# is invisible and self-consistent: the model is handed a corpus containing nothing but the
+# company's own website, and reports quite correctly that it found no third-party evidence of
+# customers, founders or headcount.
+_CORPUS_LINE_CHARS = int(os.getenv("PROFILE_CORPUS_LINE_CHARS", "1800"))
+# ...and the site pages TOGETHER may take at most this share, so a startup's own account of itself
+# can never crowd out the independent evidence it exists to be checked against. Truncating here is
+# safe for grounding: _program_grounded and _ground_customers scan the full ``results`` dict, not
+# this corpus, so a membership published at the bottom of a long /partners page is still found.
+_CORPUS_SITE_SHARE = float(os.getenv("PROFILE_CORPUS_SITE_SHARE", "0.4"))
+
+
+def _interleave(queues: list, budget: int) -> list:
+    """Round-robin across queues until ``budget`` characters are spent."""
+    lines, total = [], 0
+    for rank in range(max((len(q) for q in queues), default=0)):
+        for q in queues:
+            if rank >= len(q):
+                continue
+            line = q[rank]
+            if total + len(line) + 1 > budget:
+                return lines
+            lines.append(line)
+            total += len(line) + 1
+    return lines
 
 
 def _corpus(results: dict) -> str:
@@ -98,23 +155,21 @@ def _corpus(results: dict) -> str:
     downstream from "the web knows nothing", and it is why researched employee counts and
     founding years kept coming back empty even when the searches had found them.
 
-    Interleaving makes truncation cost every query roughly equally instead of erasing the
-    tail wholesale. Override the budget with PROFILE_CORPUS_CHARS.
+    Interleaving alone was not enough, because it makes every QUERY equal without making every
+    RESULT equal, and a fetched page is three orders of magnitude larger than a search snippet.
+    Two of them exhausted the budget at rank 0. So each line is capped
+    (``_CORPUS_LINE_CHARS``) and the site pages share a fixed slice of the total
+    (``_CORPUS_SITE_SHARE``); whatever the site does not use falls through to the searches.
+    Override any of the three with PROFILE_CORPUS_CHARS / _LINE_CHARS / _SITE_SHARE.
     """
-    ordered = sorted((results or {}).items(), key=lambda kv: not str(kv[0]).startswith("__site__"))
-    queues = [[f"[{key}] {h.get('title','')} :: {h.get('body','')} :: {h.get('href','')}"
-               for h in (hits or [])] for key, hits in ordered]
-    lines, total = [], 0
-    for rank in range(max((len(q) for q in queues), default=0)):
-        for q in queues:
-            if rank >= len(q):
-                continue
-            line = q[rank]
-            if total + len(line) + 1 > _CORPUS_CHARS:
-                return "\n".join(lines)
-            lines.append(line)
-            total += len(line) + 1
-    return "\n".join(lines)
+    site_q, web_q = [], []
+    for key, hits in (results or {}).items():
+        queue = [f"[{key}] {h.get('title','')} :: {h.get('body','')} :: {h.get('href','')}"
+                 [:_CORPUS_LINE_CHARS] for h in (hits or [])]
+        (site_q if str(key).startswith("__site__") else web_q).append(queue)
+    site_lines = _interleave(site_q, int(_CORPUS_CHARS * _CORPUS_SITE_SHARE))
+    spent = sum(len(line) + 1 for line in site_lines)
+    return "\n".join(site_lines + _interleave(web_q, _CORPUS_CHARS - spent))
 
 
 def _clean_source_url(value) -> str:
@@ -339,10 +394,6 @@ def _offline_extract(company: str, row: pd.Series, results: dict) -> dict:
     """Keyword-based fallback: detect known programs and SFS relevance without an LLM."""
     prof = {k: (v.copy() if isinstance(v, (list, dict)) else v) for k, v in EMPTY_PROFILE.items()}
     prof["programs"] = _detect_programs(row, results)
-    sfs_hits = sorted({k for k in _SFS_KEYWORDS if k in _startup_text(row).lower()})
-    if sfs_hits:
-        prof["sfs"] = {"relevant": True,
-                       "rationale": "Capex/asset-heavy signals: " + ", ".join(sfs_hits[:5]) + "."}
     prof["method"] = "offline_keyword"
     return prof
 
@@ -378,8 +429,12 @@ def _llm_extract(company: str, row: pd.Series, results: dict, llm: LLMClient) ->
         "- founded_year_source / funding_source: the source_url of the result supporting each — a "
         "real http link from the results, never a label; leave empty if the value came from the "
         "KNOWN block rather than a search result.\n"
-        "Also judge: is Siemens Financial Services (equipment/project financing, leasing) a relevant "
-        "partnership avenue for this startup (e.g. hardware, capex-heavy, energy/infrastructure)?\n\n"
+        # The SFS judgement used to be asked for here, as one line appended to an extraction
+        # prompt. Being a judgement rather than a transcription, it did not belong in a call whose
+        # entire instruction is "report only what the evidence states" — and it showed: the answer
+        # was true for all 18 stored runs, because "is this a capex-heavy space" is a question
+        # about the startup's CUSTOMERS. It is now decided in core/programs.py from the commercial
+        # posture this pipeline evidences, against the criteria each SFS line actually underwrites.
         'Return ONLY JSON:\n'
         '{"founders": [{"name":"","role":"","background":"","linkedin":"","source_url":""}],\n'
         ' "key_team": [{"name":"","role":"","source_url":""}],\n'
@@ -388,8 +443,7 @@ def _llm_extract(company: str, row: pd.Series, results: dict, llm: LLMClient) ->
         ' "founded_year": "", "founded_year_source": "",\n'
         ' "funding": "", "funding_source": "",\n'
         ' "programs": [{"name":"","type":"incubator|accelerator|corporate_program","source_url":""}],\n'
-        ' "reference_customers": [""], "customer_segment": "",\n'
-        ' "sfs": {"relevant": true, "rationale": "one sentence"}}'
+        ' "reference_customers": [""], "customer_segment": ""}'
     )
     data = LLMClient.parse_json(llm.complete(prompt, system="You extract structured company facts "
                                              "strictly from supplied evidence. JSON only.",
@@ -415,9 +469,6 @@ def _llm_extract(company: str, row: pd.Series, results: dict, llm: LLMClient) ->
     prof["funding"] = funding if has_funding_signal(funding) else ""
     prof["funding_source"] = (_clean_source_url(data.get("funding_source"))
                               if prof["funding"] else "")
-    sfs = data.get("sfs") or {}
-    prof["sfs"] = {"relevant": bool(sfs.get("relevant")),
-                   "rationale": str(sfs.get("rationale") or "").strip()}
     prof["method"] = "llm"
     return prof
 
@@ -655,8 +706,26 @@ def _profile_facts(prof: dict, from_db: set | None = None,
     add("funding_research", prof.get("funding", ""), prof.get("funding_source", ""),
         origin="funding")
     add("employees_research", prof.get("employees", ""), origin="employees")
-    if prof.get("sfs", {}).get("relevant"):
-        add("sfs_relevance", prof["sfs"].get("rationale") or "SFS financing avenue relevant")
+    # Commercial posture reaches the Evidence tab like everything else, so a reviewer can see the
+    # page a Marketplace gate was decided on rather than being handed a verdict.
+    commercial = prof.get("commercial") or {}
+    add("deployment_model", commercial.get("deployment", ""), commercial.get("deployment_source", ""))
+    if commercial.get("has_public_api"):
+        add("public_api", "developer documentation / API reference published",
+            commercial.get("api_source", ""))
+    if commercial.get("pricing_public"):
+        add("public_pricing", "price or plan tier published", commercial.get("pricing_source", ""))
+    if commercial.get("sells_hardware"):
+        add("sells_hardware", "sells physical equipment a buyer takes delivery of",
+            commercial.get("hardware_source", ""))
+    for cert in commercial.get("certifications", []):
+        if isinstance(cert, dict) and cert.get("name"):
+            add("certification", cert["name"], cert.get("source_url", ""))
+    add("revenue_signal", commercial.get("revenue_signal", ""), commercial.get("revenue_source", ""))
+    add("funding_stage", commercial.get("funding_stage", ""))
+    for inv in commercial.get("investors", []):
+        if isinstance(inv, dict) and inv.get("name"):
+            add("investor", inv["name"], inv.get("source_url", ""))
     return facts
 
 
@@ -796,6 +865,152 @@ def _recover_headline_facts(prof: dict, company: str, row: pd.Series, llm: LLMCl
         if fund and has_funding_signal(fund):
             prof["funding"] = fund
             prof["funding_source"] = _clean_source_url(data.get("funding_source"))
+
+
+_DEPLOYMENTS = ("cloud", "edge", "on_prem", "hardware")
+_REVENUE_SIGNALS = ("none", "customers", "contracted", "recurring")
+# Certifications the Xcelerator Marketplace governance actually names, plus the two adjacent ones
+# a startup is most likely to hold instead. Anything the model returns outside this set is dropped:
+# "GDPR compliant" and "enterprise-grade security" are marketing, not certifications.
+_KNOWN_CERTS = {
+    "iso 27001": "ISO/IEC 27001", "iso/iec 27001": "ISO/IEC 27001", "iso27001": "ISO/IEC 27001",
+    "iec 62443": "IEC 62443", "iso 62443": "IEC 62443", "iec62443": "IEC 62443",
+    "soc 2": "SOC 2", "soc2": "SOC 2", "soc 2 type ii": "SOC 2",
+    "iso 9001": "ISO 9001", "tisax": "TISAX", "iso 27017": "ISO/IEC 27017",
+    "iso 27018": "ISO/IEC 27018", "cyber essentials": "Cyber Essentials",
+}
+
+
+def _commercial_corpus(site: dict | None, web: dict | None, company: str) -> str:
+    """Evidence block for the commercial extraction: the startup's own commercial pages plus the
+    enrichment searches that asked the same questions. Site text is capped per page here for the
+    same reason _corpus caps it — one /docs page is longer than every search snippet combined."""
+    lines: list[str] = []
+    for path, text in (site or {}).items():
+        if path in _COMMERCIAL_PATHS and str(text).strip():
+            lines.append(f"[site{path}] {company} :: {str(text)[:_CORPUS_LINE_CHARS]}")
+    for key in _COMMERCIAL_QUERIES:
+        for hit in (web or {}).get(key, []) or []:
+            lines.append(f"[{key}] {hit.get('title','')} :: {hit.get('body','')} "
+                         f":: {hit.get('href','')}"[:_CORPUS_LINE_CHARS])
+    return "\n".join(lines)[:_CORPUS_CHARS]
+
+
+def _clean_certifications(items) -> list[dict]:
+    """Keep only recognised certifications, canonically spelled, each with a real source URL."""
+    out, seen = [], set()
+    for c in items or []:
+        if isinstance(c, dict):
+            raw, src = str(c.get("name", "")), _clean_source_url(c.get("source_url"))
+        else:
+            raw, src = str(c), ""
+        canonical = _KNOWN_CERTS.get(re.sub(r"[^a-z0-9 /]", "", raw.lower()).strip())
+        if not canonical or canonical in seen:
+            continue
+        seen.add(canonical)
+        out.append({"name": canonical, "source_url": src})
+    return out
+
+
+def _extract_commercial_posture(prof: dict, company: str, row: pd.Series,
+                                site: dict | None, web: dict | None, llm: LLMClient) -> None:
+    """Fill ``prof['commercial']`` from evidence already gathered; never raises, never searches.
+
+    Deliberately no search wave of its own. `enrich` now asks for pricing, certifications, APIs,
+    deployment, marketplace listings and investors in its existing single wave, and `fetch_site_text`
+    already pulls the company's own /pricing, /security, /docs and /api pages — so the evidence is
+    in hand and this costs exactly one completion.
+
+    The funding stage is parsed deterministically from the funding string the rest of the pipeline
+    already grounded, and only falls to the model when that string is absent: re-deriving a fact
+    already in hand would add a failure mode to recover nothing.
+    """
+    commercial = {k: (v.copy() if isinstance(v, (list, dict)) else v)
+                  for k, v in EMPTY_PROFILE["commercial"].items()}
+    prof["commercial"] = commercial
+
+    # Deterministic first — this needs no model and cannot drift between runs.
+    from .text import parse_funding_stage
+    commercial["funding_stage"] = parse_funding_stage(
+        prof.get("funding") or row.get("funding") or "")
+
+    corpus = _commercial_corpus(site, web, company)
+    if not corpus or not llm.available:
+        commercial["method"] = "unavailable" if not llm.available else "no_evidence"
+        return
+
+    data = LLMClient.parse_json(llm.complete(
+        f"Evidence about the company '{company}' — its own web pages and search results:\n\n"
+        f"{corpus}\n\n"
+        "Report its COMMERCIAL POSTURE using ONLY what this evidence states. Leave a field at its "
+        "empty/false default when the evidence does not address it — 'not stated' is a valid and "
+        "useful answer here, and a guess is not.\n"
+        "- deployment: how the product runs. 'cloud' (hosted/SaaS), 'edge' (on-device or on-prem "
+        "gateway), 'on_prem' (installed in the customer's datacentre), 'hardware' (the product IS "
+        "physical equipment the customer takes delivery of). Empty if unclear.\n"
+        "- has_public_api: true ONLY if the evidence shows developer documentation, an API "
+        "reference, or an SDK. A page saying 'integrates with X' is not an API.\n"
+        "- certifications: security or quality certifications the company states it HOLDS "
+        "(ISO/IEC 27001, IEC 62443, SOC 2, TISAX, ISO 9001). Not 'GDPR compliant', not "
+        "'enterprise-grade security' — those are claims, not certifications.\n"
+        "- pricing_public: true ONLY if a price, a plan tier, or a published rate card is visible. "
+        "'Contact us for a quote' is false.\n"
+        "- sells_hardware: true if the company sells physical equipment, devices, machines or "
+        "instruments that a buyer takes delivery of. Software that RUNS ON hardware is false.\n"
+        "- revenue_signal: 'recurring' (subscriptions/SaaS contracts evidenced), 'contracted' "
+        "(named multi-year or framework agreements), 'customers' (named paying customers, no "
+        "contract terms stated), 'none'.\n"
+        "- investors: named funds or institutional investors, NOT individuals unless the evidence "
+        "calls them the lead.\n"
+        "Give a source_url — a real http link from the evidence, never a label — for every "
+        "non-empty field.\n"
+        'Return ONLY JSON: {"deployment":"","deployment_source":"","has_public_api":false,'
+        '"api_source":"","certifications":[{"name":"","source_url":""}],"pricing_public":false,'
+        '"pricing_source":"","sells_hardware":false,"hardware_source":"","revenue_signal":"",'
+        '"revenue_source":"","investors":[{"name":"","source_url":""}]}',
+        system="You extract structured company facts strictly from supplied evidence. JSON only.",
+        max_tokens=700, reasoning="none")) or {}
+    if not data:
+        commercial["method"] = "no_answer"
+        return
+
+    deployment = str(data.get("deployment") or "").strip().lower().replace("-", "_")
+    if deployment in _DEPLOYMENTS:
+        commercial["deployment"] = deployment
+        commercial["deployment_source"] = _clean_source_url(data.get("deployment_source"))
+
+    # A boolean claim with no URL is exactly the "public claim without a link" that provenance.py
+    # demotes to `inferred`, and these three drive a hard Marketplace gate, so an uncited true is
+    # not carried at all. The company's own site counts: _commercial_corpus labels those lines
+    # [site/path] and the model returns the site URL for them.
+    for flag, src_key in (("has_public_api", "api_source"),
+                          ("pricing_public", "pricing_source"),
+                          ("sells_hardware", "hardware_source")):
+        url = _clean_source_url(data.get(src_key))
+        if bool(data.get(flag)) and url:
+            commercial[flag] = True
+            commercial[src_key] = url
+
+    commercial["certifications"] = _clean_certifications(data.get("certifications"))
+
+    revenue = str(data.get("revenue_signal") or "").strip().lower()
+    if revenue in _REVENUE_SIGNALS and revenue != "none":
+        url = _clean_source_url(data.get("revenue_source"))
+        if url:
+            commercial["revenue_signal"] = revenue
+            commercial["revenue_source"] = url
+
+    investors, seen = [], set()
+    for inv in data.get("investors") or []:
+        name = str(inv.get("name", "") if isinstance(inv, dict) else inv).strip()
+        if not name or len(name) > 60 or name.lower() in seen:
+            continue
+        seen.add(name.lower())
+        investors.append({"name": name,
+                          "source_url": _clean_source_url(
+                              inv.get("source_url") if isinstance(inv, dict) else "")})
+    commercial["investors"] = investors[:8]
+    commercial["method"] = "llm"
 
 
 def _program_tier_offline(name: str) -> str:
@@ -947,13 +1162,18 @@ def _employee_history(company: str, row: pd.Series, results: dict,
 
 
 def research_profile(row: pd.Series, llm: LLMClient, do_web: bool = True,
-                     site: dict | None = None) -> dict:
+                     site: dict | None = None, web: dict | None = None) -> dict:
     """Return {'profile': {...}, 'facts': [Fact...]}; never raises.
 
     ``site`` is the optional {path: text} map of the company's OWN pages already fetched
     during enrichment (web.fetch_site_text). Folding it into the evidence lets the recall
     check ground ecosystem/program memberships that live only on the site and were never
-    indexed by DuckDuckGo."""
+    indexed by DuckDuckGo.
+
+    ``web`` is enrichment's {query_key: hits} map. It is passed in rather than re-searched
+    because enrich already asks the commercial-posture questions in its single wave, so the
+    evidence exists by the time this runs; re-issuing those queries here would double the
+    searches to fetch results already in memory."""
     company = str(row.get("company_name", "")).strip()
     if not company:
         return {"profile": dict(EMPTY_PROFILE), "facts": []}
@@ -1000,7 +1220,7 @@ def research_profile(row: pd.Series, llm: LLMClient, do_web: bool = True,
         # whether it is needed (all no-op when their field is already populated), and each is
         # individually best-effort: one failure must never cost the profile.
         if do_web:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as ex:
                 # Pool threads start with an empty context, so each job runs inside a copy of
                 # this one — that is what carries core.web's cache-bypass flag into the search
                 # calls these passes make.
@@ -1012,6 +1232,12 @@ def research_profile(row: pd.Series, llm: LLMClient, do_web: bool = True,
                     "founders": _spawn(_recover_founders, prof, company, llm),
                     "programs": _spawn(_recheck_programs, prof, row, company, results, llm),
                     "history": _spawn(_employee_history, company, row, results, llm),
+                    # Costs one completion and no searches, so it rides along in the pool it does
+                    # not lengthen. It reads `prof['funding']`, which _llm_extract has already set
+                    # and _seed_from_database has already overridden — but not what the headline
+                    # net may still find, so the stage is re-derived after the pool joins.
+                    "commercial": _spawn(_extract_commercial_posture, prof, company, row,
+                                         site, web, llm),
                 }
                 for name, fut in jobs.items():
                     try:
@@ -1022,6 +1248,14 @@ def research_profile(row: pd.Series, llm: LLMClient, do_web: bool = True,
                         series, status = out if isinstance(out, tuple) else ([], "unavailable")
                         prof["employees_over_time"] = series
                         prof["employees_history_status"] = status
+        # Re-derive the stage from whatever funding string finally survived. The headline recall
+        # net runs in the same pool as the commercial extraction, so a round it recovers lands
+        # after that extraction has already read the field. Deterministic and free, so it simply
+        # runs again rather than the two passes being ordered against each other.
+        from .text import parse_funding_stage
+        prof.setdefault("commercial", {k: (v.copy() if isinstance(v, (list, dict)) else v)
+                                       for k, v in EMPTY_PROFILE["commercial"].items()})
+        prof["commercial"]["funding_stage"] = parse_funding_stage(prof.get("funding", ""))
         # Grade the surviving (grounded) memberships by prestige tier so the ecosystem score
         # can weight a top-tier accelerator above a generic one. Must follow the program
         # recheck — it grades whatever that found. In place; never adds or removes a program.

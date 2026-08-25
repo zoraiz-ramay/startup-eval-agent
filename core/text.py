@@ -88,6 +88,40 @@ def parse_funding_amount(value) -> float:
     return best
 
 
+# Funding STAGE, which is a different fact from funding amount and answers a different question.
+# The amount says how much was raised; the stage says whether an institution underwrote it, which
+# is what Siemens Financial Services' corporate-lending line and the Collaborate readiness check
+# actually turn on — a €2M seed from angels and a €2M Series A from a fund are not the same
+# counterparty risk. Ordered most-specific first: "pre-seed" must be tested before "seed", and
+# "series a" before either, or every round collapses to seed.
+_STAGE_PATTERNS = (
+    ("series_b_plus", r"\bseries\s+[b-z]\b|\bgrowth\s+(?:round|equity|capital)\b|\bipo\b"
+                      r"|\blate[-\s]stage\b|\bmezzanine\b"),
+    ("series_a",      r"\bseries\s+a\b"),
+    ("pre_seed",      r"\bpre[-\s]?seed\b|\bangel\b|\bfriends\s+and\s+family\b"),
+    ("seed",          r"\bseed\b|\bbridge\b"),
+    ("grant",         r"\bgrant\b|\bnon[-\s]dilutive\b|\bsubsidy\b|\bprize\b"),
+)
+
+
+def parse_funding_stage(value) -> str:
+    """The funding stage a string names, or '' when it names none.
+
+    Deterministic on purpose. The stage is already written in the funding strings the pipeline
+    has painstakingly grounded ("Pre-Seed, amount obfuscated", "Seed, $2.5M (2024)"), so asking
+    a model to re-derive it would add a call, a failure mode and a source of run-to-run drift
+    to recover a fact already in hand.
+    """
+    text = str(value or "")
+    if not text.strip():
+        return ""
+    import re as _re
+    for stage, pattern in _STAGE_PATTERNS:
+        if _re.search(pattern, text, _re.I):
+            return stage
+    return ""
+
+
 def _norm(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", str(s).lower()).strip()
 
