@@ -32,6 +32,20 @@ run "backend tests"        $PY -m pytest tests/ -q
 # copy is a hallucination waiting to happen.
 run "ui inventory current" $PY scripts/ui_inventory.py --check
 run "ix conformance"       node scripts/ix_lint.mjs
+# Corpus health, not a code regression, so it reports rather than blocks: it reads data/runs.db,
+# and a dimension can only be shown to have gone flat once enough runs exist that were scored by
+# the CURRENT engine. Blocking on it would fail every build until someone re-ran the corpus, which
+# is how a useful check gets deleted. Read it — three dimensions had silently collapsed to
+# constants at once, and the test suite was green throughout. Drop --report to make it blocking
+# once the stored runs are current.
+printf '\n\033[1m── dimension variance (advisory)\033[0m\n'
+$PY scripts/dimension_variance.py --report || true
+# Also advisory, and deliberately noisy while unlabelled: routing quality is the one thing here
+# that no amount of unit testing establishes, and the labels can only come from a reviewer. A
+# silent reminder is one nobody acts on. Once benchmarks/labels.json is filled in, swap this for
+# `--min-f1 <floor>` and drop the `|| true` to make a routing regression fail the build.
+printf '\n\033[1m── routing benchmark (advisory)\033[0m\n'
+$PY -m benchmarks.routing_eval --brief || true
 run "ui component tests"   bash -c 'cd ui && npx vitest run --reporter=dot'
 
 if [[ $FAST -eq 0 ]]; then
