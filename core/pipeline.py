@@ -76,6 +76,33 @@ def backfill_profile(profile: dict, deep_profile: dict) -> dict:
     return sources
 
 
+_PROFILE_COLS = ("company_name", "website", "hq", "founded_year", "employee_band",
+                 "employees_count", "funding", "linkedin_url", "crunchbase_url",
+                 "customers", "Reference customers",
+                 "Business model", "Development stage of your solution")
+
+
+def _header_profile(row: "pd.Series", deep_profile: dict, source: str) -> tuple[dict, dict]:
+    """The profile shown at the top of the page, plus where each backfilled field came from.
+
+    Pulled out of the end of the run so it can be built the moment the researched profile lands:
+    it reads only the row and that profile, and nothing downstream touches it. That is what lets a
+    reviewer start reading a company while its score is still being computed.
+    """
+    if source == "glassdollar":
+        # row.index, not df.columns: a row resolved by domain never came out of `df` at all,
+        # and reading the column list off the search frame would leave its profile empty.
+        profile = {c: _cell(row.get(c, "")) for c in _PROFILE_COLS if c in row.index}
+    else:                       # web row: keep only the fields we actually populated
+        profile = {c: _cell(row.get(c, "")) for c in _PROFILE_COLS
+                   if _cell(row.get(c, "")).strip()}
+    profile_sources = backfill_profile(profile, deep_profile)
+    # After the backfill, not before: a blank funding column gets filled from web research
+    # here, and that value needs the same treatment. Free text passes through untouched.
+    profile["funding"] = format_funding(profile.get("funding", ""))
+    return profile, profile_sources
+
+
 def _looks_like_domain(value: str) -> bool:
     """A single dotted token with no spaces — "phena.tech", "https://phena.tech/about"."""
     s = str(value or "").strip()
@@ -105,22 +132,27 @@ def _by_domain(name: str):
 
 
 def evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = True,
-             df: "pd.DataFrame" = None, on_step=None, use_web_cache: bool = True) -> dict:
+             df: "pd.DataFrame" = None, on_step=None, use_web_cache: bool = True,
+             on_partial=None) -> dict:
     """Run the full pipeline for one startup.
 
     ``use_web_cache=False`` forces every search and site fetch to hit the network. A forced
     re-evaluation must not replay cached results, or "Re-evaluate" would hand back the same
     week-old evidence it was asked to refresh.
+
+    ``on_partial(section, data)`` is called as each part of the result becomes available, so a
+    caller can show the profile while scoring is still running. The return value is unchanged and
+    still complete — the callback is an addition, never a replacement.
     """
     token = web.set_cache_enabled(use_web_cache)
     try:
-        return _evaluate(name, glassdollar_path, tools_path, do_web, df, on_step)
+        return _evaluate(name, glassdollar_path, tools_path, do_web, df, on_step, on_partial)
     finally:
         web.reset_cache_enabled(token)
 
 
 def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = True,
-              df: "pd.DataFrame" = None, on_step=None) -> dict:
+              df: "pd.DataFrame" = None, on_step=None, on_partial=None) -> dict:
     # Optional progress callback: on_step(step_label, status) where status is one of
     # "running" | "done" | "error". Reporting must never break the evaluation itself.
     def _step(label: str, status: str = "running") -> None:
@@ -128,6 +160,16 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
             return
         try:
             on_step(label, status)
+        except Exception:
+            pass
+
+    # Same contract for partial results: a consumer that throws, or a client that has hung up,
+    # must not take the evaluation down with it. The run finishes and is still saved.
+    def _emit(section: str, data) -> None:
+        if on_partial is None:
+            return
+        try:
+            on_partial(section, data)
         except Exception:
             pass
 
@@ -178,11 +220,22 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
             except Exception:
                 pass
     _step("INPUT", "done")
+    # The company is resolved and nothing else is known yet. Emitting here is what lets the page
+    # put up a header with the real name instead of whatever the reviewer typed.
+    _emit("identity", {"company": str(row.get("company_name", "")) or name, "source": source})
 
     tools = load_siemens_tools(tools_path)
     _step("ENRICH", "running")
     enrichment = enrich(row, do_web=do_web)
     _step("ENRICH", "done")
+    # The profile as the ROW already knows it — name, site, HQ, founded year, funding, stage —
+    # before any research runs. Emitted because the deep-profile branch is the slowest thing in
+    # the pipeline by a wide margin: measured on a real run it returned at 112s of 118s, so a page
+    # that waits for it waits for essentially the whole evaluation and the progressive render buys
+    # nothing. This is safe to show early precisely because `backfill_profile` only ever fills
+    # BLANK fields — the richer version that replaces it adds values, it never changes one.
+    _emit("profile", dict(zip(("profile", "profile_sources", "deep_profile"),
+                              (*_header_profile(row, {}, source), {}))))
 
     # verify / summarize / fit / trend are independent LLM steps — run them concurrently.
     _step("VERIFY", "running")
@@ -196,46 +249,56 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
         def _spawn(fn, *a):
             return ex.submit(contextvars.copy_context().run, functools.partial(fn, *a))
 
-        f_ver   = _spawn(verify_facts, row, enrichment, llm)
-        f_sum   = _spawn(summarize_offering, row, enrichment["pitch_pdf"], llm)
-        f_fit   = _spawn(match_siemens_tools, row, enrichment["pitch_pdf"], tools, llm)
-        # deep structured profile: founders / advisors / programs / parent group / SFS relevance
-        f_prof  = _spawn(research_profile, row, llm, do_web, enrichment.get("site"),
-                         enrichment.get("web"))
-        # trend uses niche keywords derived inside analyze_trend (stage 1); we pass an empty
-        # list here and it derives its own terms. We kick it off early so it runs in parallel.
-        f_trend = _spawn(analyze_trend, row, "", [], llm, do_web)
-        verification = f_ver.result()
-        _step("VERIFY", "done")
-        summary      = f_sum.result()
-        fit          = f_fit.result()
-        _step("STRUCTURE", "done")
-        prof_res     = f_prof.result()
-        trend        = f_trend.result()
+        jobs = {
+            "verification": _spawn(verify_facts, row, enrichment, llm),
+            "summary": _spawn(summarize_offering, row, enrichment["pitch_pdf"], llm),
+            "fit": _spawn(match_siemens_tools, row, enrichment["pitch_pdf"], tools, llm),
+            # deep structured profile: founders / advisors / programs / parent group / commercial
+            "profile": _spawn(research_profile, row, llm, do_web, enrichment.get("site"),
+                              enrichment.get("web")),
+            # trend uses niche keywords derived inside analyze_trend (stage 1); we pass an empty
+            # list here and it derives its own terms. Kicked off early so it runs in parallel.
+            "trend": _spawn(analyze_trend, row, "", [], llm, do_web),
+        }
+        # Collected as they land rather than in a fixed order. The five branches differ by tens of
+        # seconds — the profile chain alone runs four recall nets — and awaiting them in a written
+        # order meant a summary that finished in three seconds sat unread until the slowest branch
+        # returned. `.result()` still raises here exactly as it did, so a failing branch fails the
+        # run the same way.
+        done: dict = {}
+        pending = {fut: section for section, fut in jobs.items()}
+        for fut in concurrent.futures.as_completed(pending):
+            section = pending[fut]
+            done[section] = fut.result()
+            if section == "verification":
+                _step("VERIFY", "done")
+            elif section == "fit":
+                _step("STRUCTURE", "done")
+            if section == "profile":
+                # The header profile depends only on the row and the researched profile — nothing
+                # downstream mutates it — so it is assembled here rather than after routing, which
+                # is what lets the page render a company while its score is still being computed.
+                deep_profile = done["profile"]["profile"]
+                profile, profile_sources = _header_profile(row, deep_profile, source)
+                _emit("profile", {"profile": profile, "profile_sources": profile_sources,
+                                  "deep_profile": deep_profile})
+            else:
+                _emit(section, done[section])
         _step("REVIEW", "done")
+
+    verification, summary = done["verification"], done["summary"]
+    fit, trend, prof_res = done["fit"], done["trend"], done["profile"]
     deep_profile = prof_res["profile"]
     enrichment["facts"].extend(prof_res["facts"])
+    _emit("facts", [f.as_dict() for f in enrichment["facts"]])
     _step("SCORE", "running")
     sc = score_startup(row, enrichment, verification, fit, deep_profile, trend)
     _step("SCORE", "done")
+    _emit("score", sc)
     _step("ROUTE", "running")
     rt = route(sc, fit, row, llm, deep_profile, trend)
     _step("ROUTE", "done")
-
-    profile_cols = ("company_name", "website", "hq", "founded_year", "employee_band",
-                    "employees_count", "funding", "linkedin_url", "crunchbase_url",
-                    "customers", "Reference customers",
-                    "Business model", "Development stage of your solution")
-    if source == "glassdollar":
-        # row.index, not df.columns: a row resolved by domain never came out of `df` at all,
-        # and reading the column list off the search frame would leave its profile empty.
-        profile = {c: _cell(row.get(c, "")) for c in profile_cols if c in row.index}
-    else:                       # web row: keep only the fields we actually populated
-        profile = {c: _cell(row.get(c, "")) for c in profile_cols if _cell(row.get(c, "")).strip()}
-    profile_sources = backfill_profile(profile, deep_profile)
-    # After the backfill, not before: a blank funding column gets filled from web research
-    # here, and that value needs the same treatment. Free text passes through untouched.
-    profile["funding"] = format_funding(profile.get("funding", ""))
+    _emit("routing", rt)
 
     engine = "openai:" + LLM_MODEL if llm.available else "offline-fallback"
     if source == "web":

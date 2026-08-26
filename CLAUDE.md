@@ -140,6 +140,56 @@ the fit prompt returned 85–100 for all 54 matches it ever made, and trend mome
 for every niche. Both prompts now tie each band to an observable consequence and require the
 answer to cite what it counted. **A model-produced number without a rubric is not a measurement.**
 
+## The market landscape rides in the trend stage's own wave
+
+`core/trend.py` stage 1 has always asked the model for competitor and funding queries, and stage 3
+threw everything except the prose away. `_market_landscape` now extracts named competitors, funded
+peers, market size and active investors from the same results.
+
+Its five queries go into the **same** `_ddg_many` call as the trend queries, because `_ddg_many`
+caps concurrency at 10 — so ten queries are one round trip and the landscape adds no search time.
+The extraction runs concurrently with the momentum call, both under `copy_context()`.
+
+Both calls read the **same** evidence, and that is deliberate: they used to read different slices,
+which produced a page contradicting itself — "no CAGR figures are cited" as the stated basis for a
+momentum score, directly above a cited CAGR of 31.7%.
+
+Grounding is the same bar as everywhere else, and both halves matter: every entry needs a real
+`http` source, **and** its name has to appear in the evidence text. A model asked for competitors
+in a niche will list the ones it remembers rather than the ones in the results, and a fabricated
+competitor beside a link is indistinguishable from a real one. The startup is also filtered out of
+its own landscape in code — Celonis came back at the top of its own process-mining competitor list,
+because in results about a company's own niche that company genuinely is the most prominent name.
+
+`landscape` absent and `landscape` present-but-empty are different statements, and the UI renders
+them differently: "not researched on this run" versus "the search named no competitor".
+
+## A profile appears before its verdict
+
+`pipeline.evaluate` takes `on_partial(section, data)` alongside `on_step`, and
+`POST /api/evaluate/stream` delivers those over SSE. The returned result is unchanged and still
+complete — `tests/test_evaluate_stream.py` pins that a streamed run is byte-identical to a plain
+one, which is the property that matters. Two code paths producing two answers for one company
+would be far worse than a slow page.
+
+The five concurrent branches are collected with `as_completed`, not in a written order: they differ
+by tens of seconds, and a summary that finished in three seconds used to sit unread until the
+slowest branch returned.
+
+**The header profile is emitted twice, and that is the whole feature.** Measured on a real run, the
+deep-profile branch returned at 112s of 118s — a page waiting for it waits for the entire
+evaluation. So `_header_profile(row, {}, source)` goes out as soon as enrichment finishes and the
+researched version replaces it later. This is only safe because `backfill_profile` fills BLANK
+fields and never overwrites: the later version adds values, it never changes one on screen.
+
+Anything a streaming run has not produced yet must say so rather than render its empty state. A
+pillar pill with no pillar reads as a verdict of nothing; a Fit Score of 0 reads as a bad company.
+Both are the `employees_history_status` mistake one level up.
+
+`EventSource` is not usable here — it is GET-only and this must be a POST carrying the session
+cookie and CSRF header — so the client is `fetch` plus a stream reader, falling back to
+`api.evaluate` on any stream failure.
+
 ## Measuring a scoring change instead of arguing about it
 
 `py -3 -m benchmarks.routing_eval` replays the **current** engine over every stored run and scores

@@ -58,6 +58,82 @@ async function request(path, { method = "GET", body, timeoutMs = 30000 } = {}) {
   }
 }
 
+/**
+ * A fresh evaluation, delivered in pieces as the engine produces them.
+ *
+ * A run takes a minute or two and all of it used to arrive at once, so the page held a skeleton
+ * until routing finished even though the company profile had been ready for most of that time.
+ *
+ * `fetch` + a stream reader rather than `EventSource`: that is GET-only, and this has to be a POST
+ * carrying the session cookie and the CSRF header. Falls back to the plain endpoint on any stream
+ * failure, so a proxy that buffers `text/event-stream` costs the progressive render and nothing
+ * else — `onDone` still fires with the same complete result either way.
+ *
+ * @param {(section: string, data: any) => void} onPartial
+ * @returns {Promise<object>} the complete evaluation, identical to `api.evaluate`
+ */
+export async function evaluateStream(name, { doWeb = true, refresh = false, onPartial } = {}) {
+  let res;
+  try {
+    res = await fetch(`${BASE}/api/evaluate/stream`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": readCookie("sea_csrf") },
+      body: JSON.stringify({ name, do_web: doWeb, refresh }),
+    });
+  } catch {
+    return api.evaluate(name, doWeb, refresh);
+  }
+  if (res.status === 401) {
+    onUnauthorized();
+    throw new ApiError("Your session has ended.", 401);
+  }
+  if (!res.ok || !res.body) {
+    // A non-streaming error response still carries a JSON detail; surface that rather than
+    // re-running a minutes-long evaluation just to obtain the same message.
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new ApiError(data.detail || `Request failed (${res.status})`, res.status);
+    return api.evaluate(name, doWeb, refresh);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result = null;
+  let failure = null;
+
+  // SSE frames are separated by a blank line, and a frame can straddle two network chunks — so
+  // the buffer is only consumed up to the last complete separator.
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let split;
+    while ((split = buffer.indexOf("\n\n")) !== -1) {
+      const frame = buffer.slice(0, split);
+      buffer = buffer.slice(split + 2);
+      const event = frame.match(/^event:\s*(.+)$/m)?.[1]?.trim();
+      const raw = frame.match(/^data:\s*([\s\S]*)$/m)?.[1];
+      if (!event || raw === undefined) continue;
+      let payload;
+      try {
+        payload = JSON.parse(raw);
+      } catch {
+        continue;                 // a frame we cannot read is skipped, never fatal
+      }
+      if (event === "partial") onPartial?.(payload.section, payload.data);
+      else if (event === "done") result = payload;
+      else if (event === "error") failure = payload;
+    }
+  }
+
+  if (failure) throw new ApiError(failure.detail || "Evaluation failed.", failure.status || 500);
+  // The stream ended without a verdict — the connection dropped mid-run. Ask for the result
+  // outright rather than leaving the caller with a half-filled profile and no error.
+  if (!result) return api.evaluate(name, doWeb, refresh);
+  return result;
+}
+
 export const api = {
   health: () => request("/health"),
   search: (q) => request(`/api/search?q=${encodeURIComponent(q)}`),

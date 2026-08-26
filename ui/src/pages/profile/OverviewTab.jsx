@@ -109,7 +109,12 @@ export default function OverviewTab({ res }) {
   return (
     <>
       <Section id="profile-key-metrics" className="metric-row">
-        <div className="metric"><div className="k">Fit Score</div><div className="v">{Number(sc.final_score || 0).toFixed(0)}</div></div>
+        {/* An em dash while scoring is still running. A literal 0 in this tile reads as a company
+            that scored nothing, which is the opposite of "not computed yet" — and on a streamed
+            evaluation it would sit there for the whole first half of the run. */}
+        <div className="metric"><div className="k">Fit Score</div>
+          <div className="v">{typeof sc.final_score === "number"
+            ? Number(sc.final_score).toFixed(0) : "—"}</div></div>
         <div className="metric"><div className="k">Employees</div>
           <div className="v">{headcount || "—"} <WebSourced src={psrc.employees_count} field="employees" /></div>
           {asOf && (

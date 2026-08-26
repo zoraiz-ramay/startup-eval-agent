@@ -665,7 +665,7 @@
     },
     {
       "path": "ui/src/pages/profile/OverviewTab.jsx",
-      "lines": 207,
+      "lines": 212,
       "exports": [
         "OverviewTab"
       ],
@@ -684,7 +684,7 @@
     },
     {
       "path": "ui/src/pages/profile/ProfileLayout.jsx",
-      "lines": 54,
+      "lines": 61,
       "exports": [
         "ProfileLayout"
       ],
@@ -828,7 +828,7 @@
     },
     {
       "path": "ui/src/pages/Profile.jsx",
-      "lines": 181,
+      "lines": 254,
       "exports": [
         "Profile"
       ],
@@ -858,7 +858,7 @@
     },
     {
       "path": "ui/src/pages/Profile.test.jsx",
-      "lines": 436,
+      "lines": 522,
       "exports": [],
       "css_classes": []
     },
@@ -962,6 +962,6 @@
     "api_methods": 24,
     "design_tokens": 39,
     "jsx_files": 52,
-    "jsx_lines": 6129
+    "jsx_lines": 6300
   }
 }

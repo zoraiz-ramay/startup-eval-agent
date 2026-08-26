@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { api } from "../api.js";
+import { api, evaluateStream } from "../api.js";
 import { useApp } from "../state.jsx";
 import ErrorBox from "../components/ErrorBox.jsx";
 import ProfileLayout from "./profile/ProfileLayout.jsx";
@@ -22,6 +22,20 @@ function SkeletonProfile({ name }) {
         <div className="skel" style={{ height: 200 }} />
         <div className="skel" style={{ height: 200 }} />
       </div>
+    </div>
+  );
+}
+
+/* A branch of the pipeline that has not finished yet.
+   Deliberately distinct from every view's own empty state: "no competitors found" and "we have
+   not looked yet" are opposite readings, and while an evaluation streams the second one is true. */
+function StillRunning({ what }) {
+  return (
+    <div className="panel">
+      <p className="muted" style={{ margin: 0 }} role="status" aria-live="polite">
+        <span className="spinner" aria-hidden="true" /> {what} is still running. This section fills
+        in as soon as it finishes — the profile beside it is already complete.
+      </p>
     </div>
   );
 }
@@ -60,17 +74,41 @@ export default function Profile() {
     return d >= 0 ? d : null;
   })();
 
+  /* The run already on screen. When a streamed evaluation finishes we rewrite the URL from
+     /startup/new to /startup/:run_id, which changes `id` and re-runs this effect — and without
+     this guard that would throw away a complete profile and re-fetch it from the API. */
+  const loadedRunId = useRef(null);
+
   useEffect(() => {
+    if (runId && loadedRunId.current === runId) return;
     setRes(null); setError("");
     if (id === "new" && evalName) {
-      api.evaluate(evalName, true, params.get("refresh") === "1")
+      /* Streamed, so the profile appears as soon as the engine has assembled it rather than
+         when routing finishes a minute later. Each partial merges into the same object the
+         non-streaming path produces, so every view below reads one shape and none of them know
+         this happened. `evaluateStream` falls back to api.evaluate on any stream failure. */
+      evaluateStream(evalName, {
+        refresh: params.get("refresh") === "1",
+        onPartial: (section, data) => setRes((prev) => ({
+          ...(prev || { found: true, streaming: true }),
+          // `identity` and `profile` each arrive as a BUNDLE of top-level keys — company/source,
+          // and the three the Overview reads — so they spread. Everything else is its own key.
+          // Wrapping identity instead left res.company undefined and the page headed by a blank
+          // <h1> for the whole run.
+          ...(section === "identity" || section === "profile" ? data : { [section]: data }),
+        })),
+      })
         .then((r) => {
-          if (r.run_id) nav(`/startup/${r.run_id}`, { replace: true });
-          else setRes(r);
+          setRes(r);
+          if (r.run_id) {
+            loadedRunId.current = r.run_id;
+            nav(`/startup/${r.run_id}`, { replace: true });
+          }
         })
         .catch((e) => setError(e.message));
     } else if (runId) {
-      api.run(runId).then(setRes).catch((e) => setError(e.message));
+      api.run(runId).then((r) => { loadedRunId.current = runId; setRes(r); })
+        .catch((e) => setError(e.message));
     }
   }, [id, evalName]);           // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -98,9 +136,16 @@ export default function Profile() {
       </div>
     );
   }
-  if (!res) return <SkeletonProfile name={evalName || `run #${id}`} />;
+  /* The profile is the first thing worth reading and the first thing the engine finishes, so the
+     skeleton holds until it lands rather than flashing a page of em dashes for the seconds
+     between the company being resolved and its profile being assembled. */
+  if (!res || (res.streaming && !res.profile)) {
+    return <SkeletonProfile name={res?.company || evalName || `run #${id}`} />;
+  }
 
   const rt = res.routing || {}, sc = res.score || {};
+  // A section the run has not produced YET, which is not the same as a section it produced empty.
+  const pending = (section) => Boolean(res.streaming) && !res[section];
 
   return (
     <div>
@@ -110,7 +155,11 @@ export default function Profile() {
           <div style={{ flex: 1, minWidth: 240 }}>
             <h1 className="ph-title">
               {res.company}
-              <span className={`pill ${rt.pillar}`} style={{ marginLeft: 10, verticalAlign: "middle" }}>{rt.pillar}</span>{" "}
+              {/* No pillar until routing has run. An empty pill would read as a verdict of
+                  nothing rather than as a verdict not yet reached. */}
+              {rt.pillar && (
+                <span className={`pill ${rt.pillar}`} style={{ marginLeft: 10, verticalAlign: "middle" }}>{rt.pillar}</span>
+              )}{" "}
               {(rt.secondary || []).map((s) => <span key={s} className={`pill ghost ${s}`}>+{s}</span>)}
               {/* Only the competing case earns a place in the headline. A complementary or
                   adjacent startup is the ordinary situation and belongs in the fit panel; one
@@ -126,8 +175,16 @@ export default function Profile() {
             {/* HQ and funding moved to the metric row below, where they sit beside the other
                 company facts instead of competing with the score for the same line. */}
             <div className="ph-meta">
-              <span>Score <strong>{Number(sc.final_score || 0).toFixed(0)}</strong></span>
-              <span>Confidence {Math.round((rt.confidence || 0) * 100)}%</span>
+              {pending("score") ? (
+                <span className="muted" role="status" aria-live="polite">
+                  <span className="spinner" aria-hidden="true" /> scoring…
+                </span>
+              ) : (
+                <>
+                  <span>Score <strong>{Number(sc.final_score || 0).toFixed(0)}</strong></span>
+                  <span>Confidence {Math.round((rt.confidence || 0) * 100)}%</span>
+                </>
+              )}
               <span className="muted">{res.engine}</span>
               {/* Rescued from the pipeline ribbon, which was the only place it appeared. A run
                   assembled from the web rather than the curated GlassDollar record is a caveat on
@@ -169,11 +226,27 @@ export default function Profile() {
           seven steps as done on every finished run, so it reported nothing a reader could act on
           while costing sticky height on every profile; the Ask tab left with it because the ✦
           Assistant button above opens the same conversation in the dock, from any view. */}
-      <ProfileLayout view={tab} onSelectView={(v) => setParams({ tab: v }, { replace: true })}>
-        {tab === "Scoring & Fit" ? <ScoringTab res={res} runId={runId} />
-          : tab === "Market & Risk" ? <MarketTab res={res} />
-          : tab === "Evidence" ? <EvidenceTab res={res} />
-          : <OverviewTab res={res} />}
+      {/* Merged into the existing query, not replacing it. `setParams({tab})` dropped every other
+          parameter — including the `name=` that /startup/new is evaluating — so selecting a group
+          mid-run reset the page to a skeleton. Unreachable before, because /startup/new used to
+          redirect to /startup/:id before anything was clickable. */}
+      <ProfileLayout view={tab} onSelectView={(v) => setParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.set("tab", v);
+        return next;
+      }, { replace: true })}>
+        {/* A view whose branch of the pipeline is still running says so. Rendering its empty
+            state instead would report an absence of findings for work that has not happened —
+            the same mistake `employees_history_status` exists to prevent, one level up. */}
+        {tab === "Scoring & Fit"
+          ? (pending("score") ? <StillRunning what="Scoring and routing" />
+            : <ScoringTab res={res} runId={runId} />)
+          : tab === "Market & Risk"
+            ? (pending("trend") ? <StillRunning what="Market analysis" /> : <MarketTab res={res} />)
+            : tab === "Evidence"
+              ? (pending("facts") ? <StillRunning what="Evidence collection" />
+                : <EvidenceTab res={res} />)
+              : <OverviewTab res={res} />}
       </ProfileLayout>
     </div>
   );

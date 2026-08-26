@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppProvider } from "../state.jsx";
@@ -35,6 +35,7 @@ vi.mock("../api.js", () => ({
     audit: vi.fn(async () => ({ overrides: [] })),
     ask: vi.fn(async () => ({ answer: "", evidence: [] })),
   },
+  evaluateStream: vi.fn(async () => RUN),
 }));
 
 async function renderProfile() {
@@ -431,5 +432,90 @@ describe("Profile — headcount trend empty states", () => {
   it("falls back to the absence wording for a run stored before the status existed", async () => {
     await withStatus(undefined);
     expect(screen.getByText(/fewer than two independently sourced/i)).toBeInTheDocument();
+  });
+});
+
+/**
+ * Progressive render.
+ *
+ * A fresh evaluation takes a minute or two and all of it used to arrive at once, so the page held
+ * a skeleton until routing finished even though the profile had been ready for most of that time.
+ * Measured on a real run: the profile now reaches the browser at 27s of 63s.
+ *
+ * What these pin is the honesty of the half-rendered state. A page showing a company with an empty
+ * pillar pill and a score of 0 would be reporting a verdict the engine has not reached — worse
+ * than the skeleton it replaced.
+ */
+async function renderStreaming(script) {
+  const { evaluateStream } = await import("../api.js");
+  let emit;
+  evaluateStream.mockImplementationOnce((name, { onPartial }) => {
+    emit = onPartial;
+    return new Promise(() => {});      // never resolves: the run is still in flight
+  });
+  const { default: Profile } = await import("./Profile.jsx");
+  render(
+    <MemoryRouter initialEntries={["/startup/new?name=Phena"]}>
+      <AppProvider>
+        <Routes><Route path="/startup/:id" element={<Profile />} /></Routes>
+      </AppProvider>
+    </MemoryRouter>,
+  );
+  for (const [section, data] of script) act(() => emit(section, data));
+}
+
+const IDENTITY = ["identity", { company: "Phena", source: "web" }];
+const PROFILE = ["profile", {
+  profile: { company_name: "Phena", hq: "Istanbul, Turkey" },
+  profile_sources: {},
+  deep_profile: {},
+}];
+
+describe("Profile — progressive render", () => {
+  it("holds the skeleton until there is a profile to read", async () => {
+    // The company being resolved is not yet something worth showing: a page of em dashes for the
+    // seconds before enrichment finishes is worse than the skeleton.
+    await renderStreaming([IDENTITY]);
+    expect(document.querySelector(".skel")).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Profile navigation" })).not.toBeInTheDocument();
+  });
+
+  it("renders the profile while the rest of the run is still going", async () => {
+    await renderStreaming([IDENTITY, PROFILE]);
+    expect(document.querySelector(".skel")).not.toBeInTheDocument();
+    expect(await screen.findByRole("navigation", { name: "Profile navigation" })).toBeInTheDocument();
+    expect(screen.getByText("Istanbul, Turkey", { selector: ".metric .v" })).toBeInTheDocument();
+  });
+
+  it("names the company in the header, rather than heading the page with a blank", async () => {
+    // Regression: `identity` was merged under its own key instead of spread, so `res.company` was
+    // undefined and the <h1> rendered empty for the whole run.
+    await renderStreaming([IDENTITY, PROFILE]);
+    expect(document.querySelector(".ph-title").textContent).toContain("Phena");
+  });
+
+  it("shows no pillar and no score until routing has actually run", async () => {
+    await renderStreaming([IDENTITY, PROFILE]);
+    // An empty pill reads as a verdict of nothing; a score of 0 reads as a bad company.
+    expect(document.querySelector(".ph-title .pill")).toBeNull();
+    expect(document.querySelector(".ph-meta")).toHaveTextContent(/scoring/i);
+    expect(document.querySelector(".ph-meta")).not.toHaveTextContent(/Score 0/);
+  });
+
+  it("says a view is still running rather than showing its empty state", async () => {
+    // "No competitors found" and "we have not looked yet" are opposite readings, and while the
+    // run streams the second one is the true one.
+    await renderStreaming([IDENTITY, PROFILE]);
+    fireEvent.click(screen.getByRole("button", { name: /^market & risk$/i }));
+    expect(screen.getByText(/Market analysis is still running/i)).toBeInTheDocument();
+    expect(screen.queryByText(/No market analysis/i)).not.toBeInTheDocument();
+  });
+
+  it("fills a view in once its branch reports", async () => {
+    await renderStreaming([IDENTITY, PROFILE,
+      ["score", { final_score: 40, dimensions: {}, route_scorecards: [] }],
+      ["routing", { pillar: "Empower", secondary: [] }]]);
+    expect(document.querySelector(".ph-meta")).not.toHaveTextContent(/scoring/i);
+    expect(document.querySelector(".ph-title .pill").textContent).toBe("Empower");
   });
 });

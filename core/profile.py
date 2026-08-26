@@ -25,7 +25,7 @@ from .provenance import Fact
 from .web import _ddg_many
 from .llm import LLMClient
 from .config import KNOWN_PROGRAM_TIERS
-from .text import _norm, has_funding_signal
+from .text import _clean_source_url, _norm, has_funding_signal
 # Known startup programs for offline detection (matched case-insensitively).
 KNOWN_PROGRAMS = {
     "siemens xcelerator": "corporate_program",
@@ -182,17 +182,6 @@ def _corpus(results: dict) -> str:
     site_lines = _interleave(site_q, int(_CORPUS_CHARS * _CORPUS_SITE_SHARE))
     spent = sum(len(line) + 1 for line in site_lines)
     return "\n".join(site_lines + _interleave(web_q, _CORPUS_CHARS - spent))
-
-
-def _clean_source_url(value) -> str:
-    """Keep a real http(s) link, otherwise ''.
-
-    Asked for a source_url, the model sometimes answers with the corpus label it read the fact
-    from ('f1, f2') rather than the link. Those reach profile_sources and the UI renders them as
-    a broken 'web-sourced' link, so anything that is not a URL is dropped — the fact is still
-    kept, just without a citation. Mirrors the guard in _clean_employee_series."""
-    url = str(value or "").strip()
-    return url if url.lower().startswith(("http://", "https://")) else ""
 
 
 def _site_hint(row: pd.Series) -> str:
