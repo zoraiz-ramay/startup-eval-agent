@@ -132,3 +132,19 @@ def _keywords(text: str) -> set[str]:
 
 def _split_list(s: str) -> list[str]:
     return [x.strip() for x in re.split(r"[;,/]", str(s)) if x.strip()]
+
+
+def _clean_source_url(value) -> str:
+    """Keep a real http(s) link, otherwise ''.
+
+    Asked for a source_url, the model sometimes answers with the corpus label it read the fact
+    from ('f1, f2') rather than the link. Those reach the UI and render as a broken 'web-sourced'
+    link, so anything that is not a URL is dropped — the fact is still kept, just without a
+    citation. Mirrors the guard in profile._clean_employee_series.
+
+    Lives here rather than in core/profile.py because core/trend.py's market landscape holds every
+    competitor and funded peer to the same bar, and a second copy of a two-line grounding rule is
+    exactly how the two drift apart. core.profile re-exports it, so existing imports still work.
+    """
+    url = str(value or "").strip()
+    return url if url.lower().startswith(("http://", "https://")) else ""

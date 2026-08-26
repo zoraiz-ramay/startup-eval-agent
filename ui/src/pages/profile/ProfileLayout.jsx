@@ -34,7 +34,14 @@ export default function ProfileLayout({ view, onSelectView, children }) {
      Skipped on first render so a permalink carrying a #section still opens where it points. */
   const mounted = useRef(false);
   useEffect(() => {
-    if (mounted.current) window.scrollTo({ top: 0, behavior: "auto" });
+    // Guarded because scrolling is a convenience, not a correctness requirement: jsdom defines
+    // window.scrollTo and then throws "Not implemented" from it, and a host that refuses to
+    // scroll must not take the rest of this effect — and the view switch — down with it.
+    if (mounted.current) {
+      try {
+        window.scrollTo({ top: 0, behavior: "auto" });
+      } catch { /* host does not support programmatic scrolling */ }
+    }
     mounted.current = true;
   }, [current.id]);
 
