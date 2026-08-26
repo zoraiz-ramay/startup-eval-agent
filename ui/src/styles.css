@@ -215,6 +215,9 @@ a:hover { text-decoration: underline; }
   display: inline-block; border: 1px solid var(--border-2); background: var(--surface-2);
   color: var(--text-2); font-size: 11px; padding: 1px 7px; border-radius: 4px; margin-left: 6px;
 }
+/* A badge for the one unmet criterion that ends the conversation, as opposed to the several a
+   startup could go and satisfy. Colour alone never carries it — the badge's own text does. */
+.badge.danger { border-color: var(--danger); background: var(--danger-soft); color: var(--danger); }
 .chip { display: inline-block; background: var(--surface-2); border: 1px solid var(--border);
   padding: 2px 9px; border-radius: 999px; font-size: 12px; margin: 2px 4px 2px 0; }
 .chip.action { cursor: pointer; }
@@ -226,6 +229,9 @@ a:hover { text-decoration: underline; }
   padding: 12px 14px; margin-bottom: 12px; }
 .panel h3 { margin: 0 0 8px; font-size: 11.5px; color: var(--text-3);
   text-transform: uppercase; letter-spacing: .6px; font-weight: 700; }
+/* A panel whose content draws its own edges — a full-bleed table, where the panel's padding would
+   inset the header row from the border it is supposed to sit against. */
+.panel.flush { padding: 0; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 @media (max-width: 1000px) { .grid2, .grid3 { grid-template-columns: 1fr; } }
@@ -268,24 +274,9 @@ a:hover { text-decoration: underline; }
 .ph-desc { color: var(--text-2); margin: 2px 0 4px; font-size: var(--fs-body); max-width: 760px; }
 .ph-meta { display: flex; gap: 14px; flex-wrap: wrap; color: var(--text-2); font-size: var(--fs-meta); }
 .ph-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
-.ribbon { display: flex; gap: 4px; align-items: center; padding: 8px 0 0; flex-wrap: wrap; }
-.ribbon .step {
-  font-size: 10px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase;
-  color: var(--text-3); padding: 2px 8px; border-radius: 3px; background: var(--surface-2);
-  border: 1px solid var(--border);
-}
-.ribbon .step.done { color: var(--success); background: var(--success-soft); border-color: #bfe3cd; }
-.ribbon .sep { color: var(--border-2); font-size: 10px; }
-.tabs { display: flex; gap: 2px; margin-top: 8px; border-bottom: 1px solid var(--border); }
-/* Keeps the profile tab bar in view while reading a long report. Sits below the fixed top bar,
-   and needs its own background or the scrolling content shows through the gap. */
+/* Keeps a table header in view while reading a long list. Sits below the fixed top bar, and needs
+   its own background or the scrolling content shows through the gap. */
 .sticky-header { position: sticky; top: var(--topbar-h); z-index: 4; background: var(--surface); }
-.tab {
-  background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer;
-  padding: 8px 14px; font-size: 13px; font-weight: 600; color: var(--text-2);
-}
-.tab:hover { color: var(--text-1); }
-.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
 .spec { display: flex; gap: 10px; padding: 5px 0; border-bottom: 1px dashed var(--border); font-size: var(--fs-body); }
 .spec:last-child { border-bottom: none; }
@@ -297,6 +288,10 @@ a:hover { text-decoration: underline; }
 .bar-track { background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; height: 7px; overflow: hidden; }
 .bar-fill { height: 100%; background: var(--accent); }
 .bar-label { display: flex; justify-content: space-between; font-size: var(--fs-meta); color: var(--text-2); margin: 7px 0 3px; }
+/* Bars and radar inside one section. They are one question — the radar plots the bars — and in a
+   single-column reading order a second page-level column would have put a screen between them. */
+.score-split { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: start; }
+@media (max-width: 900px) { .score-split { grid-template-columns: minmax(0, 1fr); } }
 .score-big { font-size: 38px; font-weight: 800; line-height: 1; }
 
 /* ---------------- drawer (column customisation) ---------------- */
@@ -420,3 +415,107 @@ a:hover { text-decoration: underline; }
   padding: 6px 10px; border-radius: var(--radius); pointer-events: none;
   font-size: var(--fs-meta); font-weight: 700; line-height: 1.35;
   background: var(--danger); color: #fff; }
+
+/* ---------------------------------------------------------------- Overview section rail
+   A sticky table of contents for the Overview, with the section being read marked. Borrowed from
+   Tracxn's information architecture, not its chrome: the colours, radius and type are this app's
+   own tokens, so the rail reads as part of the product rather than a pasted-in sidebar.
+
+   The Overview is a single column of sections rather than the two-column grid it used to be. A
+   table of contents needs a reading ORDER, and in a two-column grid "Team & ecosystem" sits beside
+   "Executive summary" at the same scroll position — there is no single current section to mark,
+   and the indicator flickers between the pair. */
+.profile-body { display: grid; grid-template-columns: var(--section-rail-w) minmax(0, 1fr); gap: 16px; }
+/* min-width: 0 on the body is what stops a wide table inside a panel forcing the whole page to
+   scroll sideways: without it a grid track refuses to shrink below its content. */
+.profile-body-main { min-width: 0; }
+
+.profile-section {
+  /* Clears the sticky company header so a linked heading does not land underneath it.
+     --profile-sticky-h is measured at runtime (useStickyOffset) because the header's height
+     depends on how long the company's summary is. The 8px gap must stay within
+     CROSS_TOLERANCE_PX in useScrollSpy.js, or a section scrolled to by a click counts as not yet
+     reached and the marker snaps back to its neighbour. */
+  scroll-margin-top: calc(var(--profile-sticky-h, 200px) + 8px);
+}
+
+.section-rail {
+  position: sticky; top: calc(var(--profile-sticky-h, 200px) + 12px);
+  align-self: start;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  /* Only scrolls when the list genuinely outgrows the space beside it; six items never do. */
+  max-height: calc(100vh - var(--profile-sticky-h, 200px) - 28px); overflow-y: auto;
+}
+.section-rail-groups { list-style: none; margin: 0; padding: 0; }
+.section-rail-group + .section-rail-group { border-top: 1px solid var(--border); }
+/* The group header is a full-width button so the whole row is the target, matching the section
+   rows below it. A disclosure, not a tab: it owns the list underneath it. */
+.section-rail-group-head {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  background: none; border: none; cursor: pointer; text-align: left;
+  padding: 10px 12px; font-size: 12px; font-weight: 700; color: var(--text-2);
+  text-transform: uppercase; letter-spacing: .4px;
+}
+.section-rail-group-head:hover { color: var(--text-1); background: var(--surface-2); }
+.section-rail-group.open > .section-rail-group-head { color: var(--accent); background: var(--accent-soft); }
+.section-rail-group:first-child > .section-rail-group-head { border-radius: var(--radius) var(--radius) 0 0; }
+/* Drawn rather than typed: a Unicode triangle inherits the font's own metrics and sits off the
+   baseline at this size, and the rotation gives the open/closed states one shape instead of two
+   glyphs that have to be kept in step. */
+.section-rail-caret {
+  flex: 0 0 auto; width: 0; height: 0; margin-left: 3px;
+  border-left: 4px solid currentColor; border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent; transition: transform .12s ease;
+}
+.section-rail-group.open > .section-rail-group-head .section-rail-caret { transform: rotate(90deg); }
+.section-rail-list { list-style: none; margin: 0; padding: 2px 0 8px; }
+.section-rail-item { position: relative; }
+/* The connector is drawn by the items themselves rather than as one absolutely-positioned bar, so
+   it cannot fall out of step with the row heights. Every item but the last grows a segment down to
+   its neighbour's node. */
+.section-rail-item:not(:last-child)::before {
+  content: ""; position: absolute; left: 17px; top: 50%; bottom: -50%;
+  width: 1px; background: var(--border-2);
+}
+.section-rail-item a {
+  /* The whole row is the target, not the dot — WCAG 2.5.8 target size, and it is simply easier
+     to hit. */
+  display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+  font-size: 12.5px; color: var(--text-2); text-decoration: none; position: relative;
+}
+.section-rail-item a:hover { color: var(--text-1); background: var(--surface-2); text-decoration: none; }
+.section-rail-node {
+  flex: 0 0 auto; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--surface); border: 1.5px solid var(--border-2);
+  margin-left: 1px; position: relative; z-index: 1;
+}
+.section-rail-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.section-rail-item.active a { color: var(--accent); font-weight: 600; }
+.section-rail-item.active .section-rail-node {
+  width: 11px; height: 11px; margin-left: -1px;
+  background: var(--accent); border-color: var(--accent);
+}
+
+/* Smooth scrolling for the rail's anchors, switched off when the reader has asked for less
+   motion. Scoped to the media query rather than applied and then overridden, so the default for a
+   reduced-motion user is the plain jump. */
+@media (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
+}
+
+/* Below 1000px a fixed 220px rail would take a third of the width. It used to be hidden outright,
+   which was safe only while a tab bar carried the navigation above it — with the tabs gone that
+   would leave the page with no navigation at all. It becomes a full-width block above the content
+   instead: same markup, same state, no second implementation to keep in step. */
+@media (max-width: 1000px) {
+  .profile-body { grid-template-columns: minmax(0, 1fr); }
+  .section-rail { position: static; max-height: none; margin-bottom: 12px; }
+  /* Groups run across the row when collapsed, so all four are reachable without scrolling past
+     the open one's sections. */
+  .section-rail-groups { display: flex; flex-wrap: wrap; }
+  .section-rail-group { flex: 1 1 auto; min-width: 0; }
+  .section-rail-group + .section-rail-group { border-top: none; border-left: 1px solid var(--border); }
+  .section-rail-group.open { flex-basis: 100%; border-left: none; }
+  .section-rail-group-head { justify-content: center; }
+  .section-rail-group.open > .section-rail-group-head { justify-content: flex-start; }
+}

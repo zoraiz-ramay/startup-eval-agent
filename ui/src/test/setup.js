@@ -3,6 +3,7 @@ import { cleanup } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
 
 afterEach(cleanup);
+afterEach(() => { globalThis.__observers = []; });
 
 // Nothing in a component test may reach the network. A test that silently falls back to a real
 // fetch passes for the wrong reason locally and fails in CI, so the default is a hard error and
@@ -28,4 +29,22 @@ globalThis.ResizeObserver ??= class {
   observe() {}
   unobserve() {}
   disconnect() {}
+};
+// jsdom has no IntersectionObserver either. This records the instances so a test can drive the
+// callback directly — the scroll-spy's decision is made from element rects inside that callback,
+// which is exactly the part worth asserting.
+globalThis.__observers = [];
+globalThis.IntersectionObserver ??= class {
+  constructor(cb, options) {
+    this.cb = cb;
+    this.options = options;
+    this.elements = [];
+    this.disconnected = false;
+    globalThis.__observers.push(this);
+  }
+  observe(el) { this.elements.push(el); }
+  unobserve(el) { this.elements = this.elements.filter((e) => e !== el); }
+  disconnect() { this.disconnected = true; }
+  // Test helper: pretend something crossed the band.
+  trigger() { this.cb([], this); }
 };

@@ -4,15 +4,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppProvider } from "../state.jsx";
 
 /**
- * PROF-01 / PROF-04 — profile header and tab bar.
+ * PROF-01 / PROF-04 — profile header and navigation.
  *
- * Replaces tests/test_sticky_profile_tab_bar.py, which asserted the literal string
- * "sticky-header" appeared somewhere in Profile.jsx. That is satisfied by writing the word in a
- * comment, and said nothing about whether the tabs were usable.
- *
+ * The pipeline ribbon and the tab bar are gone; the section rail is the page's whole navigation.
  * jsdom does not do layout, so "is it actually stuck to the top" is a visual-regression concern
  * (contract row X-06) rather than something this layer can honestly assert. What it CAN verify is
- * that the tab bar is a real tablist, correctly marked, and carries the sticky affordance.
+ * that navigation exists as a landmark, that switching a group switches what is rendered, and
+ * that the two removed pieces of chrome are really gone rather than merely hidden.
  */
 const RUN = {
   found: true,
@@ -57,18 +55,28 @@ async function renderProfile() {
 beforeEach(() => localStorage.clear());
 
 describe("Profile", () => {
-  it("renders the tab bar as a tablist with a selected tab", async () => {
+  it("navigates from the rail, with exactly one group open", async () => {
     await renderProfile();
-    const tablist = await screen.findByRole("tablist");
-    const tabs = within(tablist).getAllByRole("tab");
-    expect(tabs.length).toBeGreaterThan(1);
-    expect(tabs.filter((t) => t.getAttribute("aria-selected") === "true")).toHaveLength(1);
+    const rail = await screen.findByRole("navigation", { name: "Profile navigation" });
+    const expanded = within(rail).getAllByRole("button")
+      .filter((b) => b.getAttribute("aria-expanded") === "true");
+    expect(expanded).toHaveLength(1);
+    expect(expanded[0]).toHaveAccessibleName("Profile");
   });
 
-  it("keeps the tab bar reachable while scrolling a long report", async () => {
+  it("no longer stacks a pipeline ribbon and a tab bar above the content", async () => {
+    // The ribbon rendered all seven steps as done on every finished run, so it reported nothing a
+    // reader could act on while costing sticky height on every profile. Two navigation systems for
+    // one page was the other half of the problem.
+    const { container } = await renderProfile();
+    await screen.findByRole("navigation", { name: "Profile navigation" });
+    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+    expect(container.querySelector(".ribbon")).toBeNull();
+  });
+
+  it("gives the open group's content a region a reader can jump to", async () => {
     await renderProfile();
-    // The affordance, not the computed position — see the note above.
-    expect(await screen.findByRole("tablist")).toHaveClass("sticky-header");
+    expect(await screen.findByRole("region", { name: "Profile" })).toBeInTheDocument();
   });
 
   it("shows a web-sourced field with its provenance link (PROF-02, X-01)", async () => {
@@ -189,8 +197,10 @@ const SCORED_RUN = {
   },
 };
 
+const railLoaded = () => screen.findByRole("navigation", { name: "Profile navigation" });
+
 async function openScoringTab() {
-  fireEvent.click(await screen.findByRole("tab", { name: /scoring & fit/i }));
+  fireEvent.click(await screen.findByRole("button", { name: /^scoring & fit$/i }));
 }
 
 async function openWhatIf() {
@@ -280,15 +290,18 @@ describe("what-if routing (PROF-15)", () => {
     await renderProfile();
     await openWhatIf();
 
-    expect(await screen.findByText(/what-if routing/i)).toBeInTheDocument();
+    // Scoped to the what-if panel. The per-pillar sections now report the ENGINE's own gates in
+    // the same vocabulary, so an unscoped query matches both and would pass while the what-if
+    // rendered nothing at all.
+    const panel = (await screen.findByText(/what-if routing/i)).closest(".panel");
     // All four rows, always — a reviewer looking at a blocked pillar needs the whole reason,
     // and an empty state would be the least useful thing to show them.
-    expect(screen.getByText(/portfolio alignment/i)).toBeInTheDocument();
+    expect(within(panel).getByText(/portfolio alignment/i)).toBeInTheDocument();
     for (const route of ["Connect", "Collaborate", "Empower"]) {
-      expect(screen.getAllByText(route).length).toBeGreaterThan(0);
+      expect(within(panel).getAllByText(route).length).toBeGreaterThan(0);
     }
     // Empower's row states the absence of a gate rather than inventing a threshold for symmetry.
-    expect(screen.getByText(/no score gate/i)).toBeInTheDocument();
+    expect(within(panel).getByText(/no score gate/i)).toBeInTheDocument();
   });
 
   it("marks the clauses no weighting can move, so a blocked pillar is not read as 'nearly there'", async () => {
@@ -351,7 +364,7 @@ describe("Profile — headline facts", () => {
     const { api } = await import("../api.js");
     api.run.mockResolvedValueOnce(RUN_WITH_FACTS);
     await renderProfile();
-    await screen.findByRole("tablist");
+    await railLoaded();
   }
 
   it("shows funding and location as metric tiles", async () => {
@@ -376,7 +389,7 @@ describe("Profile — headline facts", () => {
 
   it("shows an em dash rather than an empty tile when a fact is missing", async () => {
     await renderProfile();          // base RUN has no hq and blank funding
-    await screen.findByRole("tablist");
+    await railLoaded();
     expect(metric("Funding")).toHaveTextContent("—");
     expect(metric("Location")).toHaveTextContent("—");
   });
@@ -396,7 +409,7 @@ describe("Profile — headcount trend empty states", () => {
                       employees_history_status: status },
     });
     await renderProfile();
-    await screen.findByRole("tablist");
+    await railLoaded();
   };
 
   it("says a young company is too new rather than unsourced", async () => {
