@@ -194,8 +194,10 @@
     "--pillar-connect",
     "--pillar-empower",
     "--pillar-pass",
+    "--profile-sticky-h",
     "--radius",
     "--rail-w",
+    "--section-rail-w",
     "--sidenav-w",
     "--success",
     "--success-soft",
@@ -331,6 +333,29 @@
       ]
     },
     {
+      "path": "ui/src/components/ProfileSectionNav.jsx",
+      "lines": 72,
+      "exports": [
+        "ProfileSectionNav"
+      ],
+      "css_classes": [
+        "section-rail",
+        "section-rail-caret",
+        "section-rail-group-head",
+        "section-rail-group-label",
+        "section-rail-groups",
+        "section-rail-label",
+        "section-rail-list",
+        "section-rail-node"
+      ]
+    },
+    {
+      "path": "ui/src/components/ProfileSectionNav.test.jsx",
+      "lines": 152,
+      "exports": [],
+      "css_classes": []
+    },
+    {
       "path": "ui/src/components/ResultView.jsx",
       "lines": 3,
       "exports": [],
@@ -380,14 +405,15 @@
     },
     {
       "path": "ui/src/components/widgets.jsx",
-      "lines": 107,
+      "lines": 129,
       "exports": [
         "ExtLink",
         "Loading",
         "PillarPills",
         "Radar",
         "ScoreBar",
-        "Spec"
+        "Spec",
+        "toHref"
       ],
       "css_classes": [
         "bar-fill",
@@ -404,7 +430,7 @@
     },
     {
       "path": "ui/src/components/widgets.test.jsx",
-      "lines": 85,
+      "lines": 145,
       "exports": [],
       "css_classes": []
     },
@@ -603,35 +629,217 @@
       ]
     },
     {
+      "path": "ui/src/pages/profile/EvidenceTab.jsx",
+      "lines": 69,
+      "exports": [],
+      "css_classes": [
+        "dense",
+        "dtable",
+        "flush",
+        "input",
+        "muted",
+        "panel",
+        "status-dot"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/MarketTab.jsx",
+      "lines": 167,
+      "exports": [
+        "MarketTab"
+      ],
+      "css_classes": [
+        "badge",
+        "big",
+        "empty",
+        "k",
+        "list-main",
+        "list-row",
+        "metric",
+        "metric-row",
+        "muted",
+        "reason",
+        "risk",
+        "v"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/OverviewTab.jsx",
+      "lines": 207,
+      "exports": [
+        "OverviewTab"
+      ],
+      "css_classes": [
+        "chip",
+        "k",
+        "list-main",
+        "list-row",
+        "metric",
+        "metric-row",
+        "muted",
+        "reason",
+        "s",
+        "v"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/ProfileLayout.jsx",
+      "lines": 54,
+      "exports": [
+        "ProfileLayout"
+      ],
+      "css_classes": [
+        "profile-body",
+        "profile-body-main"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/scoring/BreakdownPanel.jsx",
+      "lines": 60,
+      "exports": [
+        "BreakdownPanel"
+      ],
+      "css_classes": [
+        "muted",
+        "panel",
+        "score-split"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/scoring/CollaboratePanel.jsx",
+      "lines": 77,
+      "exports": [
+        "CollaboratePanel"
+      ],
+      "css_classes": [
+        "body",
+        "chip",
+        "info-box",
+        "k",
+        "label",
+        "mark",
+        "muted",
+        "spec",
+        "sr-only",
+        "v",
+        "why"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/scoring/EmpowerPanel.jsx",
+      "lines": 83,
+      "exports": [
+        "EmpowerPanel"
+      ],
+      "css_classes": [
+        "body",
+        "info-box",
+        "k",
+        "label",
+        "mark",
+        "muted",
+        "spec",
+        "sr-only",
+        "v",
+        "why"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/scoring/OverridePanel.jsx",
+      "lines": 74,
+      "exports": [
+        "OverridePanel"
+      ],
+      "css_classes": [
+        "badge",
+        "btn",
+        "input",
+        "muted",
+        "risk",
+        "secondary",
+        "tool-btn"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/scoring/PillarSection.jsx",
+      "lines": 154,
+      "exports": [
+        "PillarSection"
+      ],
+      "css_classes": [
+        "badge",
+        "body",
+        "danger",
+        "label",
+        "mark",
+        "muted",
+        "num",
+        "reason",
+        "risk",
+        "sr-only",
+        "why"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/scoring/ScoringTab.jsx",
+      "lines": 128,
+      "exports": [
+        "ScoringTab"
+      ],
+      "css_classes": [
+        "badge",
+        "info-box",
+        "muted",
+        "pill",
+        "reason",
+        "risk",
+        "sfs"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/scoring/SfsPanel.jsx",
+      "lines": 45,
+      "exports": [
+        "SfsPanel"
+      ],
+      "css_classes": [
+        "badge",
+        "k",
+        "muted",
+        "pill",
+        "sfs",
+        "spec",
+        "v"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/Section.jsx",
+      "lines": 22,
+      "exports": [
+        "Section"
+      ],
+      "css_classes": []
+    },
+    {
+      "path": "ui/src/pages/profile/useScrollSpy.test.jsx",
+      "lines": 175,
+      "exports": [],
+      "css_classes": []
+    },
+    {
       "path": "ui/src/pages/Profile.jsx",
-      "lines": 818,
+      "lines": 181,
       "exports": [
         "Profile"
       ],
       "css_classes": [
-        "action",
-        "ai",
         "badge",
         "big",
-        "body",
         "btn",
         "chip",
-        "dense",
-        "done",
-        "dtable",
         "empty",
         "grid2",
-        "info-box",
-        "input",
-        "k",
-        "label",
-        "list-main",
-        "list-row",
-        "mark",
-        "metric",
-        "metric-row",
         "muted",
-        "num",
         "panel",
         "ph-actions",
         "ph-desc",
@@ -641,35 +849,22 @@
         "ph-title",
         "pill",
         "profile-head",
-        "reason",
-        "ribbon",
-        "risk",
         "secondary",
-        "sep",
         "sfs",
         "skel",
-        "spec",
         "spinner",
-        "sr-only",
-        "src",
-        "status-dot",
-        "step",
-        "sticky-header",
-        "tabs",
-        "tool-btn",
-        "v",
-        "why"
+        "tool-btn"
       ]
     },
     {
       "path": "ui/src/pages/Profile.test.jsx",
-      "lines": 423,
+      "lines": 436,
       "exports": [],
       "css_classes": []
     },
     {
       "path": "ui/src/pages/ProgrammeCriteria.test.jsx",
-      "lines": 226,
+      "lines": 284,
       "exports": [],
       "css_classes": []
     },
@@ -765,8 +960,8 @@
   "totals": {
     "routes": 8,
     "api_methods": 24,
-    "design_tokens": 37,
-    "jsx_files": 37,
-    "jsx_lines": 5074
+    "design_tokens": 39,
+    "jsx_files": 52,
+    "jsx_lines": 6129
   }
 }

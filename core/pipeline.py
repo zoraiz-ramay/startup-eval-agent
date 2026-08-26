@@ -24,8 +24,14 @@ from .profile import research_profile
 
 # Headline fields the DB leaves blank but web research can establish, mapped to their key in
 # the researched deep profile.
+#
+# The three URL rows are not cosmetic. A web-sourced row carries linkedin_url="" by construction
+# (core/data.py never fills it), the non-empty filter below then drops the key entirely, and the
+# profile header rendered a blank LinkedIn line for every company outside GlassDollar even though
+# the URL was sitting in the search results the run had already fetched.
 _BACKFILL_FIELDS = (("founded_year", "founded_year"), ("funding", "funding"),
-                    ("employees_count", "employees"))
+                    ("employees_count", "employees"), ("website", "website"),
+                    ("linkedin_url", "linkedin_url"), ("crunchbase_url", "crunchbase_url"))
 
 
 def _cell(value) -> str:
@@ -213,7 +219,7 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
     sc = score_startup(row, enrichment, verification, fit, deep_profile, trend)
     _step("SCORE", "done")
     _step("ROUTE", "running")
-    rt = route(sc, fit, row, llm, deep_profile)
+    rt = route(sc, fit, row, llm, deep_profile, trend)
     _step("ROUTE", "done")
 
     profile_cols = ("company_name", "website", "hq", "founded_year", "employee_band",

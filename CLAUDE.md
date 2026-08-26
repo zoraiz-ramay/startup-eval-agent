@@ -100,6 +100,20 @@ slightly lower number.
 Empower's unconditional append in `route.py` is still there and still the reason a scorecard-only
 run can never be `Pass`; the criteria gate is what makes `Pass` reachable again.
 
+Two things hang off the pillars beyond the criteria, and both are derived rather than researched —
+no extra search, no extra completion, so they cost nothing per run:
+
+- `core/empower.py` turns evidence the run already holds into what a scout can act on today: which
+  Xcelerator bundle to offer, the investment signals (stage, investors, headcount growth, top-tier
+  programme, corroborated customers, market momentum) each carrying the source URL of the fact
+  behind it, and templated approach angles. The angles are **templated, not generated** — a model
+  asked for outreach ideas writes fluent suggestions naming a product the company does not make.
+- `core/departments.py` ships an **empty** `DEPARTMENTS` registry. Collaborate is a venture-client
+  programme, so the real question is which department would buy, and only Siemens can supply that.
+  `assess_departments` reports `configured: False` and the UI says "not yet configured" — never an
+  empty list of departments, which would read as every department having declined. Same rule as
+  `employees_history_status` and the SFS `unassessed` state. Filling it in is data, not code.
+
 **SFS is a lender, not a grant.** `assess_sfs` requires evidenced financeability — an asset the
 startup sells or needs, contracted/recurring revenue, a project with an offtake, or Series A+
 backing — and then names the product line (vendor finance / equipment & technology finance /
@@ -260,6 +274,65 @@ architecture.
 Rules that are mechanically enforced by `scripts/ix_lint.mjs`, not left to judgement: no raw
 hex/rgb outside `tokens.css`; interactive elements need accessible names; every data view needs
 visible loading, empty and error states.
+
+## Frontend source-file rules
+
+- Target <= 300 lines per hand-written source file; 400 is the hard ceiling.
+- Split by coherent responsibility, never by line count. Do not manufacture wrapper components to
+  get under the limit — a 40-line component that only forwards props is worse than a long file.
+- `styles.css` and `tokens.css` are exempt: they are the app's single stylesheet and its token
+  source, and slicing them per-component would invent an architecture nothing else follows.
+- Prefer existing components, utilities and tokens. Do not add a dependency for something a
+  browser API does cleanly (the Overview's scroll-spy is ~140 lines of IntersectionObserver).
+- Keep configuration in one place. `ui/src/pages/profile/sections.js` is the only list of the
+  Overview's sections; the rail, the scroll-spy and the tests all read it.
+- Clean up observers, subscriptions and listeners. Every one of them has a disconnect test.
+- Run `bash scripts/gates.sh` before finishing. Do not reformat unrelated code.
+
+## The profile reads top to bottom, and that is load-bearing
+
+Every view under `ui/src/pages/profile/` is a single column of `<section>`s, with the rail beside
+it (`ProfileSectionNav` + `useScrollSpy` + `ProfileLayout`), modelled on Tracxn's profile
+navigation.
+
+They used to be two-column `grid2`s. **Do not put them back.** A table of contents needs a reading
+order, and in two columns "Team & ecosystem" sits beside "Executive summary" at the same scroll
+position — there is no single current section to mark and the indicator flickers between the pair.
+
+**The rail is the page's only navigation.** A pipeline ribbon (`Input › Enrich › … › Route`) and a
+tab bar used to stack above it. The ribbon rendered all seven steps as done on every finished run,
+so it reported nothing a reader could act on while costing ~70px of sticky chrome; two navigation
+systems for one page was the other half of the problem. The Ask tab went with them — the ✦
+Assistant button opens the same conversation in the dock, from any view.
+
+Consequences worth knowing before changing any of it:
+
+- `ui/src/pages/profile/sections.js` is the **only** list of views and sections. A view's `id` is
+  also its `?tab=` value, deliberately unchanged from the old tab labels so permalinks a reviewer
+  already shared still resolve.
+- Exactly one rail group is open, and the open group **is** the rendered view. Rail state and
+  `?tab=` are the same fact; do not add a second source of truth.
+- A group header is a disclosure (`aria-expanded` + `aria-controls`), not a tab — a tablist's
+  children must be tabs, and these own a list. Sections are real anchors.
+- The rail must never be `display: none`. It was hidden below 1000px back when the tab bar carried
+  navigation there; now that would leave a phone with no way to reach Scoring & Fit at all. Below
+  1000px it becomes a full-width block above the content — same markup, same state.
+- `Section` takes its accessible name from the registry. Six unnamed `<section>`s in a row are read
+  out as "region, region, region".
+
+Three numbers have to stay in step, and there is one source for each:
+
+- `--profile-sticky-h` is *measured at runtime* by `useStickyOffset`, because `.profile-head` is
+  itself sticky and its height depends on how long the company's summary is. On a real profile it
+  is ~408px, which is why the scroll-spy's activation band is a fraction of the space *below* the
+  chrome and not of the viewport: a percentage of the viewport produced a negative root rect and
+  the observer silently stopped firing.
+- `.profile-section { scroll-margin-top }` puts a clicked section a few pixels below that line;
+  `CROSS_TOLERANCE_PX` in `useScrollSpy.js` must cover that gap, or a section scrolled to by a
+  click counts as not yet reached and the marker snaps back to its neighbour.
+- The active rule is "the last section whose top has crossed the line" — the same in both scroll
+  directions. Not "first intersecting entry" (IntersectionObserver's entry order is unspecified)
+  and not "most visible" (that tracks panel height, so a two-chip panel can never win).
 
 ## Testing
 

@@ -4,13 +4,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppProvider } from "../state.jsx";
 
 /**
- * The Siemens programme criteria checklist and the SFS panel on the Scoring & Fit tab.
+ * The Siemens programme criteria and the SFS panel on the Scoring & Fit view.
  *
  * These assert the distinction the criteria layer exists to make. A pillar that is BLOCKED and a
  * pillar that is merely UNPROVEN used to render identically — as the pillar not appearing — and a
  * reviewer could not tell "this is the wrong programme for them" from "we have not shown it yet",
  * which are opposite conclusions. Likewise the SFS chip was a bare boolean that was true for every
  * company ever evaluated; it now has to name a line, and has to be able to say it never looked.
+ *
+ * The criteria used to live in one shared "Siemens programme criteria" panel. Each pillar now owns
+ * a section carrying BOTH of its gates, so these queries scope to the pillar's own section — which
+ * is also the property worth pinning: a reviewer reading about Connect must not be shown
+ * Collaborate's verdict a few lines below it with nothing separating them.
  */
 const BASE = {
   found: true,
@@ -30,11 +35,15 @@ const ASSESSMENTS = {
   Connect: {
     pillar: "Connect", status: "blocked",
     criteria: [
+      // `blocking` mirrors what core/programs.py::_c actually serialises, and the distinction it
+      // carries is the point: being a substitute is what the company IS, so no further evidence
+      // changes it; an unevidenced deployment model is something it could go and publish.
       { id: "not_a_substitute", label: "Complements rather than replaces Siemens software",
         status: "unmet", note: "The closest portfolio match is classified a substitute.",
-        evidence_url: "" },
+        evidence_url: "", required: true, blocking: true },
       { id: "cloud_or_edge", label: "Cloud and/or edge, delivered as a service",
-        status: "unknown", note: "Deployment model not evidenced.", evidence_url: "" },
+        status: "unknown", note: "Deployment model not evidenced.", evidence_url: "",
+        required: true, blocking: false },
     ],
     blockers: ["The closest portfolio match is classified a substitute."],
     next_steps: [], detail: {},
@@ -73,6 +82,11 @@ vi.mock("../api.js", () => ({
   },
 }));
 
+/** One pillar's section, by the id the rail links to. */
+function pillarSection(pillar) {
+  return document.getElementById(`scoring-${pillar.toLowerCase()}`);
+}
+
 async function renderScoringTab() {
   const { default: Profile } = await import("./Profile.jsx");
   return render(
@@ -92,15 +106,54 @@ beforeEach(() => {
 });
 
 describe("programme criteria checklist", () => {
-  it("distinguishes a blocked pillar from an unproven one", async () => {
+  it("distinguishes a blocked pillar from an unproven one, in each pillar's own section", async () => {
     RUN = { ...BASE, routing: { pillar: "Empower", secondary: [], pillar_assessments: ASSESSMENTS } };
     await renderScoringTab();
+    await screen.findByRole("region", { name: "Scoring & Fit" });
 
-    const panel = (await screen.findByRole("heading", { name: /Siemens programme criteria/i }))
-      .closest(".panel");
-    expect(within(panel).getByText("blocked")).toBeInTheDocument();
-    expect(within(panel).getByText("unproven")).toBeInTheDocument();
-    expect(within(panel).getByText("eligible")).toBeInTheDocument();
+    expect(within(pillarSection("Connect")).getByText("blocked")).toBeInTheDocument();
+    expect(within(pillarSection("Collaborate")).getByText("unproven")).toBeInTheDocument();
+    expect(within(pillarSection("Empower")).getByText("eligible")).toBeInTheDocument();
+  });
+
+  it("gives every pillar a section, including the ones that were not recommended", async () => {
+    // The engine only emits a route_recommendation for a route that already qualified, so a
+    // rejected pillar used to be simply absent — the reviewer was told nothing about the pillar
+    // they were most likely asking about.
+    RUN = { ...BASE, routing: { pillar: "Empower", secondary: [], pillar_assessments: ASSESSMENTS,
+                                route_recommendations: [] } };
+    await renderScoringTab();
+    await screen.findByRole("region", { name: "Scoring & Fit" });
+    for (const pillar of ["Connect", "Collaborate", "Empower"]) {
+      expect(pillarSection(pillar)).toBeInTheDocument();
+    }
+  });
+
+  it("marks which unmet criterion is the one that ends the conversation", async () => {
+    /* Some unmet criteria are things a startup can go and acquire — a certification, API docs —
+       and some are what the company IS. Both rendered as an identical red cross, so the checklist
+       could not say which one is fatal. Connect's substitute criterion blocks; its unevidenced
+       deployment does not. */
+    RUN = { ...BASE, routing: { pillar: "Empower", secondary: [], pillar_assessments: ASSESSMENTS } };
+    await renderScoringTab();
+    await screen.findByRole("region", { name: "Scoring & Fit" });
+
+    const blocking = within(pillarSection("Connect")).getByText(/blocks this route/i);
+    expect(blocking.closest(".crit"))
+      .toHaveTextContent("Complements rather than replaces Siemens software");
+    // Connect's other failing criterion is merely unevidenced, so it must NOT carry the badge.
+    expect(within(pillarSection("Connect")).getAllByText(/blocks this route/i)).toHaveLength(1);
+  });
+
+  it("states a blocker once, not twice", async () => {
+    /* `assess_pillar` builds every blocker out of the note of the criterion that blocked. While
+       the checklist and the blocker list lived in separate panels that repetition was invisible;
+       in one section per pillar it printed the same sentence twice, a few lines apart. */
+    RUN = { ...BASE, routing: { pillar: "Empower", secondary: [], pillar_assessments: ASSESSMENTS } };
+    await renderScoringTab();
+    await screen.findByRole("region", { name: "Scoring & Fit" });
+    expect(within(pillarSection("Connect"))
+      .getAllByText(/The closest portfolio match is classified a substitute/)).toHaveLength(1);
   });
 
   it("says what would have to be proven, not just that it was not", async () => {
@@ -119,11 +172,16 @@ describe("programme criteria checklist", () => {
     expect(criterion.textContent).toMatch(/met/);
   });
 
-  it("shows nothing for a run evaluated before the criteria existed", async () => {
+  it("says a run predates the criteria rather than rendering an empty checklist", async () => {
+    // BASE has no dimensions either, so neither gate can be shown. "Nothing met" and "not assessed"
+    // are opposite readings and an empty checklist is the wrong one.
     RUN = { ...BASE, routing: { pillar: "Empower", secondary: [] } };
     await renderScoringTab();
-    await screen.findByRole("heading", { name: /Routing rationale/i });
-    expect(screen.queryByRole("heading", { name: /Siemens programme criteria/i })).toBeNull();
+    await screen.findByRole("region", { name: "Scoring & Fit" });
+    expect(within(pillarSection("Connect")).getByText(/predates the programme criteria/i))
+      .toBeInTheDocument();
+    expect(within(pillarSection("Connect")).queryByText(/^eligible$|^unproven$|^blocked$/))
+      .toBeNull();
   });
 });
 
@@ -142,7 +200,7 @@ describe("SFS panel", () => {
     };
     await renderScoringTab();
     const panel = (await screen.findByRole("heading", { name: /Siemens Financial Services/i }))
-      .closest(".panel");
+      .closest(".profile-section");
     expect(within(panel).getAllByText(/Vendor \/ sales finance/).length).toBeGreaterThan(0);
     expect(within(panel).getByText(/Sells physical equipment/)).toBeInTheDocument();
   });
@@ -178,7 +236,7 @@ describe("SFS panel", () => {
     RUN = { ...BASE, routing: { pillar: "Empower", secondary: [], sfs_relevant: false } };
     await renderScoringTab();
     const panel = (await screen.findByRole("heading", { name: /Siemens Financial Services/i }))
-      .closest(".panel");
+      .closest(".profile-section");
     expect(within(panel).getByText("not assessed")).toBeInTheDocument();
     expect(within(panel).getByText(/Re-evaluate to assess it/i)).toBeInTheDocument();
   });
@@ -219,7 +277,7 @@ describe("criteria vs. scorecard", () => {
       },
     };
     await renderScoringTab();
-    await screen.findByRole("heading", { name: /Siemens programme criteria/i });
+    await screen.findByRole("region", { name: "Scoring & Fit" });
     expect(screen.queryByText(/scorecard gate is what it has not cleared/i)).toBeNull();
   });
 });

@@ -82,6 +82,20 @@ def find_startup(df: pd.DataFrame, name: str) -> Optional[pd.Series]:
     return best if best_score >= 0.82 else None
 
 
+def _as_url(value: str) -> str:
+    """A website is only useful if it is a link.
+
+    The extraction routinely returns a bare host ("bliro.io") for the website field, and the
+    profile header then rendered an EMPTY Website row for exactly those companies: the value was
+    stored the whole time, and the UI's `^https?://` test dropped it. Runs already in the database
+    are repaired in `ui/src/components/widgets.jsx`; this stops new ones being written that way.
+    """
+    s = str(value or "").strip()
+    if not s or "://" in s:
+        return s
+    return "https://" + s.lstrip("/")
+
+
 def web_profile_row(name: str, llm: "LLMClient" = None, max_results: int = 4) -> Optional[pd.Series]:
     """Assemble a GlassDollar-like row for a startup that is NOT in the database, live from
     the web (DuckDuckGo) plus optional LLM extraction. Returns None if the web yields nothing.
@@ -194,7 +208,7 @@ def web_profile_row(name: str, llm: "LLMClient" = None, max_results: int = 4) ->
     host = urlparse(site if "//" in site else "https://" + site).hostname or "" if site else ""
     row = {
         "company_name": (_flat(fields.get("company_name")) or name),
-        "website": site,
+        "website": _as_url(site),
         "hq": _flat(fields.get("hq")),
         "founded_year": _flat(fields.get("founded_year")),
         # Same bar as the research pipeline: a value naming neither stage nor amount
@@ -228,7 +242,7 @@ def _knowledge_profile_row(name: str, llm: "LLMClient" = None) -> Optional[pd.Se
     g = lambda k: str(fields.get(k) or "").strip()
     desc = g("description")
     return pd.Series({
-        "company_name": g("company_name") or name, "website": g("website"), "hq": g("hq"),
+        "company_name": g("company_name") or name, "website": _as_url(g("website")), "hq": g("hq"),
         "founded_year": g("founded_year"), "funding": g("funding"),
         "employees_count": g("employees"), "customers": g("customers"),
         "short_description": desc, "Your pitch": desc,

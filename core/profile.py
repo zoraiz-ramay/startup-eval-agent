@@ -25,7 +25,7 @@ from .provenance import Fact
 from .web import _ddg_many
 from .llm import LLMClient
 from .config import KNOWN_PROGRAM_TIERS
-from .text import has_funding_signal
+from .text import _norm, has_funding_signal
 # Known startup programs for offline detection (matched case-insensitively).
 KNOWN_PROGRAMS = {
     "siemens xcelerator": "corporate_program",
@@ -68,6 +68,18 @@ EMPTY_PROFILE = {
     # (the search wave was throttled or the model was off, so nothing was actually looked at).
     # Without this the UI reported "no cited headcount history" for a company it never checked.
     "employees_history_status": "",
+    # Public identifiers, recovered from evidence already in hand (see _extract_links). The web
+    # path never captured these: web_profile_row skips social results when it guesses the website
+    # and then hard-codes linkedin_url to "", so the profile header showed a blank LinkedIn row
+    # for every company not in GlassDollar.
+    "website": "",
+    "linkedin_url": "",
+    "crunchbase_url": "",
+    # What LinkedIn's own page states as the company size, when a result snippet carries it. A
+    # BAND, kept apart from the cited headcount above rather than overwriting it: the two
+    # disagree routinely (aggregators lag LinkedIn), and a band is not a count.
+    "linkedin_size_band": "",
+    "linkedin_size_source": "",
     "parent_group": "",       # part of a major group / corporate parent
     "founded_year": "",       # web-researched; backfills a blank DB column (see pipeline)
     "founded_year_source": "",  # URL supporting founded_year, when the evidence cited one
@@ -1161,6 +1173,128 @@ def _employee_history(company: str, row: pd.Series, results: dict,
     return [], ("unavailable" if stats.get("timed_out") else "not_found")
 
 
+# Legal and vanity suffixes that show up in a profile slug but not in the company's own name, or
+# the other way round. Stripped from BOTH sides before comparing, so "bliro" matches "bliro-gmbh"
+# and "makkook-ai" matches "Makkook AI".
+_SLUG_SUFFIXES = ("gmbh", "ug", "ag", "inc", "llc", "ltd", "limited", "bv", "nv", "oy", "ab",
+                  "sa", "srl", "spa", "plc", "co", "corp", "company", "group", "holding",
+                  "holdings", "technologies", "technology", "tech", "labs", "lab", "io", "ai",
+                  "app", "hq", "official", "global", "international")
+
+# Where a public company profile lives, and how its slug is spelled in the path.
+_LINK_SOURCES = (
+    ("linkedin_url", "linkedin.com", re.compile(r"/company/([A-Za-z0-9_.\-]+)"),
+     "https://www.linkedin.com/company/{}/"),
+    ("crunchbase_url", "crunchbase.com", re.compile(r"/organization/([A-Za-z0-9_.\-]+)"),
+     "https://www.crunchbase.com/organization/{}"),
+)
+
+# Hosts that are never the company's own site, so a matching name in one of them is a directory
+# entry rather than a homepage.
+_DIRECTORY_HOSTS = ("linkedin.", "crunchbase.", "wikipedia.", "facebook.", "twitter.", "x.com",
+                    "youtube.", "instagram.", "bloomberg.", "pitchbook.", "growjo.", "getlatka.",
+                    "cbinsights.", "tracxn.", "dealroom.", "glassdoor.", "indeed.", "medium.",
+                    "github.", "producthunt.", "angel.co", "wellfound.")
+
+# "Company size 11-50 employees" as LinkedIn renders it in a search snippet. The trailing word is
+# required: the same snippets lead with a follower count, and a follower is not an employee.
+_SIZE_BAND = re.compile(r"(\d[\d,]*(?:\s*[-\u2013]\s*\d[\d,]*)?\+?)\s*employees", re.I)
+
+
+def _identity_forms(text: str) -> set[str]:
+    """Every compact spelling one name can reasonably take, for comparing against a URL slug."""
+    words = _norm(text).split()
+    compact = "".join(words)
+    if not compact:
+        return set()
+    forms = {compact}
+    while len(words) > 1 and words[-1] in _SLUG_SUFFIXES:
+        words = words[:-1]
+        forms.add("".join(words))
+    # A single run-together token keeps its suffix too ("makkookai" -> "makkook"). The length
+    # guard is what stops "sonio" being read as "son".
+    for suffix in _SLUG_SUFFIXES:
+        if len(compact) > len(suffix) + 3 and compact.endswith(suffix):
+            forms.add(compact[:-len(suffix)])
+    return {f for f in forms if len(f) >= 3}
+
+
+def _iter_hits(result_maps) -> list[dict]:
+    """Every hit across the supplied {query_key: hits} maps, in the order they were collected."""
+    hits: list[dict] = []
+    for results in result_maps:
+        for bucket in (results or {}).values():
+            for hit in bucket or []:
+                if isinstance(hit, dict):
+                    hits.append(hit)
+    return hits
+
+
+def _extract_links(company: str, row: pd.Series, *result_maps) -> dict:
+    """LinkedIn / Crunchbase / website URLs, from search results already in hand.
+
+    Deterministic: no model, no extra search. These URLs are sitting in the result sets the run
+    has already paid for — `web_profile_row` literally walks past them, skipping every social
+    result while it guesses the website — and nothing ever recorded them, so the profile header
+    showed a blank LinkedIn row for every company that is not in GlassDollar.
+
+    The grounding bar is `_program_grounded`'s: a near-namesake's LinkedIn page is worse than an
+    empty field, so the slug has to BE the company rather than merely mention it. Identity is the
+    company name and its own domain label, both reduced to their compact forms.
+    """
+    identities = _identity_forms(company)
+    hint = _site_hint(row)
+    if hint:
+        identities |= _identity_forms(hint.split(".")[0])
+    if not identities:
+        return {}
+
+    out: dict = {}
+    hits = _iter_hits(result_maps)
+    for key, host, slug_re, canonical in _LINK_SOURCES:
+        for hit in hits:
+            href = str(hit.get("href", ""))
+            if host not in href.lower():
+                continue
+            match = slug_re.search(href)
+            if not match:
+                continue
+            slug = match.group(1).rstrip(".")
+            if _identity_forms(slug.replace("-", " ").replace("_", " ")) & identities:
+                out[key] = canonical.format(slug)
+                break
+
+    # The company's own site, for a database row whose website column is blank. Same identity
+    # test, applied to the host rather than to a slug, with the directories excluded.
+    if not str(row.get("website", "") or "").strip():
+        for hit in hits:
+            href = str(hit.get("href", ""))
+            if not href.lower().startswith(("http://", "https://")):
+                continue
+            from urllib.parse import urlparse
+            netloc = (urlparse(href).hostname or "").lower()
+            if not netloc or any(d in netloc for d in _DIRECTORY_HOSTS):
+                continue
+            label = netloc[4:] if netloc.startswith("www.") else netloc
+            if _identity_forms(label.split(".")[0]) & identities:
+                out["website"] = f"https://{label}"
+                break
+
+    # LinkedIn's own headcount band, kept as a band and kept apart from the cited count. It is
+    # the figure a reviewer sees when they open LinkedIn and find it disagreeing with the
+    # aggregator the run cited, and reporting it explicitly is more honest than either silently
+    # preferring one or pretending the discrepancy is not there.
+    for hit in hits:
+        if "linkedin.com" not in str(hit.get("href", "")).lower():
+            continue
+        band = _SIZE_BAND.search(f"{hit.get('title', '')} {hit.get('body', '')}")
+        if band:
+            out["linkedin_size_band"] = band.group(1).strip()
+            out["linkedin_size_source"] = out.get("linkedin_url") or _clean_source_url(hit.get("href"))
+            break
+    return out
+
+
 def research_profile(row: pd.Series, llm: LLMClient, do_web: bool = True,
                      site: dict | None = None, web: dict | None = None) -> dict:
     """Return {'profile': {...}, 'facts': [Fact...]}; never raises.
@@ -1208,6 +1342,9 @@ def research_profile(row: pd.Series, llm: LLMClient, do_web: bool = True,
         if not prof["reference_customers"]:
             raw = str(row.get("customers", "") or row.get("Reference customers", ""))
             prof["reference_customers"] = _clean_customers(re.split(r"[,\n;·|]+", raw))
+        # Public identifiers, read off the results both waves already returned. Free, so it runs
+        # before the recall nets decide what still needs a search of its own.
+        prof.update(_extract_links(company, row, results, web))
         # GlassDollar first: seed the headline facts it already holds so the recall net below
         # skips them. This is what makes an API-sourced evaluation faster than a web-only one.
         seeded = _seed_from_database(prof, row)

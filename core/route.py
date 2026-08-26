@@ -4,11 +4,26 @@ from __future__ import annotations
 import pandas as pd
 
 from .config import FIT_ALIGN_THRESHOLD
+from .departments import assess_departments
+from .empower import empower_brief
 from .llm import LLMClient
 from .programs import assess_all_pillars, assess_sfs
 
+# Each route's scorecard gate. These were four inline literals inside route() and are mirrored in
+# `ui/src/scoring/route-constants.json`, which the browser what-if reads and
+# tests/test_whatif_route_parity.py pins by driving the real route() to each boundary. Naming them
+# once is what lets the eligibility check and the mirror be compared to the same thing; Empower is
+# present with an empty gate on purpose, because "no score gate" is a fact about Empower rather
+# than an omission, and the profile has to be able to say so.
+_GATES = {
+    "Connect": {"route_score": 70, "traction": 60},
+    "Collaborate": {"route_score": 55, "traction": 35},
+    "Empower": {},
+}
 
-def route(score: dict, fit: dict, row: pd.Series, llm: LLMClient, profile: dict = None) -> dict:
+
+def route(score: dict, fit: dict, row: pd.Series, llm: LLMClient, profile: dict = None,
+          trend: dict = None) -> dict:
     """Eligibility-based routing: a startup can qualify for MORE than one pillar
     (e.g. Collaborate + Empower). `pillar` is the primary; `secondary` lists the rest.
     Also surfaces which Siemens Financial Services line, if any, is a real avenue.
@@ -38,9 +53,9 @@ def route(score: dict, fit: dict, row: pd.Series, llm: LLMClient, profile: dict 
     r_collab = cards.get("Collaborate", final)
     score_eligible = []
     if aligned and score["dimensions"]["siemens_fit"] >= FIT_ALIGN_THRESHOLD:
-        if r_connect >= 70 and traction >= 60:
+        if r_connect >= _GATES["Connect"]["route_score"]                 and traction >= _GATES["Connect"]["traction"]:
             score_eligible.append("Connect")      # market-ready, fits portfolio
-        if r_collab >= 55 and traction >= 35:
+        if r_collab >= _GATES["Collaborate"]["route_score"]                 and traction >= _GATES["Collaborate"]["traction"]:
             score_eligible.append("Collaborate")  # strong fit, real traction
         score_eligible.append("Empower")          # tech fit; Siemens tools accelerate the startup
 
@@ -85,7 +100,15 @@ def route(score: dict, fit: dict, row: pd.Series, llm: LLMClient, profile: dict 
             "sfs_line": str(sfs.get("line", "")),
             "sfs_lines": sfs.get("lines", []),
             "sfs_blockers": sfs.get("blockers", []),
-            "sfs_rationale": str(sfs.get("rationale", ""))}
+            "sfs_rationale": str(sfs.get("rationale", "")),
+            # Empower is the pillar a scout can act on the same day, and "qualifies for Empower"
+            # is not an action. Derived from evidence the run already holds, so it costs no search
+            # and no completion — see core/empower.py.
+            "empower": empower_brief(row, profile, fit, score, trend),
+            # Collaborate is a venture-client programme, so the real question is which department
+            # would buy. `configured: False` means the registry in core/departments.py is still
+            # empty — nobody has declined this startup, nobody has been asked.
+            "departments": assess_departments(row, profile, fit)}
 
 
 # How the startup sits against the Siemens portfolio, as an outcome in its own right.
