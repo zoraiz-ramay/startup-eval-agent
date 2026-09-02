@@ -216,6 +216,60 @@ export async function stubEvaluation(page) {
     route.fulfill({ json: { answer: "Stubbed answer.", evidence: [], source: "AI" } }));
 }
 
+/** Deterministic Home dashboard data — Home also reads /api/challenges alongside myRuns. */
+export async function stubChallenges(page) {
+  await page.route("**/api/challenges", (route) => route.fulfill({ json: { challenges: [] } }));
+}
+
+/** Deterministic Settings backend-status panel. */
+export async function stubStatus(page) {
+  await page.route("**/api/status", (route) => route.fulfill({
+    json: { status: "ok", llm: true, glassdollar_key: true,
+      applications_file: "data/glassdollar_applications.xlsx", applications_count: 429 },
+  }));
+}
+
+/** Deterministic whole-tenant data for the admin dashboard (X-05 desktop-only baseline). */
+export async function stubAdminOverview(page) {
+  await page.route("**/api/admin/overview", (route) => route.fulfill({
+    json: {
+      window_days: 30,
+      users: { total: 3 },
+      sessions: { total: 5 },
+      searches: { total: 24 },
+      companies: { searched: 18, evaluated: 12 },
+      cache_hit_rate: 0.42,
+      per_user: [
+        { oid: "1", upn: "e2e.reviewer@siemens.com", searches: 14, companies: 9, last_seen: "2026-08-30T10:00:00" },
+        { oid: "2", upn: "second.reviewer@siemens.com", searches: 10, companies: 6, last_seen: "2026-08-29T15:30:00" },
+      ],
+      top_companies: [
+        { company: "Phena", searches: 6 },
+        { company: "Meili Robots", searches: 4 },
+      ],
+    },
+  }));
+  await page.route("**/api/admin/searches", (route) => route.fulfill({
+    json: {
+      searches: [
+        { id: 1, created_at: "2026-08-30T10:00:00", user_upn: "e2e.reviewer@siemens.com",
+          query: "Phena", company: "Phena", served_from: "cache" },
+        { id: 2, created_at: "2026-08-29T15:30:00", user_upn: "second.reviewer@siemens.com",
+          query: "Meili Robots", company: "Meili Robots", served_from: "fresh" },
+      ],
+    },
+  }));
+  await page.route("**/api/runs", (route) => route.fulfill({ json: RUNS_FIXTURE }));
+  await page.route("**/api/admin/admins", (route) => route.fulfill({
+    json: {
+      you: "e2e.reviewer@siemens.com",
+      admins: [
+        { upn: "e2e.reviewer@siemens.com", source: "env", granted_by: null },
+      ],
+    },
+  }));
+}
+
 /**
  * Hide anything that legitimately changes between runs before a screenshot. Without this the
  * baselines fail on timestamps and score jitter, everyone starts ignoring the diff, and the gate
