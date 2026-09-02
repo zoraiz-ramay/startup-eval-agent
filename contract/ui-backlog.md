@@ -97,7 +97,7 @@ rendered screenshot before treating a baseline as untouched, then get a human to
 | MIG-26 | Settings → `IxKeyValueList`, status-row primitive (open question) | small | none of current 8 | none expected | proposed |
 | MIG-27 | Admin → `IxKpi`, `IxInput`/`IxButton`; 4 tables use MIG-15's pattern (unblocked) | small (non-table) + medium (4 tables) | none of current 8 | none expected | proposed |
 | MIG-28 | SignIn → `IxCard` + `IxMessageBar` per MIG-03 + `IxButton`; stays outside `IxApplication` (decided) | small-medium | none (uncaptured) | none expected | proposed |
-| MIG-29 | Consolidate the remaining `.pill.<Pillar>` renderers (`Home.jsx`, `Alerts.jsx`, `WhatIfWeights.jsx`, `widgets.jsx`'s routing-summary use of `scoring/routing.js`'s output) onto `PillarPill`/`IxPill`, retiring `.pill.Connect/.Collaborate/.Empower/.Pass`. Appended out of number order — see row detail for why. | small | Home (once captured by MIG-21/24), Scoring & Fit (once captured by MIG-21) — verify against whichever of MIG-21/22/24 lands first | none expected | proposed |
+| MIG-29 | Consolidate the remaining `.pill.<Pillar>` renderers (`Home.jsx`, `Alerts.jsx`, `WhatIfWeights.jsx`, `widgets.jsx`'s routing-summary use of `scoring/routing.js`'s output) onto `PillarPill`/`IxPill`, retiring `.pill.Connect/.Collaborate/.Empower/.Pass`. Appended out of number order — see row detail for why. **Ships before MIG-22/24/25**, despite the higher number. | small | Home (once captured by MIG-21/24), Scoring & Fit (once captured by MIG-21) — verify against whichever of MIG-21/22/24 lands first | none expected | proposed |
 
 ### MIG-00 — Delete dead files
 - **Files (pass 1, `bd01eb9`):** `ui/src/components/ResultView.jsx`, 5 stub pages (`ui/src/pages/{Dashboard,Evaluate,Challenges,Solve,RunDetail}.jsx`), `ui/src/pages/EvidenceTab.jsx` — 7 files, and their orphaned imports/tests, per `current-state-inventory.md` §3.
@@ -383,14 +383,25 @@ rendered screenshot before treating a baseline as untouched, then get a human to
   sequence, per current branching convention: each row now branches off the merged main rather than
   stacking on the previous row's branch, so inserting a row mid-sequence and renumbering everything
   after it is exactly the costly, error-prone operation that convention exists to avoid.
+- **Sequencing: ships BEFORE `MIG-22`/`MIG-24`/`MIG-25`, despite the higher number.** Those three
+  rows each touch a file that still renders the old `.pill.*` markup — landing them first means each
+  would either migrate that markup incidentally as a side effect of its own component swap, or work
+  around it and leave it stranded, and this row would then have to consolidate something already
+  half-changed by three different, unrelated diffs. Doing the pill swap first means `MIG-22`/`24`/`25`
+  simply inherit `PillarPill` already in place at their file's pillar-pill site, with nothing left to
+  collide with.
 - **Files:** `ui/src/pages/Home.jsx:147`, `ui/src/pages/Alerts.jsx:57`, `ui/src/components/WhatIfWeights.jsx` (3 sites), `ui/src/components/widgets.jsx:30` (the routing-summary render of `scoring/routing.js`'s output — `scoring/routing.js` itself only computes the pillar name, it renders nothing). `ui/src/styles.css` (`.pill.Connect/.Collaborate/.Empower/.Pass` rules can only be deleted once all four are converted — `.pill.sfs`/`.pill.ghost` are a separate, non-pillar variant and stay).
+- **`widgets.jsx:30` scope note:** this call site is on the browser what-if path — it renders the
+  pillar `scoring/routing.js` computes for the *hypothetical* re-weighted state, not a stored run.
+  Swap the rendering only (`<span className={...}>` → `<PillarPill pillar={...} />`); do not
+  restructure the call site, its surrounding function, or how it's invoked from the what-if flow.
 - **Replaces:** each site's `<span className={`pill ${pillar}`}>` with `<PillarPill pillar={...} />`, the same component `MIG-01` built — no new component work, just finishing the swap at the remaining call sites.
 - **Fixes:** the two-renderings-of-the-same-concept drift this row exists to prevent; once done, `UI-09`'s contrast fix lives in exactly one place (`PillarPill`) instead of being duplicated across a CSS class and a component.
 - **Could break:** low risk — `PillarPill` already handles the unknown-pillar fallback (bare span, no miscoloured pill) per `MIG-01`. Verify `WhatIfWeights.jsx`'s `ghost` modifier (a distinct opacity treatment for a "would-be" pillar) has an equivalent on `PillarPill`/`IxPill` before assuming a like-for-like swap — `IxPill`'s prop table has no direct `ghost` equivalent, this may need an `outline` or reduced-opacity wrapper decision made during the row, not before.
 - **Size:** small.
-- **Baselines invalidated:** depends on sequencing against `MIG-21`/`MIG-22`/`MIG-24` — Home's and Scoring & Fit's baselines (once either exists) capture a pillar pill in view, so this row is expected to invalidate whichever of those has landed by the time it ships; Alerts isn't captured by any baseline currently. Verify against whichever baselines actually exist when this row is picked up, don't assume the state described here still holds.
+- **Baselines invalidated:** depends on sequencing against `MIG-21` — Home's and Scoring & Fit's baselines (once `MIG-21` captures them) show a pillar pill in view, so this row is expected to invalidate whichever has landed by the time it ships; Alerts isn't captured by any baseline currently. Verify against whichever baselines actually exist when this row is picked up, don't assume the state described here still holds.
 - **e2e rewrites:** none expected — no journey test asserts on `.pill` DOM structure at these four sites (only `PROF-15` did, and `MIG-01` already rewrote it).
-- **Status:** proposed. Recommended, not required, to schedule after `MIG-22`/`MIG-24`/`MIG-25` land, so this row's diff doesn't collide with those rows' unrelated changes to the same files.
+- **Status:** proposed. Ships before `MIG-22`/`MIG-24`/`MIG-25` — see the sequencing note above.
 
 ## Notes
 
