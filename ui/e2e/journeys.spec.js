@@ -126,7 +126,9 @@ test.describe("profile", () => {
     await page.getByRole("tab", { name: /scoring & fit/i }).click();
     await page.getByRole("button", { name: /what-if weights/i }).click();
 
-    const headerPill = page.locator(".ph-title .pill").first();
+    // MIG-01 moved the header pillar off a `.pill`-classed span onto `IxPill` — the label is
+    // still slotted (light DOM) content, so a plain locator + toHaveText still works.
+    const headerPill = page.locator(".ph-title ix-pill").first();
     await expect(page.getByText(/still/i).first()).toBeVisible();
 
     // One edit. Ecosystem to 52% of the weighting drops Collaborate's card 67.3 -> 46.4, under
@@ -142,7 +144,7 @@ test.describe("profile", () => {
     // The decision itself is untouched — that is the whole contract of a what-if.
     await expect(headerPill).toHaveText("Collaborate");
     await page.reload();
-    await expect(page.locator(".ph-title .pill").first()).toHaveText("Collaborate");
+    await expect(page.locator(".ph-title ix-pill").first()).toHaveText("Collaborate");
   });
 
   test("PROF-12: headcount trend shows its one-line empty state by default (X-03)", async ({ page }) => {
@@ -201,7 +203,10 @@ test.describe("accessibility", () => {
     };
     await page.route("**/api/my/searches", (route) => route.fulfill({ json: runs }));
     await page.goto("/explore");
-    await expect(page.locator(".pill.Pass").first()).toBeVisible();
+    // MIG-01 moved Explore's pillar chip off `.pill.Pass` onto `IxPill`; the coloured surface
+    // is its shadow-DOM `.container` div, not the host, so locate the host by its slotted text
+    // and pierce the shadow root for the painted element.
+    await expect(page.locator("ix-pill", { hasText: "Pass" }).first()).toBeVisible();
 
     // Reads the values the browser actually painted — not the source tokens — so the assertion
     // survives a theme swap and can't be satisfied by a literal sitting unused in a comment.
@@ -213,12 +218,14 @@ test.describe("accessibility", () => {
       }
       // Composite the ancestor chain's backgrounds (outermost first) over white, then the
       // element's own (possibly translucent) text colour over that — the same compositing the
-      // browser itself does, since getComputedStyle never pre-blends alpha for you.
+      // browser itself does, since getComputedStyle never pre-blends alpha for you. Crosses the
+      // shadow boundary via getRootNode().host, since IxPill's colour lives on a shadow-DOM node.
       function effectiveBg(el) {
         const layers = [];
-        for (let node = el; node; node = node.parentElement) {
+        for (let node = el; node; ) {
           const c = parseColor(getComputedStyle(node).backgroundColor);
           if (c.a > 0) layers.push(c);
+          node = node.parentElement || node.getRootNode().host || null;
         }
         layers.reverse();
         return layers.reduce(
@@ -239,10 +246,12 @@ test.describe("accessibility", () => {
 
       const out = {};
       for (const pillar of ["Connect", "Collaborate", "Empower", "Pass"]) {
-        const el = document.querySelector(`.pill.${pillar}`);
-        if (!el) continue;
-        const bg = effectiveBg(el);
-        const textColor = parseColor(getComputedStyle(el).color);
+        const host = [...document.querySelectorAll("ix-pill")].find((n) => n.textContent.trim() === pillar);
+        if (!host || !host.shadowRoot) continue;
+        const container = host.shadowRoot.querySelector(".container");
+        if (!container) continue;
+        const bg = effectiveBg(container);
+        const textColor = parseColor(getComputedStyle(container).color);
         const text = {
           r: textColor.a * textColor.r + (1 - textColor.a) * bg.r,
           g: textColor.a * textColor.g + (1 - textColor.a) * bg.g,

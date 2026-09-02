@@ -191,9 +191,13 @@
     "--fs-table",
     "--fs-title",
     "--pillar-collaborate",
+    "--pillar-collaborate-bg",
     "--pillar-connect",
+    "--pillar-connect-bg",
     "--pillar-empower",
+    "--pillar-empower-bg",
     "--pillar-pass",
+    "--pillar-pass-bg",
     "--radius",
     "--rail-w",
     "--sidenav-w",
@@ -327,10 +331,11 @@
     },
     {
       "path": "ui/src/components/widgets.jsx",
-      "lines": 107,
+      "lines": 129,
       "exports": [
         "ExtLink",
         "Loading",
+        "PillarPill",
         "PillarPills",
         "Radar",
         "ScoreBar",
@@ -434,7 +439,7 @@
     },
     {
       "path": "ui/src/pages/Explore.jsx",
-      "lines": 502,
+      "lines": 503,
       "exports": [
         "Explore"
       ],
@@ -571,7 +576,7 @@
     },
     {
       "path": "ui/src/pages/Profile.test.jsx",
-      "lines": 335,
+      "lines": 353,
       "exports": [],
       "css_classes": []
     },
@@ -655,8 +660,8 @@
   "totals": {
     "routes": 8,
     "api_methods": 24,
-    "design_tokens": 37,
+    "design_tokens": 41,
     "jsx_files": 25,
-    "jsx_lines": 4060
+    "jsx_lines": 4101
   }
 }

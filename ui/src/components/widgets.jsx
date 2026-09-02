@@ -1,5 +1,27 @@
 import React from "react";
+import { IxPill } from "@siemens/ix-react";
 import { DIMENSIONS, DIMENSION_LABELS } from "../scoring/index.js";
+
+// MIG-01: the four pillar colours themselves are unchanged (see tokens.css) — only the delivery
+// mechanism moves, from a `.pill.<Pillar>` CSS class to IxPill's `variant="custom"` background/
+// pillColor props, which is the only way to hand it a colour from JS rather than a class name.
+const PILLAR_PILL_STYLE = {
+  Connect: { background: "var(--pillar-connect-bg)", pillColor: "var(--pillar-connect)" },
+  Collaborate: { background: "var(--pillar-collaborate-bg)", pillColor: "var(--pillar-collaborate)" },
+  Empower: { background: "var(--pillar-empower-bg)", pillColor: "var(--pillar-empower)" },
+  Pass: { background: "var(--pillar-pass-bg)", pillColor: "var(--pillar-pass)" },
+};
+
+export function PillarPill({ pillar, ghost = false, children, ...rest }) {
+  const style = PILLAR_PILL_STYLE[pillar];
+  // Absence renders the bare pillar name rather than a mis-coloured pill for an unknown value.
+  if (!style) return <span {...rest}>{children ?? pillar}</span>;
+  return (
+    <IxPill variant="custom" background={style.background} pillColor={style.pillColor} outline={ghost} {...rest}>
+      {children ?? pillar}
+    </IxPill>
+  );
+}
 
 export function PillarPills({ routing }) {
   if (!routing) return null;

@@ -71,6 +71,25 @@ describe("Profile", () => {
     expect(await screen.findByRole("tablist")).toHaveClass("sticky-header");
   });
 
+  it("renders the header's pillar as an IxPill carrying its own colour, not a bare class name (MIG-01)", async () => {
+    // RUN's routing.pillar is "Connect". Before MIG-01 this was a `<span class="pill Connect">`
+    // whose colour came only from a stylesheet rule keyed on that class; the delivery mechanism
+    // itself is the thing under test, so this must fail if the pillar reverts to a plain span.
+    await renderProfile();
+    const pill = await screen.findByText("Connect");
+    expect(pill.closest(".ph-title")).toBeTruthy();
+    expect(pill.tagName.toLowerCase()).toBe("ix-pill");
+    // variant="custom" is what makes background/pillColor apply at all (components.md) — without
+    // it the props are silently ignored and the pill renders iX's default primary colour instead
+    // of the pillar ramp. Its reflected attribute lags the slotted text by a render tick (Stencil's
+    // own update cycle), so this waits rather than reading it the instant the text resolves.
+    await vi.waitFor(() => expect(pill).toHaveAttribute("variant", "custom"));
+    // `background`/`pillColor` don't reflect to attributes (components.md), so read them as the
+    // element properties the custom element actually consumes.
+    expect(pill.background).toBe("var(--pillar-connect-bg)");
+    expect(pill.pillColor).toBe("var(--pillar-connect)");
+  });
+
   it("shows a web-sourced field with its provenance link (PROF-02, X-01)", async () => {
     await renderProfile();
     // The badge's visible text is "web", but its accessible name is field-specific — see UI-01 —
@@ -317,9 +336,8 @@ describe("what-if routing (PROF-15)", () => {
     fireEvent.change(screen.getByLabelText(/^ecosystem$/i), { target: { value: "100" } });
 
     // The canonical pillar lives in the profile header and must be unmoved by anything here.
-    const headerPill = container.querySelector(".ph-title .pill, .ph-head .pill") ||
-      container.querySelector(".pill");
-    expect(headerPill.textContent).toBe("Empower");
+    const header = container.querySelector(".ph-title") || container.querySelector(".ph-head");
+    expect(within(header).getByText("Empower")).toBeInTheDocument();
   });
 
   it("keeps exactly one live region on the tab", async () => {

@@ -75,6 +75,14 @@
   --pillar-empower: var(--theme-color-primary);
   --pillar-pass: #5f6672;
 
+  /* Pillar pill backgrounds (MIG-01). `IxPill`'s `background`/`pillColor` props take a CSS colour
+     string, so the tint each pillar sat on as `.pill.X { background: ... }` moves here rather than
+     staying a value only CSS could reach — same literals, unchanged, just addressable from JSX. */
+  --pillar-connect-bg: var(--success-soft);
+  --pillar-collaborate-bg: #e7f4f8;
+  --pillar-empower-bg: var(--accent-soft);
+  --pillar-pass-bg: #f0f2f5;
+
   /* typography scale */
   --fs-title: 23px;
   --fs-section: 16px;

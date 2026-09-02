@@ -13,6 +13,12 @@ export default defineConfig({
     },
   },
   build: { outDir: "dist", sourcemap: false },
+  // @siemens/ix-react's package.json maps the plain "node" export condition to
+  // dist/components.server.js — an SSR build whose createComponent (@stencil/react-output-target/ssr)
+  // never wires props to the underlying custom element. Vitest still runs under Node even with
+  // `environment: "jsdom"`, so without forcing the browser condition it silently loads the SSR
+  // build and every IxPill prop (variant, background, pillColor) is dropped on the floor.
+  resolve: { conditions: ["browser"] },
   test: {
     environment: "jsdom",
     globals: true,

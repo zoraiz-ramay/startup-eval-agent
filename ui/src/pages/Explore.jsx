@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api.js";
 import { useApp } from "../state.jsx";
 import ErrorBox from "../components/ErrorBox.jsx";
+import { PillarPill } from "../components/widgets.jsx";
 import WeightSliders, { useWeighting } from "../components/WeightSliders.jsx";
 import { DEFAULT_WEIGHTS, reweight } from "../scoring/index.js";
 import { whatIfRouting } from "../scoring/routing.js";
@@ -46,14 +47,14 @@ const COLUMNS = {
     label: "Route",
     render: (r, w) => (
       <span>
-        <span className={`pill ${r.pillar}`}>{r.pillar}</span>{" "}
+        <PillarPill pillar={r.pillar} />{" "}
         {w?.moved && (
           <>
             <span className="muted">→</span>{" "}
-            <span className={`pill ghost ${w.pillar}`}>{w.pillar}</span>{" "}
+            <PillarPill pillar={w.pillar} ghost />{" "}
           </>
         )}
-        {(r.secondary || []).map((s) => <span key={s} className={`pill ghost ${s}`}>+{s}</span>)}
+        {(r.secondary || []).map((s) => <PillarPill key={s} pillar={s} ghost>+{s}</PillarPill>)}
       </span>
     ),
   },
