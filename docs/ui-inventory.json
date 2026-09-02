@@ -270,23 +270,6 @@
       ]
     },
     {
-      "path": "ui/src/components/ClaimEvidenceMatrix.jsx",
-      "lines": 130,
-      "exports": [
-        "ClaimEvidenceMatrix"
-      ],
-      "css_classes": [
-        "badge",
-        "cem",
-        "cem-error",
-        "cem-head",
-        "cem-scroll",
-        "cem-state",
-        "cem-table",
-        "sub"
-      ]
-    },
-    {
       "path": "ui/src/components/ErrorBox.jsx",
       "lines": 20,
       "exports": [
@@ -303,42 +286,12 @@
       "css_classes": []
     },
     {
-      "path": "ui/src/components/FitScoreHistogram.jsx",
-      "lines": 118,
-      "exports": [
-        "FitScoreHistogram"
-      ],
-      "css_classes": [
-        "muted"
-      ]
-    },
-    {
       "path": "ui/src/components/Icon.jsx",
       "lines": 42,
       "exports": [
         "Icon"
       ],
       "css_classes": []
-    },
-    {
-      "path": "ui/src/components/Loading.jsx",
-      "lines": 6,
-      "exports": [
-        "Loading"
-      ],
-      "css_classes": [
-        "loading"
-      ]
-    },
-    {
-      "path": "ui/src/components/ScoreBar.jsx",
-      "lines": 43,
-      "exports": [
-        "ScoreBar"
-      ],
-      "css_classes": [
-        "score-bar"
-      ]
     },
     {
       "path": "ui/src/components/WeightSliders.jsx",
@@ -703,7 +656,7 @@
     "routes": 8,
     "api_methods": 24,
     "design_tokens": 37,
-    "jsx_files": 29,
-    "jsx_lines": 4357
+    "jsx_files": 25,
+    "jsx_lines": 4060
   }
 }

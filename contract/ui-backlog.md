@@ -68,7 +68,7 @@ rendered screenshot before treating a baseline as untouched, then get a human to
 
 | ID | Row | Size | Baselines invalidated | e2e impact | Status |
 |----|-----|------|------------------------|------------|--------|
-| MIG-00 | Delete the 7 dead files current-state-inventory §3 flags | trivial | none | none | done |
+| MIG-00 | Delete the dead files current-state-inventory §3 flags — 11 total across two passes (7 orphaned pages/imports + `ClaimEvidenceMatrix.jsx`, `FitScoreHistogram.jsx`, `ScoreBar.jsx`, `Loading.jsx`, each independently confirmed unimported, distinct from same-named live exports in `widgets.jsx`) | trivial | none | none | done |
 | MIG-01 | Pillar pill delivery → `IxPill` | small | both | none | proposed |
 | MIG-02 | Status/feedback primitives → `IxSpinner`; `ScoreBar` → `role="meter"` or `IxKpi` (not `IxProgressIndicator`) | medium | none expected (verify) | none expected | proposed |
 | MIG-03 | `ErrorBox` → `IxMessageBar`, own row, gated on `role="alert"` + `ix_lint.mjs` rule-5 update | small | verify | none expected | gated |
@@ -99,13 +99,15 @@ rendered screenshot before treating a baseline as untouched, then get a human to
 | MIG-28 | SignIn → `IxCard` + `IxMessageBar` per MIG-03 + `IxButton`; stays outside `IxApplication` (decided) | small-medium | none (uncaptured) | none expected | proposed |
 
 ### MIG-00 — Delete dead files
-- **Files:** `ui/src/pages/{Dashboard,Evaluate,Challenges,Solve,RunDetail}.jsx` and their orphaned imports/tests, if any, per `current-state-inventory.md` §3.
+- **Files (pass 1, `bd01eb9`):** `ui/src/components/ResultView.jsx`, 5 stub pages (`ui/src/pages/{Dashboard,Evaluate,Challenges,Solve,RunDetail}.jsx`), `ui/src/pages/EvidenceTab.jsx` — 7 files, and their orphaned imports/tests, per `current-state-inventory.md` §3.
+- **Files (pass 2, follow-up commit):** `ui/src/components/ClaimEvidenceMatrix.jsx`, `ui/src/components/FitScoreHistogram.jsx`, `ui/src/components/ScoreBar.jsx`, `ui/src/components/Loading.jsx` — 4 files. The finding actually named 7 rows, not 7 files; one row bundled the 5 stub pages together and the other four files were missed in pass 1. Each was verified independently via import-specifier grep (`grep -rn "from ['\"].*<Name>" ui/src ui/e2e`, hits inspected for the resolved path) rather than a bare component-name grep, because `ui/src/components/widgets.jsx` exports live `ScoreBar` and `Loading` symbols of the same name that every real importer actually resolves to — a bare name grep would have wrongly suggested the standalone files were in use.
 - **Replaces:** nothing (pure deletion) — but shrinks the surface every later row and every `docs/ui-inventory.json` regen has to reason about.
-- **Fixes:** dead code inflating the inventory; overlaps `UI-08` above (same finding, do once).
-- **Could break:** nothing if truly unimported — confirm via grep before deleting, not from the inventory listing alone.
+- **Fixes:** dead code inflating the inventory; overlaps `UI-08` above (same finding, do once). Also removed 13 pre-existing `ix_lint` findings tied to the pass-2 files (49 known → 36 known against the unchanged baseline).
+- **Could break:** nothing if truly unimported — confirmed via grep before deleting, not from the inventory listing alone.
 - **Size:** trivial.
-- **Baselines invalidated:** none (unreachable pages, not in any captured route).
+- **Baselines invalidated:** none (unreachable pages/components, not in any captured route) — verified: full `bash scripts/gates.sh` including Playwright visual regression is green with zero screenshot diffs after both passes.
 - **e2e rewrites:** none.
+- **Status:** all 11 dead files across both passes are deleted; row closed.
 
 ### MIG-01 — Pillar pill delivery mechanism
 - **Files:** `ui/src/styles.css` (`.pill.*` rules), `ui/src/pages/Profile.jsx`, `ui/src/pages/Explore.jsx` (pillar chips), `ClaimEvidenceMatrix.jsx` if it renders pills.
