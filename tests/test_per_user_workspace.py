@@ -155,7 +155,12 @@ def test_admin_overview_counts_users_sessions_and_searches(db):
 # ------------------------------------------------------------- the admin gate
 
 @pytest.fixture()
-def signed_in() -> TestClient:
+def signed_in(monkeypatch) -> TestClient:
+    # Same isolation as the db fixture above, for the same reason: seed_admins.json is a real
+    # bootstrap file baked into the image, read unconditionally by admin_upns(). Tests below
+    # assert *absence* of admin access against a bare ADMIN_UPNS -- without this they depend on
+    # that file's live content, not on the guard they claim to test.
+    monkeypatch.setattr(auth, "_seed_admins_from_file", lambda: frozenset())
     client = TestClient(app)
     client.get("/api/auth/login", follow_redirects=False)
     return client
