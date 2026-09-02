@@ -1,4 +1,7 @@
-import { expect, RUN_FIXTURE, RUNS_FIXTURE, stabilise, stubEvaluation, stubIdentity, stubRoutableRun, stubRuns, test } from "./fixtures.js";
+import {
+  expect, RUN_FIXTURE, RUNS_FIXTURE, stabilise, stubAdminOverview, stubChallenges, stubEvaluation,
+  stubIdentity, stubRoutableRun, stubRuns, stubStatus, test,
+} from "./fixtures.js";
 
 /**
  * The user journeys from contract/feature-inventory.md. Each test names its contract ID so a
@@ -298,5 +301,74 @@ test.describe("layout", () => {
       document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
     expect(overflows, "body scrolls horizontally — wide content must scroll inside its own container")
       .toBe(false);
+  });
+
+  test("X-05: Scoring & Fit tab holds its shape", async ({ page }, testInfo) => {
+    await stubIdentity(page);
+    await stubEvaluation(page);
+    await page.goto("/startup/1");
+    await stabilise(page);
+    await page.getByRole("tab", { name: "Scoring & Fit" }).click();
+    await expect(page.getByRole("tab", { name: "Scoring & Fit", selected: true })).toBeVisible();
+    await expect(page).toHaveScreenshot(`scoring-fit-${testInfo.project.name}.png`, { fullPage: false });
+  });
+
+  test("X-05: Evidence tab holds its shape", async ({ page }, testInfo) => {
+    await stubIdentity(page);
+    await stubEvaluation(page);
+    await page.goto("/startup/1");
+    await stabilise(page);
+    await page.getByRole("tab", { name: "Evidence" }).click();
+    await expect(page.getByRole("tab", { name: "Evidence", selected: true })).toBeVisible();
+    await expect(page).toHaveScreenshot(`evidence-${testInfo.project.name}.png`, { fullPage: false });
+  });
+
+  test("X-05: Home layout holds its shape", async ({ page }, testInfo) => {
+    await stubIdentity(page);
+    await stubRuns(page);
+    await stubChallenges(page);
+    // Tracked companies is watchlist ∩ loaded runs — names must match RUNS_FIXTURE exactly.
+    // Seeded via addInitScript so it's present before Home's usePersistent initializer reads it.
+    await page.addInitScript(() => {
+      localStorage.setItem("se.watchlist.v2", JSON.stringify(["Phena", "Meili Robots", "Hypertrain"]));
+    });
+    // Overrides the shared empty stub from fixtures.js (registered earlier, so this later
+    // registration wins) for this spec only — other specs still see an empty saved-views list.
+    await page.route("**/api/my/views", (route) =>
+      route.fulfill({
+        json: {
+          views: [
+            { name: "Connect shortlist", columns: ["final_score", "siemens_fit", "hq", "stage"], filters: {} },
+            { name: "High fit, funded", columns: ["final_score", "funding", "founded_year"], filters: {} },
+            { name: "Evidence review queue", columns: ["evidence", "trend", "pillar"], filters: {} },
+          ],
+        },
+      }),
+    );
+    await page.goto("/");
+    await stabilise(page);
+    await expect(page).toHaveScreenshot(`home-${testInfo.project.name}.png`, { fullPage: false });
+  });
+
+  // Settings and Admin are desktop-only baselines — both are narrow-panel or admin-gated
+  // back-office surfaces with no responsive risk beyond what Explore/Profile/Evidence already
+  // exercise at all four widths (see contract/ui-backlog.md MIG-21).
+  test("X-05: Settings layout holds its shape (desktop only)", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop", "Settings is a narrow single-column panel — desktop baseline only.");
+    await stubIdentity(page);
+    await stubStatus(page);
+    await page.goto("/settings");
+    await stabilise(page);
+    await expect(page).toHaveScreenshot(`settings-${testInfo.project.name}.png`, { fullPage: false });
+  });
+
+  test("X-05: Admin layout holds its shape (desktop only)", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop", "Admin is an internal, admin-gated back-office view — desktop baseline only.");
+    await stubIdentity(page, { admin: true });
+    await stubAdminOverview(page);
+    await page.goto("/admin");
+    await stabilise(page);
+    await expect(page.getByRole("heading", { name: "Admin", exact: true })).toBeVisible();
+    await expect(page).toHaveScreenshot(`admin-${testInfo.project.name}.png`, { fullPage: false });
   });
 });
