@@ -13,18 +13,9 @@ export default defineConfig({
     },
   },
   build: { outDir: "dist", sourcemap: false },
-  // @siemens/ix-react's package.json maps the plain "node" export condition to
-  // dist/components.server.js — an SSR build whose createComponent (@stencil/react-output-target/ssr)
-  // never wires props to the underlying custom element. Vitest still runs under Node even with
-  // `environment: "jsdom"`, so without forcing the browser condition it silently loads the SSR
-  // build and every IxPill prop (variant, background, pillColor) is dropped on the floor.
-  resolve: { conditions: ["browser"] },
-  test: {
-    environment: "jsdom",
-    globals: true,
-    setupFiles: "./src/test/setup.js",
-    // E2E lives in ui/e2e and is driven by Playwright, which owns its own runner.
-    include: ["src/**/*.test.{js,jsx}"],
-    restoreMocks: true,
-  },
+  // The Vitest-only "browser" resolve condition (needed for @siemens/ix-react — see
+  // vitest.config.js) deliberately does not live here: this file also drives `vite build`/`vite
+  // dev`, and confirmed by diffing `npm run build` output with/without it, Vite's client build
+  // already resolves the browser condition by default — adding it here would be a no-op for the
+  // production bundle but would widen this config's blast radius to builds/dev for no reason.
 });
