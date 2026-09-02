@@ -327,6 +327,24 @@ test.describe("layout", () => {
     await stubIdentity(page);
     await stubRuns(page);
     await stubChallenges(page);
+    // Tracked companies is watchlist ∩ loaded runs — names must match RUNS_FIXTURE exactly.
+    // Seeded via addInitScript so it's present before Home's usePersistent initializer reads it.
+    await page.addInitScript(() => {
+      localStorage.setItem("se.watchlist.v2", JSON.stringify(["Phena", "Meili Robots", "Hypertrain"]));
+    });
+    // Overrides the shared empty stub from fixtures.js (registered earlier, so this later
+    // registration wins) for this spec only — other specs still see an empty saved-views list.
+    await page.route("**/api/my/views", (route) =>
+      route.fulfill({
+        json: {
+          views: [
+            { name: "Connect shortlist", columns: ["final_score", "siemens_fit", "hq", "stage"], filters: {} },
+            { name: "High fit, funded", columns: ["final_score", "funding", "founded_year"], filters: {} },
+            { name: "Evidence review queue", columns: ["evidence", "trend", "pillar"], filters: {} },
+          ],
+        },
+      }),
+    );
     await page.goto("/");
     await stabilise(page);
     await expect(page).toHaveScreenshot(`home-${testInfo.project.name}.png`, { fullPage: false });
