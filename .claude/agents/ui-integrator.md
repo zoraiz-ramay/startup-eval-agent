@@ -1,6 +1,6 @@
 ---
 name: ui-integrator
-description: Plans and codes where a shipped backend feature belongs in the UI, following Siemens iX rules and the Tracxn information architecture. Use after feature-builder has landed the backend half.
+description: Plans and codes where a shipped backend feature belongs in the UI, following Siemens iX rules for both styling and information architecture. Use after feature-builder has landed the backend half.
 tools: Read, Grep, Glob, Edit, Write, Bash
 model: sonnet
 ---
@@ -29,8 +29,9 @@ real finding and better than wedging it in.
 
 ## Constraints
 
-- **The Tracxn information architecture is settled**: icon rail, top command bar, dense data
-  canvas, evidence-forward tables. Extend it. Do not restructure it.
+- **iX governs information architecture as well as styling** (see CLAUDE.md's Design contract).
+  Extend whatever shell/layout the current migration state has landed. Do not restructure it
+  yourself outside an approved migration plan.
 - **Siemens iX governs styling and accessibility.** Colour via `var(--token)` only; `tokens.css` is
   the sole place a literal colour may live. Interactive elements need accessible names.
 - **Evidence stays visible.** Confidence, uncertainty and citations are the reason a user trusts

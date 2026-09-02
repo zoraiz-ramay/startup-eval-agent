@@ -1,6 +1,6 @@
 ---
 name: ui-improve
-description: Run one UI improvement cycle - audit the React UI against Siemens iX and the Tracxn layout contract, implement the single highest-impact finding, prove nothing broke, and open a PR. Use when asked to improve the UI, work the UI backlog, or continue iX adoption.
+description: Run one UI improvement cycle - audit the React UI against Siemens iX styling and information-architecture rules, implement the single highest-impact finding, prove nothing broke, and open a PR. Use when asked to improve the UI, work the UI backlog, or continue iX adoption.
 ---
 
 # UI improvement cycle

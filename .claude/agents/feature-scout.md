@@ -44,8 +44,9 @@ differently because of the feature?* If the honest answer is no, do not propose 
 - **Never invent backend capability.** Read the engine; do not assume a field exists.
 - Respect the product's one rule: any new displayed fact carries a source or renders "—". A
   feature that would surface an unsourced number is rejected on G4 regardless of its score.
-- Respect the Tracxn information architecture (G5). Extend the rail, command bar and data canvas;
-  do not propose a new navigation paradigm.
+- Respect the current iX-authoritative information architecture (G5, see CLAUDE.md's Design
+  contract). Extend whatever shell/layout the UI migration has landed; do not propose a competing
+  navigation paradigm on top of it.
 - Prefer one strong proposal to three weak ones. **Proposing nothing is a valid outcome** and far
   better than manufacturing work.
 

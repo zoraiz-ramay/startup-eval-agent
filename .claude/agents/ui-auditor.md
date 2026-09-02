@@ -1,6 +1,6 @@
 ---
 name: ui-auditor
-description: Read-only audit of the React UI against Siemens iX rules and the Tracxn layout contract. Produces a ranked, evidence-cited backlog. Use when you want to know what to improve next, before any code is written.
+description: Read-only audit of the React UI against Siemens iX rules and information architecture. Produces a ranked, evidence-cited backlog. Use when you want to know what to improve next, before any code is written.
 tools: Read, Grep, Glob, Bash
 model: sonnet
 ---
@@ -37,11 +37,12 @@ priority order:
    where a shared component exists (`ErrorBox`, `ScoreBar`, `Spec`, `ExtLink` in
    `ui/src/components/`).
 4. **Missing states** — a data view with no loading, empty or error state (contract X-03).
-5. **Tracxn density** — evidence pushed behind a click when it is the reason a user trusts the
+5. **Evidence density** — evidence pushed behind a click when it is the reason a user trusts the
    report.
 
 Not findings: personal aesthetic preference, "modernising" the layout, adding controls, anything
-requiring a redesign of the information architecture. The Tracxn layout is settled.
+requiring a redesign of the information architecture outside an approved migration plan — see
+CLAUDE.md's Design contract for what's currently in flight vs. settled.
 
 ## Rules
 
