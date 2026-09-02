@@ -160,17 +160,40 @@ canvas (data surface), text, semantic, pillar ramp, type scale. Components refer
 raw colours. `docs/ui-inventory.json` is generated from source by `scripts/ui_inventory.py`; read
 it instead of recalling the component list from memory.
 
-## Design contract: Tracxn layout, Siemens iX styling
+## Design contract: Siemens iX owns styling and information architecture
 
-The layout is deliberately modelled on Tracxn — icon rail, top command bar (Ctrl/Cmd-K), dense
-data canvas, evidence-forward tables. **That structure is not up for redesign.** Siemens iX
-(`@siemens/ix`) supplies colour, typography, spacing and component primitives *within* that
-structure. When the two conflict, iX wins on styling and accessibility; Tracxn wins on information
-architecture.
+Siemens iX (`@siemens/ix`) is now authoritative for both styling **and** information architecture.
+The Tracxn-modelled shell — icon rail, top command bar, collapsible secondary side-nav, dense data
+canvas — is being retired in favour of iX's own shell and layout primitives. Where an old Tracxn
+rule had a purpose, here is what replaces it, not just what's deleted:
+
+- **App shell.** The fixed icon rail + top bar + conditional side-nav stack (`App.jsx`) is replaced
+  by iX's own shell composition (`IxApplication` as the single root, holding the application header,
+  application menu and content components as children rather than hand-rolled fixed-position
+  siblings — see `docs/ix/guidance.md`). The exact shell composition is a Phase 3 decision; this
+  entry records the authority, not the final component list.
+- **Command bar.** The Ctrl/Cmd-K global search-and-slash-command palette has no iX equivalent and
+  needs a fresh IA decision in Phase 3 rather than a re-skin.
+- **Dense data tables.** iX ships no `IxTable`/`IxBasicTable` (verify any component name against
+  `docs/ix/components.md` before it enters a design) — Explore's sticky-column, customisable,
+  URL-state-persisted grid needs an explicit Phase 3 decision on what iX primitive(s) it's rebuilt
+  from.
+- **Pillar colour ramp.** The hand-derived four-way Connect/Collaborate/Empower/Pass ramp has no
+  anchor in iX's palette; Phase 3 decides whether it stays a hand-derived app-level overlay or is
+  redrawn onto an iX-supported scale.
+- **Dark chrome over a light canvas.** iX has no "dark chrome, light workspace" construct. This
+  seam either gets an iX-sanctioned equivalent or an explicit, documented exception in Phase 3 —
+  it does not survive by default just because it existed before.
 
 Rules that are mechanically enforced by `scripts/ix_lint.mjs`, not left to judgement: no raw
 hex/rgb outside `tokens.css`; interactive elements need accessible names; every data view needs
 visible loading, empty and error states.
+
+Reference material for this migration lives in `docs/ix/`: `INDEX.md` (start here),
+`components.md` (every real @siemens/ix-react 5.1.1 component + props — the only source of truth
+for whether a component name exists), `tokens.md`, `icons.md`, `guidance.md` (distilled usage
+rules, cited to source, with a caveat that the public docs site trails the pinned package version),
+and `current-state-inventory.md` (what the pre-migration UI actually contains).
 
 ## Testing
 

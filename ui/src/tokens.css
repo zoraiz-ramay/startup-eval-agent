@@ -1,11 +1,11 @@
 /* ============================================================================
    Design tokens — single source of truth for the whole app.
 
-   Every value here now derives from Siemens iX (@siemens/ix, classic theme). The token NAMES are
-   unchanged, so no component was touched by this migration: iX supplies the palette, the Tracxn
-   information architecture (dark chrome, light data canvas, dense evidence tables) supplies the
-   structure. This file is the single seam between the two, and the only place in ui/src where a
-   colour literal is allowed — scripts/ix_lint.mjs enforces that.
+   Every value here derives from Siemens iX (@siemens/ix, classic theme). This file is the single
+   seam between iX's palette and the app's current structure (dark chrome, light data canvas,
+   dense evidence tables) — a structure now scheduled for replacement by iX-authoritative layout
+   (see CLAUDE.md's Design contract). Until that replacement lands, this remains the only place in
+   ui/src where a colour literal is allowed — scripts/ix_lint.mjs enforces that.
 
    Two things are deliberate and worth knowing before changing them:
 
@@ -15,7 +15,8 @@
    2. The product chrome is dark over that light canvas. iX has no "dark chrome in a light app"
       construct, so the --chrome-* tokens carry iX's DARK-schema values as literals. They are iX
       colours, just not the ones the current schema resolves to. Swapping them for
-      var(--theme-color-*) would make the rail and top bar white and collapse the Tracxn look.
+      var(--theme-color-*) would make the rail and top bar white — this whole seam is flagged for
+      a Phase 3 IA decision (docs/ix/current-state-inventory.md §4), not settled by this comment.
    ========================================================================== */
 :root {
   /* chrome (product shell) — iX dark-schema palette, applied over a light workspace */
@@ -74,6 +75,14 @@
   --pillar-empower: var(--theme-color-primary);
   --pillar-pass: #5f6672;
 
+  /* Pillar pill backgrounds (MIG-01). `IxPill`'s `background`/`pillColor` props take a CSS colour
+     string, so the tint each pillar sat on as `.pill.X { background: ... }` moves here rather than
+     staying a value only CSS could reach — same literals, unchanged, just addressable from JSX. */
+  --pillar-connect-bg: var(--success-soft);
+  --pillar-collaborate-bg: #e7f4f8;
+  --pillar-empower-bg: var(--accent-soft);
+  --pillar-pass-bg: #f0f2f5;
+
   /* typography scale */
   --fs-title: 23px;
   --fs-section: 16px;
@@ -81,8 +90,9 @@
   --fs-table: 12.5px;
   --fs-meta: 11.5px;
 
-  /* geometry — Tracxn density; deliberately tighter than iX defaults, which are sized for
-     touch-capable industrial panels rather than a comparison table. */
+  /* geometry — deliberately tighter than iX defaults, which are sized for touch-capable
+     industrial panels rather than a comparison table; whether this geometry survives the iX
+     shell replacement is a Phase 3 decision (docs/ix/current-state-inventory.md §4). */
   --radius: 6px;
   --topbar-h: 56px;
   --rail-w: 68px;
@@ -98,11 +108,13 @@
 /* iX ships a Bootstrap-style reset whose `body` rule sets font-family, font-size, line-height and
    letter-spacing. `body` outranks the `:root` stack above, so without this counter-rule the whole
    canvas silently adopts iX's metrics — which are sized for touch-capable industrial panels and
-   cost ~2px per table row, the density Tracxn depends on.
+   cost ~2px per table row, eating into the current dense-table layout's row density.
 
    It also names Siemens Sans, defeating the precaution documented above: the font is licensed and
    not bundled, so machines that happen to have it installed would render different screenshots and
-   the visual gate would stop meaning anything. We take iX's colour, not its typography.
+   the visual gate would stop meaning anything. We take iX's colour, not its typography — though
+   iX's own type scale becomes a live option once the Phase 3 layout replacement lands, since the
+   density constraint driving this counter-rule may not carry over unchanged.
 
    This must stay in tokens.css, not styles.css: it is part of the seam between iX and the app, and
    it only wins because tokens.css is @imported after siemens-ix.css. */

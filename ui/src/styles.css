@@ -201,6 +201,11 @@ a:hover { text-decoration: underline; }
 .desc-clip { max-width: 300px; overflow: hidden; text-overflow: ellipsis; color: var(--text-2); }
 
 /* ---------------- pills / badges ---------------- */
+/* MIG-01 moved the pillar pill (Connect/Collaborate/Empower/Pass) in Profile.jsx and Explore.jsx
+   off this class onto `IxPill` (see components/widgets.jsx's `PillarPill`, tokens.css's
+   --pillar-*-bg). The four rules below stay only because Home.jsx, Alerts.jsx and
+   scoring/routing.js still render their own pillar pill from this class directly — migrating
+   those is separate, un-scoped work, not a thing this row's diff should touch. */
 .pill {
   display: inline-block; padding: 1px 9px; border-radius: 999px;
   font-weight: 700; font-size: 11px; border: 1px solid transparent;

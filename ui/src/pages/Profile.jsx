@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api.js";
 import { useApp } from "../state.jsx";
-import { ScoreBar, Radar, Spec, ExtLink } from "../components/widgets.jsx";
+import { ScoreBar, Radar, Spec, ExtLink, PillarPill } from "../components/widgets.jsx";
 import ErrorBox from "../components/ErrorBox.jsx";
 import WhatIfWeights from "../components/WhatIfWeights.jsx";
 import { contributionProfile, DEFAULT_WEIGHTS, DIMENSIONS, DIMENSION_LABELS } from "../scoring/index.js";
@@ -273,8 +273,8 @@ function ScoringTab({ res, runId }) {
         <div className="panel">
           <h3>Routing rationale</h3>
           <p style={{ margin: "0 0 6px" }}>
-            <span className={`pill ${rt.pillar}`}>{rt.pillar}</span>{" "}
-            {(rt.secondary || []).map((s) => <span key={s} className={`pill ghost ${s}`}>+{s}</span>)}{" "}
+            <PillarPill pillar={rt.pillar} />{" "}
+            {(rt.secondary || []).map((s) => <PillarPill key={s} pillar={s} ghost>+{s}</PillarPill>)}{" "}
             {rt.sfs_relevant && <span className="pill sfs" title={rt.sfs_rationale}>SFS financing</span>}
             <span className="badge">confidence {Math.round((rt.confidence || 0) * 100)}%</span>
           </p>
@@ -285,7 +285,7 @@ function ScoringTab({ res, runId }) {
               <h3 style={{ marginTop: 12 }}>Route scorecards</h3>
               {rt.route_recommendations.map((r) => (
                 <div key={r.route} className="spec">
-                  <div className="k"><span className={`pill ${r.route}`}>{r.route}</span></div>
+                  <div className="k"><PillarPill pillar={r.route} /></div>
                   <div className="v">
                     <span className="num">{r.score}</span>
                     <div className="muted" style={{ fontSize: 12.5 }}>{r.recommendation}</div>
@@ -570,8 +570,8 @@ export default function Profile() {
           <div style={{ flex: 1, minWidth: 240 }}>
             <h1 className="ph-title">
               {res.company}
-              <span className={`pill ${rt.pillar}`} style={{ marginLeft: 10, verticalAlign: "middle" }}>{rt.pillar}</span>{" "}
-              {(rt.secondary || []).map((s) => <span key={s} className={`pill ghost ${s}`}>+{s}</span>)}
+              <PillarPill pillar={rt.pillar} style={{ marginLeft: 10, verticalAlign: "middle" }} />{" "}
+              {(rt.secondary || []).map((s) => <PillarPill key={s} pillar={s} ghost>+{s}</PillarPill>)}
             </h1>
             <p className="ph-desc">{res.summary}</p>
             <div className="ph-meta">

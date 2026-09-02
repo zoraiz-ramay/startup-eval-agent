@@ -13,12 +13,9 @@ export default defineConfig({
     },
   },
   build: { outDir: "dist", sourcemap: false },
-  test: {
-    environment: "jsdom",
-    globals: true,
-    setupFiles: "./src/test/setup.js",
-    // E2E lives in ui/e2e and is driven by Playwright, which owns its own runner.
-    include: ["src/**/*.test.{js,jsx}"],
-    restoreMocks: true,
-  },
+  // The Vitest-only "browser" resolve condition (needed for @siemens/ix-react — see
+  // vitest.config.js) deliberately does not live here: this file also drives `vite build`/`vite
+  // dev`, and confirmed by diffing `npm run build` output with/without it, Vite's client build
+  // already resolves the browser condition by default — adding it here would be a no-op for the
+  // production bundle but would widen this config's blast radius to builds/dev for no reason.
 });

@@ -191,9 +191,13 @@
     "--fs-table",
     "--fs-title",
     "--pillar-collaborate",
+    "--pillar-collaborate-bg",
     "--pillar-connect",
+    "--pillar-connect-bg",
     "--pillar-empower",
+    "--pillar-empower-bg",
     "--pillar-pass",
+    "--pillar-pass-bg",
     "--radius",
     "--rail-w",
     "--sidenav-w",
@@ -270,23 +274,6 @@
       ]
     },
     {
-      "path": "ui/src/components/ClaimEvidenceMatrix.jsx",
-      "lines": 130,
-      "exports": [
-        "ClaimEvidenceMatrix"
-      ],
-      "css_classes": [
-        "badge",
-        "cem",
-        "cem-error",
-        "cem-head",
-        "cem-scroll",
-        "cem-state",
-        "cem-table",
-        "sub"
-      ]
-    },
-    {
       "path": "ui/src/components/ErrorBox.jsx",
       "lines": 20,
       "exports": [
@@ -303,48 +290,12 @@
       "css_classes": []
     },
     {
-      "path": "ui/src/components/FitScoreHistogram.jsx",
-      "lines": 118,
-      "exports": [
-        "FitScoreHistogram"
-      ],
-      "css_classes": [
-        "muted"
-      ]
-    },
-    {
       "path": "ui/src/components/Icon.jsx",
       "lines": 42,
       "exports": [
         "Icon"
       ],
       "css_classes": []
-    },
-    {
-      "path": "ui/src/components/Loading.jsx",
-      "lines": 6,
-      "exports": [
-        "Loading"
-      ],
-      "css_classes": [
-        "loading"
-      ]
-    },
-    {
-      "path": "ui/src/components/ResultView.jsx",
-      "lines": 3,
-      "exports": [],
-      "css_classes": []
-    },
-    {
-      "path": "ui/src/components/ScoreBar.jsx",
-      "lines": 43,
-      "exports": [
-        "ScoreBar"
-      ],
-      "css_classes": [
-        "score-bar"
-      ]
     },
     {
       "path": "ui/src/components/WeightSliders.jsx",
@@ -380,10 +331,11 @@
     },
     {
       "path": "ui/src/components/widgets.jsx",
-      "lines": 107,
+      "lines": 129,
       "exports": [
         "ExtLink",
         "Loading",
+        "PillarPill",
         "PillarPills",
         "Radar",
         "ScoreBar",
@@ -486,42 +438,8 @@
       ]
     },
     {
-      "path": "ui/src/pages/Challenges.jsx",
-      "lines": 3,
-      "exports": [],
-      "css_classes": []
-    },
-    {
-      "path": "ui/src/pages/Dashboard.jsx",
-      "lines": 3,
-      "exports": [],
-      "css_classes": []
-    },
-    {
-      "path": "ui/src/pages/Evaluate.jsx",
-      "lines": 3,
-      "exports": [],
-      "css_classes": []
-    },
-    {
-      "path": "ui/src/pages/EvidenceTab.jsx",
-      "lines": 139,
-      "exports": [
-        "EvidenceTab"
-      ],
-      "css_classes": [
-        "badge",
-        "empty",
-        "evidence-tab",
-        "evidence-table",
-        "filter-container",
-        "loading",
-        "source-quality-legend"
-      ]
-    },
-    {
       "path": "ui/src/pages/Explore.jsx",
-      "lines": 502,
+      "lines": 503,
       "exports": [
         "Explore"
       ],
@@ -658,13 +576,7 @@
     },
     {
       "path": "ui/src/pages/Profile.test.jsx",
-      "lines": 335,
-      "exports": [],
-      "css_classes": []
-    },
-    {
-      "path": "ui/src/pages/RunDetail.jsx",
-      "lines": 3,
+      "lines": 353,
       "exports": [],
       "css_classes": []
     },
@@ -734,12 +646,6 @@
       "css_classes": []
     },
     {
-      "path": "ui/src/pages/Solve.jsx",
-      "lines": 3,
-      "exports": [],
-      "css_classes": []
-    },
-    {
       "path": "ui/src/state.jsx",
       "lines": 157,
       "exports": [
@@ -754,8 +660,8 @@
   "totals": {
     "routes": 8,
     "api_methods": 24,
-    "design_tokens": 37,
-    "jsx_files": 36,
-    "jsx_lines": 4514
+    "design_tokens": 41,
+    "jsx_files": 25,
+    "jsx_lines": 4101
   }
 }

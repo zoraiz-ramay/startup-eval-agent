@@ -1,6 +1,10 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
+// @siemens/ix-react's barrel registers ~100 custom elements as a side effect of import (MIG-01
+// needs one of them, IxPill). Paying that cost here, once, in setup — rather than letting whichever
+// test first imports a component that uses it eat several seconds against its own timeout.
+import "@siemens/ix-react";
 
 afterEach(cleanup);
 
