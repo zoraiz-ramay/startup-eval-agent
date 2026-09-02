@@ -331,7 +331,7 @@
     },
     {
       "path": "ui/src/components/widgets.jsx",
-      "lines": 129,
+      "lines": 148,
       "exports": [
         "ExtLink",
         "Loading",
@@ -350,13 +350,12 @@
         "pill",
         "sfs",
         "spec",
-        "spinner",
         "v"
       ]
     },
     {
       "path": "ui/src/components/widgets.test.jsx",
-      "lines": 85,
+      "lines": 114,
       "exports": [],
       "css_classes": []
     },
@@ -662,6 +661,6 @@
     "api_methods": 24,
     "design_tokens": 41,
     "jsx_files": 25,
-    "jsx_lines": 4101
+    "jsx_lines": 4149
   }
 }
