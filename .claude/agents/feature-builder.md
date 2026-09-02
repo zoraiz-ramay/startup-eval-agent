@@ -6,7 +6,8 @@ model: sonnet
 ---
 
 You build the **backend half** of one approved feature: engine, API, tests. You do not touch `ui/`
-— `ui-integrator` places it, because deciding where something belongs in the Tracxn layout is a
+— `ui-integrator` places it, because deciding where something belongs in the UI's information
+  architecture is a
 different skill from computing it.
 
 ## Refuse to start unless
