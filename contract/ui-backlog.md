@@ -69,7 +69,7 @@ rendered screenshot before treating a baseline as untouched, then get a human to
 | ID | Row | Size | Baselines invalidated | e2e impact | Status |
 |----|-----|------|------------------------|------------|--------|
 | MIG-00 | Delete the dead files current-state-inventory §3 flags — 11 total across two passes (7 orphaned pages/imports + `ClaimEvidenceMatrix.jsx`, `FitScoreHistogram.jsx`, `ScoreBar.jsx`, `Loading.jsx`, each independently confirmed unimported, distinct from same-named live exports in `widgets.jsx`) | trivial | none | none | done |
-| MIG-01 | Pillar pill delivery → `IxPill` | small | both | none | proposed |
+| MIG-01 | Pillar pill delivery → `IxPill` | small | none (verified: all 8 pass) | 2 selectors rewritten | done |
 | MIG-02 | Status/feedback primitives → `IxSpinner`; `ScoreBar` → `role="meter"` or `IxKpi` (not `IxProgressIndicator`) | medium | none expected (verify) | none expected | proposed |
 | MIG-03 | `ErrorBox` → `IxMessageBar`, own row, gated on `role="alert"` + `ix_lint.mjs` rule-5 update | small | verify | none expected | gated |
 | MIG-04 | Data-display primitives → `IxKeyValue(List)`, `IxKpi`, `IxEmptyState` | large | `profile-*`; `explore-*` unlikely (verify) | none expected | proposed |
@@ -110,13 +110,14 @@ rendered screenshot before treating a baseline as untouched, then get a human to
 - **Status:** all 11 dead files across both passes are deleted; row closed.
 
 ### MIG-01 — Pillar pill delivery mechanism
-- **Files:** `ui/src/styles.css` (`.pill.*` rules), `ui/src/pages/Profile.jsx`, `ui/src/pages/Explore.jsx` (pillar chips), `ClaimEvidenceMatrix.jsx` if it renders pills.
-- **Replaces:** hand-rolled `.pill` class with `IxPill variant="custom"` + `background`/`pillColor`. The four literal colors are unchanged — only the delivery mechanism moves, per `ia-mapping.md`.
-- **Fixes:** delivers the pill through an iX component instead of bespoke CSS, and is the direct fix for `UI-09`'s contrast regression site if `IxPill`'s own text-color handling differs from `--theme-color-weak-text`.
-- **Could break:** `UI-09`'s existing contrast fix — re-measure contrast on the `IxPill`-rendered version before calling this done.
+- **Files:** `ui/src/tokens.css` (new `--pillar-*-bg` tokens, literals moved from `styles.css`), `ui/src/components/widgets.jsx` (new `PillarPill` wrapping `IxPill variant="custom"`), `ui/src/pages/Profile.jsx` (3 sites), `ui/src/pages/Explore.jsx` (pillar column), `ui/src/styles.css` (`.pill.*` rules kept — still consumed directly by `Home.jsx`, `Alerts.jsx`, `WhatIfWeights.jsx`, `scoring/routing.js`, migrating those is separate unscoped work), `ui/vite.config.js`, `ui/src/test/setup.js`. `ClaimEvidenceMatrix.jsx` confirmed deleted by MIG-00 — moot.
+- **Replaces:** hand-rolled `.pill` class with `IxPill variant="custom"` + `background`/`pillColor`, at the 4 sites above. The four literal colors are unchanged — only the delivery mechanism moves, per `ia-mapping.md`.
+- **Fixes:** delivers the pill through an iX component instead of bespoke CSS at those sites. Also fixed a real bug found along the way: `@siemens/ix-react`'s `"node"` export condition resolves to an SSR stub whose props never reach the underlying custom element — Vitest (jsdom) was hitting that stub, so `IxPill`'s `variant`/`background`/`pillColor` were silently dropped in every test and would have been in production too. Fixed via `resolve: { conditions: ["browser"] }` in `ui/vite.config.js`.
+- **Could break:** `UI-09`'s existing contrast fix — re-measured directly against the `IxPill`-rendered shadow-DOM `.container` node (color is painted there, not on the host element): Connect 5.80:1, Collaborate 5.64:1, Empower 4.98:1, Pass 5.16:1 — all clear AA (4.5:1), unchanged from UI-09 because the same literal color strings are now passed through `background`/`pillColor` instead of CSS classes.
 - **Size:** small.
-- **Baselines invalidated:** both `profile-*` (pill is in the header) and `explore-*` (pillar chips in the filter row) — pixel-level color/shape change.
-- **e2e rewrites:** none (no test asserts pill DOM structure, only visual).
+- **Baselines invalidated:** none — both `profile-*` and `explore-*` (all 4 breakpoints each) verified passing with zero diff; `IxPill`'s custom-variant rendering is pixel-identical to the retired `.pill` class at the 4 migrated sites.
+- **e2e rewrites:** 2 selectors in `journeys.spec.js` (PROF-15's `.ph-title .pill` → `.ph-title ix-pill`; X-06's contrast check rewritten to pierce `ix-pill`'s shadow DOM) — everything else (`Explore.test.jsx`, remaining `journeys.spec.js` cases) needed no change.
+- **Status:** done. Branch `mig-01-pillar-pill`, rebased onto a combined base (`step-b-ix-design-contract` merged with `mig-00-delete-dead-pages`) after the implementer discovered it had been built on `step-b` alone, which predates the MIG plan landing anywhere.
 
 ### MIG-02 — Status/feedback primitives
 - **Files:** `ui/src/components/widgets.jsx` (`Loading`, `ScoreBar`), and every importer.
