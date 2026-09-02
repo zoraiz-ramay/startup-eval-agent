@@ -1,5 +1,5 @@
 import React from "react";
-import { IxPill } from "@siemens/ix-react";
+import { IxPill, IxSpinner } from "@siemens/ix-react";
 import { DIMENSIONS, DIMENSION_LABELS } from "../scoring/index.js";
 
 // MIG-01: the four pillar colours themselves are unchanged (see tokens.css) — only the delivery
@@ -38,12 +38,26 @@ export function PillarPills({ routing }) {
   );
 }
 
+// MIG-02: not IxProgressIndicator — its role="progressbar" (verified: no ARIA override in
+// components.md) means task completion, and a score of 62 is not 62% done toward anything.
+// role="meter" is the correct native ARIA pattern for a fixed-range measurement, so this stays a
+// custom widget rather than moving to IxKpi, whose prop table (label/value/unit/state) has no
+// notion of a range or a visual fill and would drop the 0-100 scale the bar-track exists to show.
 export function ScoreBar({ label, value }) {
   const v = Math.max(0, Math.min(100, Number(value) || 0));
   return (
     <div>
       <div className="bar-label"><span>{label}</span><span>{v.toFixed(0)}</span></div>
-      <div className="bar-track"><div className="bar-fill" style={{ width: `${v}%` }} /></div>
+      <div
+        className="bar-track"
+        role="meter"
+        aria-valuenow={v}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label={label}
+      >
+        <div className="bar-fill" style={{ width: `${v}%` }} />
+      </div>
     </div>
   );
 }
@@ -118,11 +132,16 @@ export function ExtLink({ href, children }) {
 export function Loading({ text }) {
   // role="status" + aria-live="polite" so a screen reader announces that work started and
   // finished. Evaluations run for tens of seconds; without this the page is silent the whole
-  // time and a non-sighted reviewer cannot tell a slow run from a broken one. The spinner is
-  // decorative and hidden, or it gets read out as meaningless content alongside the message.
+  // time and a non-sighted reviewer cannot tell a slow run from a broken one. IxSpinner claims
+  // role="status"/aria-busy="true" on its own host unconditionally (ix/spinner.js) regardless of
+  // what's passed in, so leaving it unhidden would give this region two competing status
+  // announcers. aria-hidden="true" is preserved through that (only role/aria-busy get
+  // overwritten), which removes the whole element from the accessibility tree per spec — so the
+  // spinner stays purely decorative and the outer <p> is the one and only thing a screen reader
+  // hears.
   return (
     <p className="muted" role="status" aria-live="polite">
-      <span className="spinner" aria-hidden="true" /> {text}
+      <IxSpinner size="xx-small" aria-hidden="true" /> {text}
     </p>
   );
 }
