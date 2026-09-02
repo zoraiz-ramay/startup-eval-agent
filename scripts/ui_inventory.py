@@ -56,7 +56,7 @@ def build() -> dict:
             "lines": src.count("\n") + 1 if src else 0,
             "exports": sorted(set(_EXPORT.findall(src))),
             # Which shared CSS classes a file leans on — the quickest signal that a change is
-            # drifting from the established Tracxn layout vocabulary.
+            # drifting from the established layout vocabulary.
             "css_classes": sorted({c for m in _CLASS.findall(src) for c in m.split() if c}),
         })
 

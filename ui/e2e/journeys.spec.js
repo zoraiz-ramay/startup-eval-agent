@@ -260,11 +260,11 @@ test.describe("accessibility", () => {
 });
 
 /**
- * Visual regression — the enforceable form of "the Tracxn layout is preserved".
+ * Visual regression — the enforceable form of "the shell layout is preserved".
  * Baselines are human-owned; agents must not regenerate them.
  */
 test.describe("layout", () => {
-  test("X-05/X-06: Tracxn shell holds its shape", async ({ page }, testInfo) => {
+  test("X-05/X-06: app shell holds its shape", async ({ page }, testInfo) => {
     await stubIdentity(page);
     await stubRuns(page);
     await page.goto("/explore");

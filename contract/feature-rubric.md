@@ -17,7 +17,7 @@ approves the survivors before implementation starts.
 | G2 | **Cites its evidence.** Names the backend field, API response key, or user journey it serves, with a `file:line`. | Stops invented features and invented justifications. |
 | G3 | **Not a control or a restyle.** Sorting, filtering, toggling, spacing, colour and copy tweaks are UI backlog items, not features. | This is the exact trap the old system fell into. |
 | G4 | **Preserves provenance.** Any new fact displayed carries a source, or renders "—". | The product's one rule (see CLAUDE.md). |
-| G5 | **Fits the Tracxn information architecture.** Extends the icon rail / command bar / dense data canvas rather than introducing a new paradigm. | The layout is deliberate and not up for redesign. |
+| G5 | **Fits the current iX-authoritative information architecture.** Extends whatever shell/layout the UI migration has landed rather than introducing a new paradigm ad hoc. | The layout is deliberate, not a place for a feature proposal to freelance a redesign — see CLAUDE.md's Design contract. |
 
 ## Scored dimensions — 2 points each, **≥ 7 of 10 required**
 
@@ -67,7 +67,7 @@ proposal.
 - **Score**: 9/10 (impact 2, readiness 2, frequency 2, trust 2, cost 1)
 - **Problem**: the reviewer decision it changes, in one sentence
 - **Evidence**: the field/journey, cited
-- **Sketch**: where it lands in the Tracxn layout
+- **Sketch**: where it lands in the current UI shell/layout
 - **Contract rows**: new IDs to add to feature-inventory.md
 - **Status**: proposed | approved | rejected — <who/when>
 ```
