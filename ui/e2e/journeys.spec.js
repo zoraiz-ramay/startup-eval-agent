@@ -368,7 +368,7 @@ test.describe("layout", () => {
     await stubAdminOverview(page);
     await page.goto("/admin");
     await stabilise(page);
-    await expect(page.getByRole("heading", { name: "Admin" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Admin", exact: true })).toBeVisible();
     await expect(page).toHaveScreenshot(`admin-${testInfo.project.name}.png`, { fullPage: false });
   });
 });
