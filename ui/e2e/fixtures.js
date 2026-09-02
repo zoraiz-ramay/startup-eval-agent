@@ -45,6 +45,14 @@ export const RUN_FIXTURE = {
   facts: [
     { key: "site:/", value: "Phena — Our Supporters", source_url: "https://phena.tech",
       method: "site_fetch", confidence: 0.6, verified: true },
+    { key: "founded_year", value: "2026", source_url: "https://www.cbinsights.com/company/phena",
+      method: "web_search", confidence: 0.72, verified: true },
+    { key: "employees_count", value: "2-10", source_url: "https://www.linkedin.com/company/phena",
+      method: "linkedin_scrape", confidence: 0.55, verified: false },
+    { key: "hq", value: "Istanbul, Turkey", source_url: "https://phena.tech/about",
+      method: "site_fetch", confidence: 0.68, verified: true },
+    { key: "funding", value: "undisclosed", source_url: "",
+      method: "analyst_estimate", confidence: 0.3, verified: false },
   ],
   verification: { claims: [], red_flags: [] },
   trend: { label: "Emerging", signals: [] },
@@ -216,9 +224,24 @@ export async function stubEvaluation(page) {
     route.fulfill({ json: { answer: "Stubbed answer.", evidence: [], source: "AI" } }));
 }
 
-/** Deterministic Home dashboard data — Home also reads /api/challenges alongside myRuns. */
+/**
+ * Deterministic Home dashboard data — Home also reads /api/challenges alongside myRuns.
+ *
+ * Four rows so the "Recent challenges" panel's slice(-4) keeps all of them, and the statuses
+ * are mixed so both the approve/reject buttons (pending) and the plain status badge
+ * (approved/rejected) appear in the same baseline.
+ */
 export async function stubChallenges(page) {
-  await page.route("**/api/challenges", (route) => route.fulfill({ json: { challenges: [] } }));
+  await page.route("**/api/challenges", (route) => route.fulfill({
+    json: {
+      challenges: [
+        { problem: "Predictive maintenance for legacy PLCs", status: "approved" },
+        { problem: "Grid-scale battery analytics", status: "pending" },
+        { problem: "AI visual inspection for electronics", status: "rejected" },
+        { problem: "Industrial cybersecurity for OT networks", status: "pending" },
+      ],
+    },
+  }));
 }
 
 /** Deterministic Settings backend-status panel. */
@@ -229,23 +252,34 @@ export async function stubStatus(page) {
   }));
 }
 
-/** Deterministic whole-tenant data for the admin dashboard (X-05 desktop-only baseline). */
+/**
+ * Deterministic whole-tenant data for the admin dashboard (X-05 desktop-only baseline).
+ *
+ * Four rows per table (three for admins, since a real deployment rarely has more) so every
+ * dense table on the page — Reviewers, Most-searched companies, Recent activity, Administrators
+ * — renders a populated body instead of its "nobody yet" empty state. /api/runs reuses
+ * RUNS_FIXTURE (3 rows), already populated, for "All companies evaluated".
+ */
 export async function stubAdminOverview(page) {
   await page.route("**/api/admin/overview", (route) => route.fulfill({
     json: {
       window_days: 30,
-      users: { total: 3 },
-      sessions: { total: 5 },
-      searches: { total: 24 },
-      companies: { searched: 18, evaluated: 12 },
-      cache_hit_rate: 0.42,
+      users: { total: 4 },
+      sessions: { total: 6 },
+      searches: { total: 34 },
+      companies: { searched: 22, evaluated: 15 },
+      cache_hit_rate: 0.44,
       per_user: [
         { oid: "1", upn: "e2e.reviewer@siemens.com", searches: 14, companies: 9, last_seen: "2026-08-30T10:00:00" },
         { oid: "2", upn: "second.reviewer@siemens.com", searches: 10, companies: 6, last_seen: "2026-08-29T15:30:00" },
+        { oid: "3", upn: "third.reviewer@siemens.com", searches: 7, companies: 5, last_seen: "2026-08-28T11:15:00" },
+        { oid: "4", upn: "fourth.reviewer@siemens.com", searches: 3, companies: 2, last_seen: "2026-08-25T09:05:00" },
       ],
       top_companies: [
-        { company: "Phena", searches: 6 },
-        { company: "Meili Robots", searches: 4 },
+        { company: "Phena", searches: 8 },
+        { company: "Meili Robots", searches: 5 },
+        { company: "Hypertrain", searches: 4 },
+        { company: "Routable Robotics", searches: 3 },
       ],
     },
   }));
@@ -256,6 +290,10 @@ export async function stubAdminOverview(page) {
           query: "Phena", company: "Phena", served_from: "cache" },
         { id: 2, created_at: "2026-08-29T15:30:00", user_upn: "second.reviewer@siemens.com",
           query: "Meili Robots", company: "Meili Robots", served_from: "fresh" },
+        { id: 3, created_at: "2026-08-28T11:15:00", user_upn: "third.reviewer@siemens.com",
+          query: "hypertrain.ai", company: "Hypertrain", served_from: "cache" },
+        { id: 4, created_at: "2026-08-25T09:05:00", user_upn: "fourth.reviewer@siemens.com",
+          query: "routable robotics", company: "Routable Robotics", served_from: "fresh" },
       ],
     },
   }));
@@ -265,6 +303,8 @@ export async function stubAdminOverview(page) {
       you: "e2e.reviewer@siemens.com",
       admins: [
         { upn: "e2e.reviewer@siemens.com", source: "env", granted_by: null },
+        { upn: "second.reviewer@siemens.com", source: "db", granted_by: "e2e.reviewer@siemens.com" },
+        { upn: "third.reviewer@siemens.com", source: "db", granted_by: "e2e.reviewer@siemens.com" },
       ],
     },
   }));
