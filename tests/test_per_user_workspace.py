@@ -14,7 +14,7 @@ import tempfile
 import pytest
 from fastapi.testclient import TestClient
 
-from api import store
+from api import auth, store
 from api.main import app
 
 
@@ -27,6 +27,10 @@ def db(monkeypatch):
     # real AWS vars exported does not silently test against the production database.
     monkeypatch.setattr(store, "_restore_from_s3", lambda: None)
     monkeypatch.setattr(store, "_upload_to_s3", lambda: None)
+    # seed_admins.json is a real bootstrap file baked into the image (currently seeding a
+    # real person) and is read unconditionally by admin_upns() — without this, "the only
+    # admin left" tests below are testing against production admin data, not a clean world.
+    monkeypatch.setattr(auth, "_seed_admins_from_file", lambda: frozenset())
     return path
 
 
