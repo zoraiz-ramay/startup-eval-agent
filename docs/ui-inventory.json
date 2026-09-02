@@ -331,12 +331,6 @@
       ]
     },
     {
-      "path": "ui/src/components/ResultView.jsx",
-      "lines": 3,
-      "exports": [],
-      "css_classes": []
-    },
-    {
       "path": "ui/src/components/ScoreBar.jsx",
       "lines": 43,
       "exports": [
@@ -486,40 +480,6 @@
       ]
     },
     {
-      "path": "ui/src/pages/Challenges.jsx",
-      "lines": 3,
-      "exports": [],
-      "css_classes": []
-    },
-    {
-      "path": "ui/src/pages/Dashboard.jsx",
-      "lines": 3,
-      "exports": [],
-      "css_classes": []
-    },
-    {
-      "path": "ui/src/pages/Evaluate.jsx",
-      "lines": 3,
-      "exports": [],
-      "css_classes": []
-    },
-    {
-      "path": "ui/src/pages/EvidenceTab.jsx",
-      "lines": 139,
-      "exports": [
-        "EvidenceTab"
-      ],
-      "css_classes": [
-        "badge",
-        "empty",
-        "evidence-tab",
-        "evidence-table",
-        "filter-container",
-        "loading",
-        "source-quality-legend"
-      ]
-    },
-    {
       "path": "ui/src/pages/Explore.jsx",
       "lines": 502,
       "exports": [
@@ -663,12 +623,6 @@
       "css_classes": []
     },
     {
-      "path": "ui/src/pages/RunDetail.jsx",
-      "lines": 3,
-      "exports": [],
-      "css_classes": []
-    },
-    {
       "path": "ui/src/pages/Saved.jsx",
       "lines": 42,
       "exports": [
@@ -734,12 +688,6 @@
       "css_classes": []
     },
     {
-      "path": "ui/src/pages/Solve.jsx",
-      "lines": 3,
-      "exports": [],
-      "css_classes": []
-    },
-    {
       "path": "ui/src/state.jsx",
       "lines": 157,
       "exports": [
@@ -755,7 +703,7 @@
     "routes": 8,
     "api_methods": 24,
     "design_tokens": 37,
-    "jsx_files": 36,
-    "jsx_lines": 4514
+    "jsx_files": 29,
+    "jsx_lines": 4357
   }
 }
