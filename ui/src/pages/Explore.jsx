@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { IxCategoryFilter } from "@siemens/ix-react";
+import { IxCategoryFilter, IxContentHeader, IxKpi } from "@siemens/ix-react";
 import { api } from "../api.js";
 import { useApp } from "../state.jsx";
 import ErrorBox from "../components/ErrorBox.jsx";
@@ -349,9 +349,10 @@ export default function Explore() {
   return (
     <div>
       <div className="crumb">Explore &gt; Companies</div>
-      <div className="page-head">
-        <h1 className="page-title">Companies Covered</h1>
-        <span className="page-meta">{rows.length} results</span>
+      {/* MIG-13: IxContentHeader replaces the hand-rolled page head, matching Profile's own use
+          (MIG-18). headerSubtitle is plain text (components.md), so it carries the result count;
+          the saved-view chip — not a title/subtitle concept — goes in the default slot instead. */}
+      <IxContentHeader headerTitle="Companies Covered" headerSubtitle={`${rows.length} results`}>
         {/* Without this a view whose columns happen to match the defaults opens invisibly,
             which is indistinguishable from it not opening at all. */}
         {activeView && (
@@ -360,14 +361,14 @@ export default function Explore() {
             <button onClick={clearView} aria-label={`Close the view ${activeView.name}`}>✕</button>
           </span>
         )}
-      </div>
+      </IxContentHeader>
 
       {stats && (
         <div className="stats-strip">
-          <div className="stat"><span className="v">{stats.total}</span><span className="k">Companies</span></div>
-          <div className="stat"><span className="v">{stats.avg}</span><span className="k">Avg Fit Score</span></div>
-          <div className="stat"><span className="v">{stats.aligned}</span><span className="k">Siemens-aligned</span></div>
-          <div className="stat"><span className="v">{stats.sfs}</span><span className="k">SFS relevant</span></div>
+          <IxKpi label="Companies" value={stats.total} />
+          <IxKpi label="Avg Fit Score" value={stats.avg} />
+          <IxKpi label="Siemens-aligned" value={stats.aligned} />
+          <IxKpi label="SFS relevant" value={stats.sfs} />
         </div>
       )}
 
