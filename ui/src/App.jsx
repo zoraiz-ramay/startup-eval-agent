@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Routes, Route, NavLink, useNavigate, useLocation } from "react-router-dom";
+import { IxApplication, IxContent } from "@siemens/ix-react";
 import {
   iconAi, iconAlarmBell, iconBookmark, iconCogwheel, iconDashboard, iconEye, iconHome,
   iconSearch, iconTable,
@@ -201,31 +202,38 @@ function SideNav() {
 }
 
 /* ------------------------------------------------ shell */
+// IxApplication is the single shell root (application-header/menu/content as children,
+// per CLAUDE.md's design contract), replacing the hand-rolled fixed-position siblings this
+// used to be. TopBar/Rail/SideNav/AssistantDock are still the bespoke components built for the
+// Tracxn-modelled shell — MIG-07/08/09/11 replace them one at a time; this commit is scoped to
+// the root-container swap only, so they render unchanged inside IxContent for now.
 function Shell() {
   const { dockOpen } = useApp();
   const loc = useLocation();
   const noSidenav = loc.pathname.startsWith("/startup/");
   return (
-    <>
+    <IxApplication>
       <TopBar />
       <Rail />
       {!noSidenav && <SideNav />}
-      <main className={"content" + (noSidenav ? " no-sidenav" : "") + (dockOpen ? " with-dock" : "")}>
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/explore" element={<Explore />} />
-          <Route path="/startup/:id" element={<Profile />} />
-          <Route path="/saved" element={<Saved />} />
-          <Route path="/alerts" element={<Alerts />} />
-          <Route path="/ask" element={<AskAI />} />
-          <Route path="/settings" element={<Settings />} />
-          {/* Registered for everyone: the page renders its own explanation when the API
-              answers 403, which beats a blank 404 for a reviewer who was sent the link. */}
-          <Route path="/admin" element={<Admin />} />
-        </Routes>
-      </main>
+      <IxContent>
+        <main className={"content" + (noSidenav ? " no-sidenav" : "") + (dockOpen ? " with-dock" : "")}>
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/explore" element={<Explore />} />
+            <Route path="/startup/:id" element={<Profile />} />
+            <Route path="/saved" element={<Saved />} />
+            <Route path="/alerts" element={<Alerts />} />
+            <Route path="/ask" element={<AskAI />} />
+            <Route path="/settings" element={<Settings />} />
+            {/* Registered for everyone: the page renders its own explanation when the API
+                answers 403, which beats a blank 404 for a reviewer who was sent the link. */}
+            <Route path="/admin" element={<Admin />} />
+          </Routes>
+        </main>
+      </IxContent>
       <AssistantDock />
-    </>
+    </IxApplication>
   );
 }
 

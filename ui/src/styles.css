@@ -111,16 +111,14 @@ a:hover { text-decoration: underline; }
 .snav-item .count { font-size: 11px; color: var(--text-3); }
 
 /* ---------------- content ---------------- */
+/* MIG-06: the fixed-offset margin this used to force (topbar-h/rail-w/sidenav-w) assumed the
+   old hand-rolled fixed-position shell. IxContent (App.jsx's Shell) now owns page layout, so
+   this only keeps the page's own padding — the offset math is gone, not relocated. */
 .content {
-  margin: var(--topbar-h) 0 0 calc(var(--rail-w) + var(--sidenav-w));
-  padding: 16px 20px 90px; min-height: calc(100vh - var(--topbar-h));
+  padding: 16px 20px 90px;
 }
-.content.no-sidenav { margin-left: var(--rail-w); }
-.content.with-dock { margin-right: 340px; }
 @media (max-width: 1180px) {
   .sidenav { display: none; }
-  .content { margin-left: var(--rail-w); }
-  .content.with-dock { margin-right: 0; }
 }
 
 .crumb { color: var(--text-3); font-size: var(--fs-meta); margin-bottom: 2px; }
