@@ -66,23 +66,8 @@ a:hover { text-decoration: underline; }
   border: none; font-weight: 700; font-size: 12px; cursor: pointer;
 }
 
-/* ---------------- icon rail ---------------- */
-.rail {
-  position: fixed; top: var(--topbar-h); bottom: 0; left: 0; width: var(--rail-w); z-index: 70;
-  background: var(--surface-2); display: flex; flex-direction: column; padding-top: 6px;
-}
-/* Also worn by a <button> (the assistant toggle), which brings its own background, border
-   and font — hence the resets, so it sits flush with the <a> items beside it. */
-.rail-item {
-  display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 10px 0;
-  color: var(--text-2); border-left: 3px solid transparent; cursor: pointer;
-  background: none; border-top: 0; border-right: 0; border-bottom: 0; width: 100%;
-  font-family: inherit;
-}
-.rail-item:hover { color: var(--text-1); background: var(--surface); text-decoration: none; }
-.rail-item.active { color: var(--accent); background: var(--surface); border-left-color: var(--accent); }
-.rail-item .ri { font-size: 17px; line-height: 1; }
-.rail-item .rl { font-size: 9.5px; font-weight: 600; letter-spacing: .2px; }
+/* MIG-08: the icon rail's own CSS (.rail/.rail-item) is gone — IxMenu (App.jsx's Rail) owns
+   that chrome now, styled by iX itself rather than this stylesheet. */
 
 /* ---------------- secondary nav ---------------- */
 .sidenav {

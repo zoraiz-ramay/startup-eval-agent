@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Routes, Route, NavLink, useNavigate, useLocation } from "react-router-dom";
-import { IxApplication, IxApplicationHeader, IxContent } from "@siemens/ix-react";
+import { IxApplication, IxApplicationHeader, IxContent, IxMenu, IxMenuItem } from "@siemens/ix-react";
 import {
   iconAi, iconAlarmBell, iconBookmark, iconCogwheel, iconDashboard, iconEye, iconHome,
   iconSearch, iconTable,
@@ -140,31 +140,39 @@ const RAIL = [
 ];
 const ADMIN_RAIL = { to: "/admin", label: "Admin", icon: iconDashboard };
 
+// MIG-08: IxMenu replaces the hand-rolled <nav class="rail">. IxMenu's default aria-label
+// ("Application Navigation", i18nAriaLabelMenu) names the inner role="menubar" region, not the
+// outer role="navigation" landmark — that landmark's accessible name is wired to
+// `applicationName` instead (verified against the compiled source, ix/dist/collection/
+// components/menu/menu.js, which components.md's prop table doesn't make clear). Set here so
+// the pre-existing "Primary" navigation query keeps meaning what it always meant, rather than
+// leaving the landmark unnamed or renaming the test to a string that says less.
 function Rail() {
   const { user } = useAuth();
   const { dockOpen, setDockOpen } = useApp();
+  const nav = useNavigate();
+  const loc = useLocation();
   // The route is guarded server-side by require_admin; this only decides whether a reviewer
   // is shown a door they cannot open.
   const items = user?.is_admin ? [...RAIL, ADMIN_RAIL] : RAIL;
+  const isActive = (n) => (n.end ? loc.pathname === n.to : loc.pathname.startsWith(n.to));
   return (
-    <nav className="rail" aria-label="Primary">
+    <IxMenu slot="menu" applicationName="Primary Navigation">
       {items.map((n) => (
         n.action === "dock" ? (
-          <button key={n.label} type="button" title={n.label}
-            className={"rail-item" + (dockOpen ? " active" : "")}
-            aria-expanded={dockOpen} onClick={() => setDockOpen(!dockOpen)}>
-            <span className="ri"><Icon icon={n.icon} size={18} /></span>
-            <span className="rl">{n.label}</span>
-          </button>
+          // slot="bottom" per IxMenuItem's own prop note: `bottom` is documented as "no longer
+          // working, use slot='bottom' instead" — this is the one control for the assistant now
+          // that the command bar's duplicate has gone, so it stays reachable rather than a
+          // one-way close.
+          <IxMenuItem key={n.label} slot="bottom" icon={n.icon} label={n.label}
+            aria-label={n.label} active={dockOpen} aria-expanded={dockOpen}
+            onClick={() => setDockOpen(!dockOpen)} />
         ) : (
-          <NavLink key={n.to} to={n.to} end={n.end} title={n.label}
-            className={({ isActive }) => "rail-item" + (isActive ? " active" : "")}>
-            <span className="ri"><Icon icon={n.icon} size={18} /></span>
-            <span className="rl">{n.label}</span>
-          </NavLink>
+          <IxMenuItem key={n.to} icon={n.icon} label={n.label} active={isActive(n)}
+            onClick={() => nav(n.to)} />
         )
       ))}
-    </nav>
+    </IxMenu>
   );
 }
 
