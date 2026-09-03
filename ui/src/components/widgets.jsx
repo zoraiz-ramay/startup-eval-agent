@@ -1,5 +1,5 @@
 import React from "react";
-import { IxPill, IxSpinner } from "@siemens/ix-react";
+import { IxKeyValue, IxPill, IxSpinner } from "@siemens/ix-react";
 import { DIMENSIONS, DIMENSION_LABELS } from "../scoring/index.js";
 
 // MIG-01: the four pillar colours themselves are unchanged (see tokens.css) — only the delivery
@@ -111,12 +111,15 @@ export function Radar({ dimensions, overlay = null, overlayLabel = "", size = 26
   );
 }
 
+// MIG-20: IxKeyValue's `value` prop only takes a string (components.md), but Spec's callers pass
+// arbitrary JSX — links, chips, muted placeholders. Its compiled source (key-value.js) renders
+// the `custom-value` slot whenever `value` is left undefined, which is the only way to hand it a
+// React node rather than text, so `value` itself is never set here.
 export function Spec({ k, children }) {
   return (
-    <div className="spec">
-      <div className="k">{k}</div>
-      <div className="v">{children || <span className="muted">—</span>}</div>
-    </div>
+    <IxKeyValue label={k}>
+      <div slot="custom-value">{children || <span className="muted">—</span>}</div>
+    </IxKeyValue>
   );
 }
 

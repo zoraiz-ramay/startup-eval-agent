@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { IxContentHeader, IxTabItem, IxTabs } from "@siemens/ix-react";
+import { IxCard, IxCardContent, IxContentHeader, IxKeyValueList, IxTabItem, IxTabs } from "@siemens/ix-react";
 import { api } from "../api.js";
 import { useApp } from "../state.jsx";
 import { ScoreBar, Radar, Spec, ExtLink, PillarPill } from "../components/widgets.jsx";
@@ -58,28 +58,32 @@ function WebSourced({ src, field }) {
 // list when there's enough to call a trend, matching the engine's own bar.
 function HeadcountTrend({ points }) {
   const pts = points || [];
+  // MIG-20: only the container moves to IxCard — the list itself is plain data markup, not a
+  // chart, so there is no iX primitive for it to become.
   return (
-    <div className="panel">
-      <h3>Headcount trend</h3>
-      {pts.length >= 2 ? (
-        <>
-          <p style={{ marginTop: 0 }}>
-            <strong>{pts[0].count}</strong> → <strong>{pts[pts.length - 1].count}</strong> employees
-            <span className="muted"> ({pts[0].year}–{pts[pts.length - 1].year})</span>
+    <IxCard>
+      <IxCardContent>
+        <h3>Headcount trend</h3>
+        {pts.length >= 2 ? (
+          <>
+            <p style={{ marginTop: 0 }}>
+              <strong>{pts[0].count}</strong> → <strong>{pts[pts.length - 1].count}</strong> employees
+              <span className="muted"> ({pts[0].year}–{pts[pts.length - 1].year})</span>
+            </p>
+            {pts.map((pt, i) => (
+              <div key={i} className="list-row" style={{ padding: "5px 0", fontSize: 12.5 }}>
+                <div className="list-main">{pt.year} · {pt.count} employees</div>
+                <ExtLink href={pt.source_url}>{`source (${pt.year})`}</ExtLink>
+              </div>
+            ))}
+          </>
+        ) : (
+          <p className="muted" style={{ margin: 0 }}>
+            No cited headcount history — fewer than two independently sourced data points.
           </p>
-          {pts.map((pt, i) => (
-            <div key={i} className="list-row" style={{ padding: "5px 0", fontSize: 12.5 }}>
-              <div className="list-main">{pt.year} · {pt.count} employees</div>
-              <ExtLink href={pt.source_url}>{`source (${pt.year})`}</ExtLink>
-            </div>
-          ))}
-        </>
-      ) : (
-        <p className="muted" style={{ margin: 0 }}>
-          No cited headcount history — fewer than two independently sourced data points.
-        </p>
-      )}
-    </div>
+        )}
+      </IxCardContent>
+    </IxCard>
   );
 }
 
@@ -106,74 +110,88 @@ function OverviewTab({ res }) {
       </div>
       <div className="grid2">
         <div>
-          <div className="panel">
-            <h3>Executive summary</h3>
-            <p style={{ marginTop: 0 }}>{res.summary || <span className="muted">No summary.</span>}</p>
-            <Spec k="Headquarters">{p.hq}</Spec>
-            <Spec k="Stage">{p["Development stage of your solution"]}</Spec>
-            <Spec k="Business model">{p["Business model"]}</Spec>
-            <Spec k="Funding">{p.funding}{p.funding && <> <WebSourced src={psrc.funding} field="funding" /></>}</Spec>
-            <Spec k="Website"><ExtLink href={p.website} /></Spec>
-            <Spec k="LinkedIn"><ExtLink href={p.linkedin_url} /></Spec>
-            {dp.parent_group && <Spec k="Part of group">{dp.parent_group}</Spec>}
-          </div>
+          <IxCard>
+            <IxCardContent>
+              <h3>Executive summary</h3>
+              <p style={{ marginTop: 0 }}>{res.summary || <span className="muted">No summary.</span>}</p>
+              <IxKeyValueList>
+                <Spec k="Headquarters">{p.hq}</Spec>
+                <Spec k="Stage">{p["Development stage of your solution"]}</Spec>
+                <Spec k="Business model">{p["Business model"]}</Spec>
+                <Spec k="Funding">{p.funding}{p.funding && <> <WebSourced src={psrc.funding} field="funding" /></>}</Spec>
+                <Spec k="Website"><ExtLink href={p.website} /></Spec>
+                <Spec k="LinkedIn"><ExtLink href={p.linkedin_url} /></Spec>
+                {dp.parent_group && <Spec k="Part of group">{dp.parent_group}</Spec>}
+              </IxKeyValueList>
+            </IxCardContent>
+          </IxCard>
           <HeadcountTrend points={dp.employees_over_time} />
         </div>
         <div>
-          <div className="panel">
-            <h3>Team &amp; ecosystem</h3>
-            {founders.length === 0 && advisors.length === 0 && programs.length === 0 && (
-              <p className="muted" style={{ margin: 0 }}>No researched team data.</p>
-            )}
-            {founders.map((f, i) => (
-              <Spec key={i} k="Founder">
-                {f.name} — {f.role || "founder"}
-                {f.background && <span className="muted"> · {f.background}</span>}{" "}
-                {f.linkedin && <ExtLink href={f.linkedin}>LinkedIn</ExtLink>}
-              </Spec>
-            ))}
-            {advisors.map((a, i) => (
-              <Spec key={i} k="Advisor">{a.name} — {a.role || "advisor"}{a.affiliation ? `, ${a.affiliation}` : ""}</Spec>
-            ))}
-            {programs.length > 0 && (
-              <div style={{ marginTop: 6 }}>
-                {programs.map((x, i) => {
-                  // A membership found only on the company's own site is a claim, not a
-                  // verified fact — several such programs publish no searchable member
-                  // directory, so it is shown but explicitly marked as uncorroborated.
-                  const claimed = String(x.confidence || "").toLowerCase() === "self_asserted";
-                  return (
-                    <span key={i} className="chip"
-                          title={claimed
-                            ? `${x.type} — company-claimed, not independently corroborated`
-                            : `${x.type} — independently corroborated`}>
-                      {x.name}{claimed && <span className="muted"> · claimed</span>}
-                    </span>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-          <div className="panel">
-            <h3>Reference customers</h3>
-            {customers.length
-              ? customers.map((c, i) => <span key={i} className="chip">{c}</span>)
-              : <p className="muted" style={{ margin: 0 }}>
-                  {dp.customer_segment ? "None named on record." : "None on record."}
-                </p>}
-            {dp.customer_segment && (
-              <p className="muted" style={{ margin: "8px 0 0" }}>
-                Customer profile: {dp.customer_segment}
-              </p>
-            )}
-          </div>
+          <IxCard>
+            <IxCardContent>
+              <h3>Team &amp; ecosystem</h3>
+              {founders.length === 0 && advisors.length === 0 && programs.length === 0 && (
+                <p className="muted" style={{ margin: 0 }}>No researched team data.</p>
+              )}
+              {(founders.length > 0 || advisors.length > 0) && (
+                <IxKeyValueList>
+                  {founders.map((f, i) => (
+                    <Spec key={i} k="Founder">
+                      {f.name} — {f.role || "founder"}
+                      {f.background && <span className="muted"> · {f.background}</span>}{" "}
+                      {f.linkedin && <ExtLink href={f.linkedin}>LinkedIn</ExtLink>}
+                    </Spec>
+                  ))}
+                  {advisors.map((a, i) => (
+                    <Spec key={i} k="Advisor">{a.name} — {a.role || "advisor"}{a.affiliation ? `, ${a.affiliation}` : ""}</Spec>
+                  ))}
+                </IxKeyValueList>
+              )}
+              {programs.length > 0 && (
+                <div style={{ marginTop: 6 }}>
+                  {programs.map((x, i) => {
+                    // A membership found only on the company's own site is a claim, not a
+                    // verified fact — several such programs publish no searchable member
+                    // directory, so it is shown but explicitly marked as uncorroborated.
+                    const claimed = String(x.confidence || "").toLowerCase() === "self_asserted";
+                    return (
+                      <span key={i} className="chip"
+                            title={claimed
+                              ? `${x.type} — company-claimed, not independently corroborated`
+                              : `${x.type} — independently corroborated`}>
+                        {x.name}{claimed && <span className="muted"> · claimed</span>}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+            </IxCardContent>
+          </IxCard>
+          <IxCard>
+            <IxCardContent>
+              <h3>Reference customers</h3>
+              {customers.length
+                ? customers.map((c, i) => <span key={i} className="chip">{c}</span>)
+                : <p className="muted" style={{ margin: 0 }}>
+                    {dp.customer_segment ? "None named on record." : "None on record."}
+                  </p>}
+              {dp.customer_segment && (
+                <p className="muted" style={{ margin: "8px 0 0" }}>
+                  Customer profile: {dp.customer_segment}
+                </p>
+              )}
+            </IxCardContent>
+          </IxCard>
         </div>
       </div>
       {(trend.signals || []).length > 0 && (
-        <div className="panel">
-          <h3>Recent signals</h3>
-          {trend.signals.map((s, i) => <div key={i} className="reason">{s}</div>)}
-        </div>
+        <IxCard>
+          <IxCardContent>
+            <h3>Recent signals</h3>
+            {trend.signals.map((s, i) => <div key={i} className="reason">{s}</div>)}
+          </IxCardContent>
+        </IxCard>
       )}
     </div>
   );

@@ -317,7 +317,7 @@
     },
     {
       "path": "ui/src/components/widgets.jsx",
-      "lines": 148,
+      "lines": 151,
       "exports": [
         "ExtLink",
         "Loading",
@@ -331,12 +331,9 @@
         "bar-fill",
         "bar-label",
         "bar-track",
-        "k",
         "muted",
         "pill",
-        "sfs",
-        "spec",
-        "v"
+        "sfs"
       ]
     },
     {
@@ -507,7 +504,7 @@
     },
     {
       "path": "ui/src/pages/Profile.jsx",
-      "lines": 643,
+      "lines": 648,
       "exports": [
         "Profile"
       ],
@@ -519,7 +516,6 @@
         "btn",
         "chip",
         "dense",
-        "done",
         "dtable",
         "empty",
         "grid2",
@@ -533,35 +529,27 @@
         "muted",
         "num",
         "panel",
-        "ph-actions",
-        "ph-desc",
-        "ph-logo",
+        "ph-header-slot",
         "ph-meta",
-        "ph-row",
-        "ph-title",
         "pill",
         "profile-head",
         "reason",
-        "ribbon",
         "risk",
         "secondary",
-        "sep",
         "sfs",
         "skel",
         "spec",
         "spinner",
         "src",
         "status-dot",
-        "step",
         "sticky-header",
-        "tabs",
         "tool-btn",
         "v"
       ]
     },
     {
       "path": "ui/src/pages/Profile.test.jsx",
-      "lines": 353,
+      "lines": 361,
       "exports": [],
       "css_classes": []
     },
@@ -647,6 +635,6 @@
     "api_methods": 24,
     "design_tokens": 35,
     "jsx_files": 25,
-    "jsx_lines": 4205
+    "jsx_lines": 4221
   }
 }
