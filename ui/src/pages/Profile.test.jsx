@@ -77,7 +77,7 @@ describe("Profile", () => {
     // itself is the thing under test, so this must fail if the pillar reverts to a plain span.
     await renderProfile();
     const pill = await screen.findByText("Connect");
-    expect(pill.closest(".ph-title")).toBeTruthy();
+    expect(pill.closest(".ph-header-slot")).toBeTruthy();
     expect(pill.tagName.toLowerCase()).toBe("ix-pill");
     // variant="custom" is what makes background/pillColor apply at all (components.md) — without
     // it the props are silently ignored and the pill renders iX's default primary colour instead
@@ -336,7 +336,7 @@ describe("what-if routing (PROF-15)", () => {
     fireEvent.change(screen.getByLabelText(/^ecosystem$/i), { target: { value: "100" } });
 
     // The canonical pillar lives in the profile header and must be unmoved by anything here.
-    const header = container.querySelector(".ph-title") || container.querySelector(".ph-head");
+    const header = container.querySelector(".ph-header-slot");
     expect(within(header).getByText("Empower")).toBeInTheDocument();
   });
 

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { IxContentHeader } from "@siemens/ix-react";
 import { api } from "../api.js";
 import { useApp } from "../state.jsx";
 import { ScoreBar, Radar, Spec, ExtLink, PillarPill } from "../components/widgets.jsx";
@@ -564,49 +565,47 @@ export default function Profile() {
   return (
     <div>
       <div className="profile-head">
-        <div className="ph-row">
-          <div className="ph-logo">{(res.company || "?").slice(0, 1).toUpperCase()}</div>
-          <div style={{ flex: 1, minWidth: 240 }}>
-            <h1 className="ph-title">
-              {res.company}
-              <PillarPill pillar={rt.pillar} style={{ marginLeft: 10, verticalAlign: "middle" }} />{" "}
-              {(rt.secondary || []).map((s) => <PillarPill key={s} pillar={s} ghost>+{s}</PillarPill>)}
-            </h1>
-            <p className="ph-desc">{res.summary}</p>
-            <div className="ph-meta">
-              {p.hq && <span>📍 {p.hq}</span>}
-              {p.funding && <span>💰 {p.funding}</span>}
-              <span>Score <strong>{Number(sc.final_score || 0).toFixed(0)}</strong></span>
-              <span>Confidence {Math.round((rt.confidence || 0) * 100)}%</span>
-              <span className="muted">{res.engine}</span>
-            </div>
-            {tags.length > 0 && (
-              <div style={{ marginTop: 4 }}>
-                {tags.map((t) => <span key={t} className="chip">{t}</span>)}
-              </div>
-            )}
+        {/* MIG-18: IxContentHeader replaces the old logo-chip/name/pillar/summary/meta/tags/
+            action-row block. Its `header` slot carries the pillar pill + secondary pills + tags
+            (content that belongs beside the title, not below it); its default slot carries the
+            action row. hasBackButton subsumes the old "← Explore" button, so that one is dropped
+            rather than kept alongside a second, redundant way back. */}
+        <IxContentHeader
+          hasBackButton
+          onBackButtonClick={() => nav("/explore")}
+          headerTitle={res.company}
+          headerSubtitle={res.summary}
+        >
+          <div slot="header" className="ph-header-slot">
+            <PillarPill pillar={rt.pillar} />{" "}
+            {(rt.secondary || []).map((s) => <PillarPill key={s} pillar={s} ghost>+{s}</PillarPill>)}
+            {tags.map((t) => <span key={t} className="chip">{t}</span>)}
           </div>
-          <div className="ph-actions">
-            {ageDays !== null && (
-              <span className="badge" title={res.run_created_at}
-                style={ageDays > 7 ? { color: "var(--warning)" } : {}}>
-                {res.cached ? "cached · " : ""}
-                {ageDays < 0.08 ? "just evaluated"
-                  : ageDays < 1 ? `evaluated ${Math.round(ageDays * 24)}h ago`
-                  : `evaluated ${Math.round(ageDays)}d ago`}
-              </span>
-            )}
-            <button className="tool-btn" onClick={refreshData} disabled={refreshing}
-              title="Re-run the full pipeline with fresh web data (old run is kept for history)">
-              {refreshing ? "Refreshing…" : "⟳ Refresh Data"}
-            </button>
-            <button className={"tool-btn" + (watchlist.includes(res.company) ? " active" : "")}
-              onClick={() => toggleWatch(res.company)}>
-              {watchlist.includes(res.company) ? "★ Watching" : "☆ Watch"}
-            </button>
-            <button className="tool-btn" onClick={() => setDockOpen(true)}>✦ Assistant</button>
-            <button className="tool-btn" onClick={() => nav("/explore")}>← Explore</button>
-          </div>
+          {ageDays !== null && (
+            <span className="badge" title={res.run_created_at}
+              style={ageDays > 7 ? { color: "var(--warning)" } : {}}>
+              {res.cached ? "cached · " : ""}
+              {ageDays < 0.08 ? "just evaluated"
+                : ageDays < 1 ? `evaluated ${Math.round(ageDays * 24)}h ago`
+                : `evaluated ${Math.round(ageDays)}d ago`}
+            </span>
+          )}
+          <button className="tool-btn" onClick={refreshData} disabled={refreshing}
+            title="Re-run the full pipeline with fresh web data (old run is kept for history)">
+            {refreshing ? "Refreshing…" : "⟳ Refresh Data"}
+          </button>
+          <button className={"tool-btn" + (watchlist.includes(res.company) ? " active" : "")}
+            onClick={() => toggleWatch(res.company)}>
+            {watchlist.includes(res.company) ? "★ Watching" : "☆ Watch"}
+          </button>
+          <button className="tool-btn" onClick={() => setDockOpen(true)}>✦ Assistant</button>
+        </IxContentHeader>
+        <div className="ph-meta">
+          {p.hq && <span>📍 {p.hq}</span>}
+          {p.funding && <span>💰 {p.funding}</span>}
+          <span>Score <strong>{Number(sc.final_score || 0).toFixed(0)}</strong></span>
+          <span>Confidence {Math.round((rt.confidence || 0) * 100)}%</span>
+          <span className="muted">{res.engine}</span>
         </div>
         {res.source === "web" && <span className="badge">web-sourced — verify figures</span>}
         {/* sticky-header keeps the tab bar reachable while reading a long profile — the
