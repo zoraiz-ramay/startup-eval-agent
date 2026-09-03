@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { IxCategoryFilter } from "@siemens/ix-react";
 import { api } from "../api.js";
 import { useApp } from "../state.jsx";
 import ErrorBox from "../components/ErrorBox.jsx";
@@ -7,6 +8,11 @@ import { PillarPill } from "../components/widgets.jsx";
 import WeightSliders, { useWeighting } from "../components/WeightSliders.jsx";
 import { DEFAULT_WEIGHTS, reweight } from "../scoring/index.js";
 import { whatIfRouting } from "../scoring/routing.js";
+
+// MIG-12: the one category this filter row ever offered is the pillar, so it maps onto
+// IxCategoryFilter's single-category-hash shape (components.md) with one entry. Free text still
+// goes in as a token — IxCategoryFilter's own input, not a second control next to it.
+const FILTER_CATEGORIES = { pillar: { label: "Pillar", options: ["Connect", "Collaborate", "Empower", "Pass"] } };
 
 /* Column registry — every explorer column in one place.
  *
@@ -170,6 +176,14 @@ export default function Explore() {
   const dense = params.get("density") !== "comfortable";
   const viewName = params.get("view") || "";
   const activeView = savedViews.find((v) => v.name === viewName) || null;
+  // category-filter.js's `@Watch('filterState')` re-syncs the component's internal chips whenever
+  // this prop changes (not just on first load), so deriving it fresh from the URL params on every
+  // render — rather than tracking it as separate component state — keeps a saved view, a
+  // browser back/forward, or a manually edited URL in sync with what's on screen.
+  const filterState = useMemo(() => ({
+    tokens: q ? [q] : [],
+    categories: pillar ? [{ id: "pillar", value: pillar, operator: "Equal" }] : [],
+  }), [q, pillar]);
 
   const setParam = (k, v) => {
     const next = new URLSearchParams(params);
@@ -405,24 +419,28 @@ export default function Explore() {
       )}
 
       <div className="filter-row">
-        <input className="input" style={{ maxWidth: 240, padding: "4px 9px" }}
-          placeholder="Filter results…" value={q}
-          onChange={(e) => setParam("q", e.target.value)} aria-label="Filter results" />
-        {["Connect", "Collaborate", "Empower", "Pass"].map((p) => (
-          <button key={p}
-            className={"tool-btn" + (pillar === p ? " active" : "")}
-            style={{ padding: "3px 10px", fontSize: 11.5 }}
-            onClick={() => setParam("pillar", pillar === p ? "" : p)}>
-            {p}
-          </button>
-        ))}
-        {(q || pillar) && (
-          <>
-            {q && <span className="fchip">“{q}”<button onClick={() => setParam("q", "")} aria-label="Clear text filter">✕</button></span>}
-            {pillar && <span className="fchip">{pillar}<button onClick={() => setParam("pillar", "")} aria-label="Clear pillar filter">✕</button></span>}
-            <button className="clear-link" onClick={() => setParams({}, { replace: true })}>Clear all</button>
-          </>
-        )}
+        <IxCategoryFilter
+          categories={FILTER_CATEGORIES}
+          filterState={filterState}
+          uniqueCategories
+          staticOperator="Equal"
+          placeholder="Filter results…"
+          ariaLabelFilterInput="Filter results"
+          ariaLabelResetButton="Clear all filters"
+          ariaLabelOperatorButton="Filter operator"
+          onFilterChanged={(e) => {
+            const fs = e.detail;
+            const pillarToken = fs.categories.filter((c) => c.id === "pillar").pop();
+            setParams((prev) => {
+              const next = new URLSearchParams(prev);
+              const text = fs.tokens.join(" ");
+              if (text) next.set("q", text); else next.delete("q");
+              if (pillarToken) next.set("pillar", pillarToken.value); else next.delete("pillar");
+              return next;
+            }, { replace: true });
+          }}
+          onFilterCleared={() => setParams({}, { replace: true })}
+        />
       </div>
 
       <div className="grid-shell">

@@ -8,7 +8,7 @@ import { api } from "../api.js";
 // WeightSliders (shared with Profile's what-if panel, MIG-22) now renders each dimension as an
 // IxSlider -- its native input[role=slider] lives in a shadow root, so finding it needs the same
 // shadow-piercing helper Profile.test.jsx uses, and it only listens for the native `input` event.
-import { findShadowRole } from "../test/shadow.js";
+import { findShadowRole, findShadowText } from "../test/shadow.js";
 
 /**
  * EXP-02 / EXP-03 / EXP-08 — the column drawer.
@@ -140,7 +140,7 @@ describe("Explore saved views", () => {
     api.views.mockResolvedValueOnce({
       views: [{ name: "Munich", columns: [HQ], filters: { q: "munich", pillar: "Pass" } }],
     });
-    renderWithNav();
+    const { container } = renderWithNav();
     await screen.findByRole("button", { name: /customise columns/i });
 
     await user.click(screen.getByRole("link", { name: /open munich/i }));
@@ -148,7 +148,12 @@ describe("Explore saved views", () => {
     // The chip proves the view was recognised even when its columns match the defaults.
     expect(await screen.findByText(/View: Munich/)).toBeInTheDocument();
     // Filters were stored by saveView from the day it shipped and no reader ever applied them.
-    expect(screen.getByLabelText(/filter results/i)).toHaveValue("munich");
+    // IxCategoryFilter (MIG-12) renders each active filter as its own ix-filter-chip inside its
+    // shadow root, rather than the input holding the text as a value.
+    expect(await findShadowText(container, "munich")).toBeInTheDocument();
+    expect(await findShadowText(container, /pillar = pass/i)).toBeInTheDocument();
+    // (getFilterChipLabel renders "Pillar = Pass" for the pillar category chip — components.md's
+    // FILTER_CATEGORIES label paired with logical-filter-operator.js's "=" for LogicalFilterOperator.EQUAL.)
   });
 
   it("saving a view sends it to the server and opens it", async () => {
