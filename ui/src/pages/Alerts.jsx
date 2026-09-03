@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { IxEmptyState } from "@siemens/ix-react";
 import { api } from "../api.js";
 import { useApp } from "../state.jsx";
 import ErrorBox from "../components/ErrorBox.jsx";
@@ -32,13 +33,13 @@ export default function Alerts() {
         <span className="page-meta">{watched.length} companies watched</span></div>
       {error && <ErrorBox message={error} />}
       {runs && watched.length === 0 && (
-        <div className="empty">
-          <div className="big">◉</div>
-          <h4>Nothing tracked yet</h4>
-          <p>Star companies in Explore or on a profile to build your watchlist. Re-evaluate any
-            time to refresh scores and signals.</p>
-          <button className="btn secondary" onClick={() => nav("/explore")}>Open Explore</button>
-        </div>
+        <IxEmptyState
+          header="Nothing tracked yet"
+          subHeader="Star companies in Explore or on a profile to build your watchlist. Re-evaluate any time to refresh scores and signals."
+          icon="star"
+          action="Open Explore"
+          onActionClick={() => nav("/explore")}
+        />
       )}
       {watched.length > 0 && (
         <div className="panel" style={{ padding: 0 }}>
@@ -48,7 +49,13 @@ export default function Alerts() {
             </thead>
             <tbody>
               {watched.map((r) => (
-                <tr key={r.id} onClick={() => nav(`/startup/${r.id}`)}>
+                // tabIndex + onKeyDown make the row itself keyboard-reachable (UI-12) — a plain
+                // <tr onClick> has no keyboard path, and MIG-15's re-skin pattern for this table
+                // keeps the DOM a semantic <table> rather than introducing a row component.
+                <tr key={r.id} tabIndex={0} onClick={() => nav(`/startup/${r.id}`)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); nav(`/startup/${r.id}`); }
+                  }}>
                   <td onClick={(e) => e.stopPropagation()}>
                     <button className="star-btn on" onClick={() => toggleWatch(r.company)}
                       aria-label={`Unwatch ${r.company}`}>★</button>
