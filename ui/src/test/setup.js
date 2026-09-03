@@ -33,3 +33,10 @@ globalThis.ResizeObserver ??= class {
   unobserve() {}
   disconnect() {}
 };
+// jsdom implements neither this one — needed once IxInput (MIG-24's query composer) mounts in a
+// test, since ix-input's field-wrapper uses it internally.
+globalThis.IntersectionObserver ??= class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
