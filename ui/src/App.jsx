@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Routes, Route, NavLink, useNavigate, useLocation } from "react-router-dom";
-import { IxApplication, IxContent } from "@siemens/ix-react";
+import { IxApplication, IxApplicationHeader, IxContent } from "@siemens/ix-react";
 import {
   iconAi, iconAlarmBell, iconBookmark, iconCogwheel, iconDashboard, iconEye, iconHome,
   iconSearch, iconTable,
@@ -86,40 +86,41 @@ function CommandBar() {
 }
 
 /* ------------------------------------------------ top bar */
+// MIG-07: IxApplicationHeader replaces the hand-rolled <header class="topbar">. name/nameSuffix
+// carry the brand text the header owns internally (no slot exists to attach a click-to-home
+// handler to them, unlike the old <div className="brand" onClick>) — Home stays one tap away on
+// the rail/menu, so that affordance isn't lost, just relocated. The command bar is deliberately
+// NOT slotted in here (CLAUDE.md: command-bar-in-header is MIG-10, out of scope for this batch) —
+// Shell renders it as its own row, outside the header. The right-side controls go in the
+// header's default slot ("Place items on the right side of the header" — components.md).
 function TopBar() {
   const { watchlist } = useApp();
   const { user } = useAuth();
   const nav = useNavigate();
   const account = user?.name || user?.email || "Account";
   return (
-    <header className="topbar">
-      <div className="brand" role="link" style={{ cursor: "pointer" }} onClick={() => nav("/")}>
-        <span className="name">Scout<b>Grid</b></span>
-        <span className="sub">Startup intelligence · Siemens for Startups</span>
-      </div>
-      <CommandBar />
+    <IxApplicationHeader slot="application-header" name="ScoutGrid"
+      nameSuffix="Startup intelligence · Siemens for Startups">
       {/* title alone is not an accessible name for an icon-only button — scripts/ix_lint.mjs
           checks for aria-label, and a screen reader gets nothing from the glyph. */}
-      <div className="top-actions">
-        <button className="icon-btn" aria-label="Advanced search" title="Advanced search"
-          onClick={() => nav("/explore")}>
-          <Icon icon={iconSearch} size={17} />
-        </button>
-        <button className="icon-btn" title="Tracking"
-          aria-label={watchlist.length
-            ? `Tracking, ${watchlist.length} companies watched`
-            : "Tracking"}
-          onClick={() => nav("/alerts")}>
-          <Icon icon={iconAlarmBell} size={17} />
-          {watchlist.length > 0 && <span className="dot">{watchlist.length}</span>}
-        </button>
-        {/* The Export button that used to sit here navigated to /explore — the same place as
-            Advanced search — and exported nothing. The real CSV export is Explore's own
-            toolbar button, which knows what rows and columns are on screen. */}
-        <button className="avatar-btn" aria-label={`Account: ${account}`} title={account}
-          onClick={() => nav("/settings")}>{user?.initials || "?"}</button>
-      </div>
-    </header>
+      <button className="icon-btn" aria-label="Advanced search" title="Advanced search"
+        onClick={() => nav("/explore")}>
+        <Icon icon={iconSearch} size={17} />
+      </button>
+      <button className="icon-btn" title="Tracking"
+        aria-label={watchlist.length
+          ? `Tracking, ${watchlist.length} companies watched`
+          : "Tracking"}
+        onClick={() => nav("/alerts")}>
+        <Icon icon={iconAlarmBell} size={17} />
+        {watchlist.length > 0 && <span className="dot">{watchlist.length}</span>}
+      </button>
+      {/* The Export button that used to sit here navigated to /explore — the same place as
+          Advanced search — and exported nothing. The real CSV export is Explore's own
+          toolbar button, which knows what rows and columns are on screen. */}
+      <button className="avatar-btn" aria-label={`Account: ${account}`} title={account}
+        onClick={() => nav("/settings")}>{user?.initials || "?"}</button>
+    </IxApplicationHeader>
   );
 }
 
@@ -217,6 +218,9 @@ function Shell() {
       <Rail />
       {!noSidenav && <SideNav />}
       <IxContent>
+        {/* Deliberately outside IxApplicationHeader — see TopBar's comment. Not moved into the
+            header until MIG-10. */}
+        <div className="cmdbar-row"><CommandBar /></div>
         <main className={"content" + (noSidenav ? " no-sidenav" : "") + (dockOpen ? " with-dock" : "")}>
           <Routes>
             <Route path="/" element={<Home />} />

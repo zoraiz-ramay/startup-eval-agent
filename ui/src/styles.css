@@ -9,18 +9,15 @@ a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 3px; }
 
-/* ---------------- top bar ---------------- */
-.topbar {
-  position: fixed; inset: 0 0 auto 0; z-index: 80; height: var(--topbar-h);
-  display: flex; align-items: center; gap: 16px; padding: 0 16px;
-  background: var(--surface); color: var(--text-1);
-  border-bottom: 1px solid var(--border);
+/* ---------------- top bar ----------------
+   MIG-07: the brand/logo row and right-action wrapper are gone — IxApplicationHeader
+   (App.jsx's TopBar) owns that layout internally now. The command bar stays app-owned (it has
+   no home in IxApplicationHeader's slots until MIG-10), rendered as its own row below the
+   header — .cmdbar-row is that row's only styling. */
+.cmdbar-row {
+  padding: 8px 16px; background: var(--surface); border-bottom: 1px solid var(--border);
 }
-.brand { display: flex; align-items: baseline; gap: 7px; white-space: nowrap; }
-.brand .name { font-weight: 800; font-size: 15px; letter-spacing: .2px; }
-.brand .name b { color: var(--accent); font-weight: 800; }
-.brand .sub { font-size: 10.5px; color: var(--text-2); }
-.cmdbar { flex: 1; max-width: 640px; position: relative; }
+.cmdbar { max-width: 640px; position: relative; }
 .cmdbar input {
   width: 100%; height: 34px; background: var(--surface-2); color: var(--text-1);
   border: 1px solid var(--border); border-radius: var(--radius);
@@ -36,10 +33,6 @@ a:hover { text-decoration: underline; }
   position: absolute; right: 8px; top: 7px; font-size: 10.5px; color: var(--text-2);
   border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px;
 }
-/* margin-left:auto, not flex-grow on .cmdbar: the command bar is capped at 640px, so
-   without this the leftover width sits to the RIGHT of the actions and the buttons float
-   in the middle of a wide screen. */
-.top-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
 .icon-btn {
   background: none; border: none; color: var(--text-2); cursor: pointer;
   font-size: 15px; padding: 7px 9px; border-radius: var(--radius); line-height: 1;
