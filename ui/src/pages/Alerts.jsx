@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../api.js";
 import { useApp } from "../state.jsx";
 import ErrorBox from "../components/ErrorBox.jsx";
+import { PillarPill } from "../components/widgets.jsx";
 
 export default function Alerts() {
   const nav = useNavigate();
@@ -54,7 +55,7 @@ export default function Alerts() {
                   </td>
                   <td><strong>{r.company}</strong></td>
                   <td className="num">{Number(r.final_score).toFixed(0)}</td>
-                  <td><span className={`pill ${r.pillar}`}>{r.pillar}</span></td>
+                  <td><PillarPill pillar={r.pillar} /></td>
                   <td className="muted">{String(r.created_at).slice(0, 10)}</td>
                   <td onClick={(e) => e.stopPropagation()}>
                     <button className="tool-btn"

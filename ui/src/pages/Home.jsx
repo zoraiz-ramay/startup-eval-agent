@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api.js";
 import { useApp } from "../state.jsx";
-import { ScoreBar, ExtLink, Loading } from "../components/widgets.jsx";
+import { ScoreBar, ExtLink, Loading, PillarPill } from "../components/widgets.jsx";
 import ErrorBox from "../components/ErrorBox.jsx";
 
 const QUICK_PROMPTS = [
@@ -144,7 +144,7 @@ export default function Home() {
                 <div className="muted" style={{ fontSize: 12 }}>{(r.summary || "").slice(0, 90)}</div>
               </div>
               <span className="num">{Number(r.final_score).toFixed(0)}</span>
-              <span className={`pill ${r.pillar}`}>{r.pillar}</span>
+              <PillarPill pillar={r.pillar} />
             </div>
           ))}
           {runs?.length > 0 && <Link to="/explore" style={{ fontSize: 12.5 }}>Open Explore →</Link>}
