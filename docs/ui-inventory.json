@@ -177,12 +177,6 @@
     "--border",
     "--border-2",
     "--canvas",
-    "--chrome-700",
-    "--chrome-800",
-    "--chrome-900",
-    "--chrome-border",
-    "--chrome-muted",
-    "--chrome-text",
     "--danger",
     "--danger-soft",
     "--fs-body",
@@ -215,7 +209,7 @@
   "files": [
     {
       "path": "ui/src/App.jsx",
-      "lines": 276,
+      "lines": 304,
       "exports": [
         "App"
       ],
@@ -224,49 +218,41 @@
         "badge",
         "brand",
         "cmdbar",
-        "count",
+        "cmdbar-row",
         "dot",
         "icon-btn",
         "kbd",
         "lens",
-        "name",
-        "rail",
-        "ri",
-        "rl",
-        "sidenav",
+        "menu-secondary",
         "signin",
-        "snav-item",
         "stub-banner",
         "sub",
         "suggest",
         "suggest-item",
-        "suggest-list",
-        "top-actions",
-        "topbar"
+        "suggest-list"
       ]
     },
     {
       "path": "ui/src/App.test.jsx",
-      "lines": 128,
+      "lines": 139,
       "exports": [],
       "css_classes": []
     },
     {
       "path": "ui/src/components/AssistantDock.jsx",
-      "lines": 93,
+      "lines": 110,
       "exports": [
         "AssistantDock"
       ],
       "css_classes": [
         "ai",
+        "assistant-pane",
         "btn",
         "ctx",
         "dock",
         "dock-body",
-        "dock-head",
         "dock-input",
         "dock-suggest",
-        "icon-btn",
         "input",
         "muted",
         "spinner",
@@ -659,8 +645,8 @@
   "totals": {
     "routes": 8,
     "api_methods": 24,
-    "design_tokens": 41,
+    "design_tokens": 35,
     "jsx_files": 25,
-    "jsx_lines": 4149
+    "jsx_lines": 4205
   }
 }
