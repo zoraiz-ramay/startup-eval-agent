@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Routes, Route, NavLink, useNavigate, useLocation } from "react-router-dom";
-import { IxApplication, IxApplicationHeader, IxContent, IxMenu, IxMenuItem } from "@siemens/ix-react";
+import { Routes, Route, useNavigate, useLocation } from "react-router-dom";
+import {
+  IxApplication, IxApplicationHeader, IxContent, IxMenu, IxMenuCategory, IxMenuItem,
+} from "@siemens/ix-react";
 import {
   iconAi, iconAlarmBell, iconBookmark, iconCogwheel, iconDashboard, iconEye, iconHome,
   iconSearch, iconTable,
@@ -147,15 +149,25 @@ const ADMIN_RAIL = { to: "/admin", label: "Admin", icon: iconDashboard };
 // components/menu/menu.js, which components.md's prop table doesn't make clear). Set here so
 // the pre-existing "Primary" navigation query keeps meaning what it always meant, rather than
 // leaving the landmark unnamed or renaming the test to a string that says less.
-function Rail() {
+//
+// MIG-09 folds the old standalone <nav class="sidenav"> ("Quick access" / "Saved views") into
+// this SAME IxMenu, as two IxMenuCategory groups, rather than a second IxMenu — the backlog row
+// is explicit that a second instance is the wrong shape here. `showSecondary` is what `!noSidenav`
+// used to gate the whole <SideNav/> element with; IxMenuCategory has no route-awareness of its
+// own, so the conditional still has to live in the caller (Shell), just threaded through a prop
+// instead of a sibling.
+function Rail({ showSecondary }) {
   const { user } = useAuth();
-  const { dockOpen, setDockOpen } = useApp();
+  const { dockOpen, setDockOpen, savedViews, watchlist } = useApp();
   const nav = useNavigate();
   const loc = useLocation();
   // The route is guarded server-side by require_admin; this only decides whether a reviewer
   // is shown a door they cannot open.
   const items = user?.is_admin ? [...RAIL, ADMIN_RAIL] : RAIL;
   const isActive = (n) => (n.end ? loc.pathname === n.to : loc.pathname.startsWith(n.to));
+  // The active view is the one named in the query string, not the pathname (every saved view
+  // shares the /explore pathname).
+  const view = new URLSearchParams(loc.search).get("view") || "";
   return (
     <IxMenu slot="menu" applicationName="Primary Navigation">
       {items.map((n) => (
@@ -172,50 +184,43 @@ function Rail() {
             onClick={() => nav(n.to)} />
         )
       ))}
-    </IxMenu>
-  );
-}
-
-function SideNav() {
-  const { savedViews, watchlist } = useApp();
-  // NavLink's own isActive compares pathnames only, so every view link would light up at
-  // once on /explore. The active view is the one named in the query string.
-  const view = new URLSearchParams(useLocation().search).get("view") || "";
-  return (
-    <nav className="sidenav" aria-label="Secondary">
-      <h4>Quick access</h4>
-      <NavLink to="/?compose=1" className="snav-item">Start a scouting query</NavLink>
-      <NavLink to="/explore" className={({ isActive }) => "snav-item" + (isActive ? " active" : "")}>
-        Explore startups
-      </NavLink>
-      <NavLink to="/alerts" className="snav-item">
-        Watchlist <span className="count">{watchlist.length}</span>
-      </NavLink>
-
-      <h4>Saved views</h4>
-      {savedViews.length === 0 && (
-        <div className="snav-item" style={{ color: "var(--text-3)", cursor: "default" }}>
-          None yet — save one from Explore
-        </div>
+      {showSecondary && (
+        <>
+          {/* className="menu-secondary" (a plain DOM class on the host element, same mechanism
+              as the old .sidenav) is what styles.css's <1180px media query hides — IxMenuCategory
+              itself carries no breakpoint prop (verified against the compiled source). */}
+          <IxMenuCategory className="menu-secondary" label="Quick access" icon={iconSearch}>
+            <IxMenuItem label="Start a scouting query" onClick={() => nav("/?compose=1")} />
+            <IxMenuItem label="Explore startups" active={loc.pathname === "/explore"}
+              onClick={() => nav("/explore")} />
+            <IxMenuItem label="Watchlist" notifications={watchlist.length}
+              onClick={() => nav("/alerts")} />
+          </IxMenuCategory>
+          <IxMenuCategory className="menu-secondary" label="Saved views" icon={iconBookmark}>
+            {savedViews.length === 0 ? (
+              // `disabled`, not a styled-but-inert <div>: IxMenuItem's own prop note says
+              // disabled "removes event handlers", which is what an unclickable placeholder needs.
+              <IxMenuItem label="None yet — save one from Explore" disabled />
+            ) : (
+              savedViews.map((v) => (
+                <IxMenuItem key={v.name} label={v.name} active={view === v.name}
+                  onClick={() => nav(`/explore?view=${encodeURIComponent(v.name)}`)} />
+              ))
+            )}
+          </IxMenuCategory>
+        </>
       )}
-      {/* NavLinks, not <div onClick>: as divs these were unreachable by keyboard and could
-          never pick up the .snav-item.active styling that already exists for them. */}
-      {savedViews.map((v) => (
-        <NavLink key={v.name} to={`/explore?view=${encodeURIComponent(v.name)}`}
-          className={"snav-item" + (view === v.name ? " active" : "")}>
-          {v.name}
-        </NavLink>
-      ))}
-    </nav>
+    </IxMenu>
   );
 }
 
 /* ------------------------------------------------ shell */
 // IxApplication is the single shell root (application-header/menu/content as children,
 // per CLAUDE.md's design contract), replacing the hand-rolled fixed-position siblings this
-// used to be. TopBar/Rail/SideNav/AssistantDock are still the bespoke components built for the
-// Tracxn-modelled shell — MIG-07/08/09/11 replace them one at a time; this commit is scoped to
-// the root-container swap only, so they render unchanged inside IxContent for now.
+// used to be. TopBar is now IxApplicationHeader (MIG-07); Rail is now IxMenu, and as of MIG-09
+// carries the old SideNav's content too, as IxMenuCategory groups inside the same menu rather
+// than a second one (MIG-08/09). AssistantDock is still the bespoke component built for the
+// Tracxn-modelled shell, pending MIG-11.
 function Shell() {
   const { dockOpen } = useApp();
   const loc = useLocation();
@@ -223,8 +228,7 @@ function Shell() {
   return (
     <IxApplication>
       <TopBar />
-      <Rail />
-      {!noSidenav && <SideNav />}
+      <Rail showSecondary={!noSidenav} />
       <IxContent>
         {/* Deliberately outside IxApplicationHeader — see TopBar's comment. Not moved into the
             header until MIG-10. */}

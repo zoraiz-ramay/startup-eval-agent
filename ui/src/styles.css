@@ -70,23 +70,15 @@ a:hover { text-decoration: underline; }
    that chrome now, styled by iX itself rather than this stylesheet. */
 
 /* ---------------- secondary nav ---------------- */
-.sidenav {
-  position: fixed; top: var(--topbar-h); bottom: 0; left: var(--rail-w); width: var(--sidenav-w);
-  z-index: 60; background: var(--surface); border-right: 1px solid var(--border);
-  overflow-y: auto; padding: 12px 10px;
+/* MIG-09: the old standalone <nav class="sidenav"> of <NavLink class="snav-item"> is gone —
+   "Quick access" and "Saved views" are now IxMenuCategory items nested inside the SAME IxMenu
+   as the rail (App.jsx's Rail), not a second menu instance. IxMenuCategory has no breakpoint
+   prop (verified against the compiled source — menu-category.js's only visibility state is its
+   own expand/collapse accordion, not viewport-driven), so the below-1180px hide still has to be
+   a CSS rule; it now targets the categories' own class instead of a wrapper <nav>. */
+@media (max-width: 1180px) {
+  .menu-secondary { display: none; }
 }
-.sidenav h4 {
-  margin: 12px 8px 4px; font-size: 10.5px; font-weight: 700; letter-spacing: .7px;
-  text-transform: uppercase; color: var(--text-3);
-}
-.snav-item {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  padding: 6px 9px; border-radius: var(--radius); color: var(--text-1);
-  font-size: 13px; font-weight: 500; cursor: pointer;
-}
-.snav-item:hover { background: var(--surface-2); text-decoration: none; }
-.snav-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-.snav-item .count { font-size: 11px; color: var(--text-3); }
 
 /* ---------------- content ---------------- */
 /* MIG-06: the fixed-offset margin this used to force (topbar-h/rail-w/sidenav-w) assumed the
@@ -94,9 +86,6 @@ a:hover { text-decoration: underline; }
    this only keeps the page's own padding — the offset math is gone, not relocated. */
 .content {
   padding: 16px 20px 90px;
-}
-@media (max-width: 1180px) {
-  .sidenav { display: none; }
 }
 
 .crumb { color: var(--text-3); font-size: var(--fs-meta); margin-bottom: 2px; }
