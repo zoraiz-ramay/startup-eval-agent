@@ -219,10 +219,10 @@ function Rail({ showSecondary }) {
 // per CLAUDE.md's design contract), replacing the hand-rolled fixed-position siblings this
 // used to be. TopBar is now IxApplicationHeader (MIG-07); Rail is now IxMenu, and as of MIG-09
 // carries the old SideNav's content too, as IxMenuCategory groups inside the same menu rather
-// than a second one (MIG-08/09). AssistantDock is still the bespoke component built for the
-// Tracxn-modelled shell, pending MIG-11.
+// than a second one (MIG-08/09); AssistantDock is now IxPane (MIG-11). The command bar is the
+// one piece still rendered as its own row rather than through an iX primitive — that's MIG-10,
+// explicitly out of scope for this batch.
 function Shell() {
-  const { dockOpen } = useApp();
   const loc = useLocation();
   const noSidenav = loc.pathname.startsWith("/startup/");
   return (
@@ -233,7 +233,11 @@ function Shell() {
         {/* Deliberately outside IxApplicationHeader — see TopBar's comment. Not moved into the
             header until MIG-10. */}
         <div className="cmdbar-row"><CommandBar /></div>
-        <main className={"content" + (noSidenav ? " no-sidenav" : "") + (dockOpen ? " with-dock" : "")}>
+        {/* "with-dock" reserved margin for the old fixed dock; MIG-06 already deleted its CSS
+            (there was never layout to reserve once the shell stopped fixed-positioning things
+            by hand), so this dropped the now-inert class rather than keep threading dead state
+            through the className. */}
+        <main className={"content" + (noSidenav ? " no-sidenav" : "")}>
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/explore" element={<Explore />} />

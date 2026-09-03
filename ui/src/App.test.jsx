@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import { findShadowRole, getAllShadowRole } from "./test/shadow.js";
+import { findShadowRole, getAllShadowRole, getShadowRole } from "./test/shadow.js";
 
 vi.mock("./api.js", () => ({
   api: {
@@ -126,7 +126,10 @@ describe("assistant dock", () => {
     const toggle = await findShadowRole(document.body, "menuitem", { name: /ask ai/i });
     expect(toggle).toHaveAttribute("aria-expanded", "true");
 
-    await userEvent.click(screen.getByRole("button", { name: /close assistant/i }));
+    // MIG-11: the close control is now IxPane's own title-bar button (ariaLabelCollapseCloseButton
+    // ="Close assistant"), not a hand-rolled one — it lives inside ix-pane's shadow root (and, one
+    // level deeper, ix-icon-button's), so it needs the same shadow-piercing helper as the rail.
+    await userEvent.click(getShadowRole(document.body, "button", { name: /close assistant/i }));
     expect(screen.queryByRole("complementary", { name: /ai assistant/i })).not.toBeInTheDocument();
 
     await userEvent.click(toggle);

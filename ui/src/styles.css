@@ -283,16 +283,17 @@ a:hover { text-decoration: underline; }
 .mv button:hover { border-color: var(--accent); color: var(--accent); }
 
 /* ---------------- AI dock ---------------- */
-.dock {
-  position: fixed; top: var(--topbar-h); right: 0; bottom: 0; width: 332px; z-index: 65;
-  background: var(--surface); border-left: 1px solid var(--border-2);
-  display: flex; flex-direction: column;
+/* MIG-11: IxPane (components/AssistantDock.jsx) owns the title bar (heading/icon/close button)
+   and the outer chrome now — .dock-head is gone, "on {company}" moves to the pane's own
+   `header` slot as .ctx. IxPane itself defaults every composition to `position: relative` (in
+   flow, verified against the compiled source's pane.css), which is not what an overlay panel
+   needs; .assistant-pane is the override that keeps the old fixed-position, non-reflowing
+   behavior since IxPane has no "floating over everything" prop of its own. */
+.assistant-pane {
+  position: fixed; top: var(--topbar-h); right: 0; bottom: 0; width: 360px; z-index: 65;
 }
-.dock-head {
-  padding: 10px 14px; border-bottom: 1px solid var(--border); display: flex;
-  align-items: center; gap: 8px; font-weight: 700; font-size: 13px;
-}
-.dock-head .ctx { font-weight: 500; color: var(--text-3); font-size: 11px; margin-left: auto; max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctx { font-weight: 500; color: var(--text-3); font-size: 11px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock { display: flex; flex-direction: column; height: 100%; }
 .dock-body { flex: 1; overflow-y: auto; padding: 12px 14px; }
 .dock-msg { margin-bottom: 10px; font-size: 13px; }
 .dock-msg.user { color: var(--text-1); font-weight: 600; }
