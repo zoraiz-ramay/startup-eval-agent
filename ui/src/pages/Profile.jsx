@@ -7,7 +7,6 @@ import ErrorBox from "../components/ErrorBox.jsx";
 import WhatIfWeights from "../components/WhatIfWeights.jsx";
 import { contributionProfile, DEFAULT_WEIGHTS, DIMENSIONS, DIMENSION_LABELS } from "../scoring/index.js";
 
-const STEPS = ["Input", "Enrich", "Verify", "Structure", "Score", "Review", "Route"];
 const TABS = ["Overview", "Scoring & Fit", "Market & Risk", "Evidence", "Ask"];
 // Derived, not written out: these percentages used to be literals, which quietly became a claim
 // the code could contradict. They are the engine's weights and say so.
@@ -609,15 +608,7 @@ export default function Profile() {
             <button className="tool-btn" onClick={() => nav("/explore")}>← Explore</button>
           </div>
         </div>
-        <div className="ribbon" aria-label="Pipeline status">
-          {STEPS.map((s, i) => (
-            <React.Fragment key={s}>
-              <span className="step done">{s}</span>
-              {i < STEPS.length - 1 && <span className="sep">›</span>}
-            </React.Fragment>
-          ))}
-          {res.source === "web" && <span className="badge">web-sourced — verify figures</span>}
-        </div>
+        {res.source === "web" && <span className="badge">web-sourced — verify figures</span>}
         {/* sticky-header keeps the tab bar reachable while reading a long profile — the
             Evidence tab in particular scrolls well past a screen, and losing the tabs means
             scrolling back to the top to switch context. */}
