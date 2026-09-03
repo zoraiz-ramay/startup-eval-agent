@@ -15,3 +15,16 @@
   bottom: 0;
   z-index: 95;
 }
+
+/* MIG-15: .dtable itself is shared with Admin/Alerts/Profile's own tables (styles.css), so its
+   base rule stays put — re-skinning it here, scoped under Explore-only .grid-shell, is what
+   keeps this row's diff from silently reshading tables on other pages. The row-hover background
+   it inherited was the only raw colour literal in the whole grid; every border/header/selected-
+   state rule already resolved to a var(--*) token. var(--surface-2) is the same token
+   .tool-btn/.kebab already use for their own hover state (styles.css), so this keeps the
+   row-hover shade consistent with the rest of the toolbar rather than introducing a second
+   "close to but not quite" hover colour. */
+.grid-shell .dtable tbody tr:hover td,
+.grid-shell .dtable tbody tr:hover .sticky-col {
+  background: var(--surface-2);
+}
