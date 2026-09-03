@@ -5,6 +5,10 @@ import { describe, expect, it, vi } from "vitest";
 import Explore from "./Explore.jsx";
 import { AppProvider } from "../state.jsx";
 import { api } from "../api.js";
+// WeightSliders (shared with Profile's what-if panel, MIG-22) now renders each dimension as an
+// IxSlider -- its native input[role=slider] lives in a shadow root, so finding it needs the same
+// shadow-piercing helper Profile.test.jsx uses, and it only listens for the native `input` event.
+import { findShadowRole } from "../test/shadow.js";
 
 /**
  * EXP-02 / EXP-03 / EXP-08 — the column drawer.
@@ -210,11 +214,11 @@ describe("Explore portfolio weighting", () => {
 
   it("re-scores the table but keeps the engine's stored score on screen", async () => {
     const user = userEvent.setup();
-    render1();
+    const { container } = render1();
     await user.click(await screen.findByRole("button", { name: /weighting/i }));
 
-    const slider = screen.getByLabelText("Product");
-    fireEvent.change(slider, { target: { value: "80" } });
+    const slider = await findShadowRole(container, "slider", { name: "Product" });
+    fireEvent.input(slider, { target: { value: "80" } });
 
     // The re-weighted figure is shown WITH the stored one, never instead of it — this row's
     // engine score is 40 and must remain visible and labelled as the engine's.
@@ -224,9 +228,9 @@ describe("Explore portfolio weighting", () => {
 
   it("resets back to the engine weighting", async () => {
     const user = userEvent.setup();
-    render1();
+    const { container } = render1();
     await user.click(await screen.findByRole("button", { name: /weighting/i }));
-    fireEvent.change(screen.getByLabelText("Product"), { target: { value: "80" } });
+    fireEvent.input(await findShadowRole(container, "slider", { name: "Product" }), { target: { value: "80" } });
     await screen.findByText(/\(engine 40\)/);
 
     await user.click(screen.getByRole("button", { name: /reset to engine weights/i }));
