@@ -293,7 +293,7 @@
     },
     {
       "path": "ui/src/components/WhatIfWeights.jsx",
-      "lines": 250,
+      "lines": 251,
       "exports": [
         "WhatIfWeights"
       ],
@@ -404,7 +404,7 @@
     },
     {
       "path": "ui/src/pages/Explore.jsx",
-      "lines": 503,
+      "lines": 548,
       "exports": [
         "Explore"
       ],
@@ -412,27 +412,21 @@
         "badge",
         "big",
         "btn",
-        "clear-link",
         "co-cell",
         "crumb",
         "desc-clip",
-        "drawer",
-        "drawer-mask",
         "drow",
         "empty",
+        "explore-drawer-pane",
         "fchip",
         "filter-row",
         "grid-shell",
         "input",
-        "k",
         "kebab",
         "logo-chip",
         "muted",
         "mv",
         "num",
-        "page-head",
-        "page-meta",
-        "page-title",
         "panel",
         "pill",
         "secondary",
@@ -440,17 +434,15 @@
         "skel",
         "skel-row",
         "spacer",
-        "stat",
         "stats-strip",
         "sticky-col",
         "tool-btn",
-        "toolbar",
-        "v"
+        "toolbar"
       ]
     },
     {
       "path": "ui/src/pages/Explore.test.jsx",
-      "lines": 240,
+      "lines": 256,
       "exports": [],
       "css_classes": []
     },
@@ -592,6 +584,6 @@
     "api_methods": 24,
     "design_tokens": 35,
     "jsx_files": 25,
-    "jsx_lines": 4387
+    "jsx_lines": 4449
   }
 }
