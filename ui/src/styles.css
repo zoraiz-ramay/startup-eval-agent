@@ -13,35 +13,35 @@ a:hover { text-decoration: underline; }
 .topbar {
   position: fixed; inset: 0 0 auto 0; z-index: 80; height: var(--topbar-h);
   display: flex; align-items: center; gap: 16px; padding: 0 16px;
-  background: var(--chrome-800); color: var(--chrome-text);
-  border-bottom: 1px solid var(--chrome-border);
+  background: var(--surface); color: var(--text-1);
+  border-bottom: 1px solid var(--border);
 }
 .brand { display: flex; align-items: baseline; gap: 7px; white-space: nowrap; }
 .brand .name { font-weight: 800; font-size: 15px; letter-spacing: .2px; }
-.brand .name b { color: #9db7f5; font-weight: 800; }
-.brand .sub { font-size: 10.5px; color: var(--chrome-muted); }
+.brand .name b { color: var(--accent); font-weight: 800; }
+.brand .sub { font-size: 10.5px; color: var(--text-2); }
 .cmdbar { flex: 1; max-width: 640px; position: relative; }
 .cmdbar input {
-  width: 100%; height: 34px; background: var(--chrome-700); color: var(--chrome-text);
-  border: 1px solid var(--chrome-border); border-radius: var(--radius);
+  width: 100%; height: 34px; background: var(--surface-2); color: var(--text-1);
+  border: 1px solid var(--border); border-radius: var(--radius);
   padding: 0 64px 0 32px; font-size: 13px; outline: none;
 }
-.cmdbar input::placeholder { color: var(--chrome-muted); }
-.cmdbar input:focus { border-color: #5c74c9; }
+.cmdbar input::placeholder { color: var(--text-2); }
+.cmdbar input:focus { border-color: var(--accent); }
 .cmdbar .lens {
   position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
-  color: var(--chrome-muted); display: flex; pointer-events: none;
+  color: var(--text-2); display: flex; pointer-events: none;
 }
 .cmdbar .kbd {
-  position: absolute; right: 8px; top: 7px; font-size: 10.5px; color: var(--chrome-muted);
-  border: 1px solid var(--chrome-border); border-radius: 4px; padding: 2px 6px;
+  position: absolute; right: 8px; top: 7px; font-size: 10.5px; color: var(--text-2);
+  border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px;
 }
 /* margin-left:auto, not flex-grow on .cmdbar: the command bar is capped at 640px, so
    without this the leftover width sits to the RIGHT of the actions and the buttons float
    in the middle of a wide screen. */
 .top-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
 .icon-btn {
-  background: none; border: none; color: var(--chrome-muted); cursor: pointer;
+  background: none; border: none; color: var(--text-2); cursor: pointer;
   font-size: 15px; padding: 7px 9px; border-radius: var(--radius); line-height: 1;
   display: inline-flex; align-items: center; gap: 6px;
 }
@@ -65,7 +65,7 @@ a:hover { text-decoration: underline; }
 .ix-i { display: inline-flex; align-items: center; justify-content: center; flex: none; }
 .ix-i svg { width: 100%; height: 100%; display: block; }
 .ix-i svg, .ix-i svg * { fill: currentColor; }
-.icon-btn:hover { background: var(--chrome-700); color: var(--chrome-text); }
+.icon-btn:hover { background: var(--surface-2); color: var(--text-1); }
 .icon-btn.ai { color: #c4b2f2; border: 1px solid #4b3d80; }
 .icon-btn.ai:hover { background: #322a55; }
 .avatar-btn {
@@ -76,18 +76,18 @@ a:hover { text-decoration: underline; }
 /* ---------------- icon rail ---------------- */
 .rail {
   position: fixed; top: var(--topbar-h); bottom: 0; left: 0; width: var(--rail-w); z-index: 70;
-  background: var(--chrome-900); display: flex; flex-direction: column; padding-top: 6px;
+  background: var(--surface-2); display: flex; flex-direction: column; padding-top: 6px;
 }
 /* Also worn by a <button> (the assistant toggle), which brings its own background, border
    and font — hence the resets, so it sits flush with the <a> items beside it. */
 .rail-item {
   display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 10px 0;
-  color: var(--chrome-muted); border-left: 3px solid transparent; cursor: pointer;
+  color: var(--text-2); border-left: 3px solid transparent; cursor: pointer;
   background: none; border-top: 0; border-right: 0; border-bottom: 0; width: 100%;
   font-family: inherit;
 }
-.rail-item:hover { color: var(--chrome-text); background: var(--chrome-800); text-decoration: none; }
-.rail-item.active { color: #fff; background: var(--chrome-800); border-left-color: #9db7f5; }
+.rail-item:hover { color: var(--text-1); background: var(--surface); text-decoration: none; }
+.rail-item.active { color: var(--accent); background: var(--surface); border-left-color: var(--accent); }
 .rail-item .ri { font-size: 17px; line-height: 1; }
 .rail-item .rl { font-size: 9.5px; font-weight: 600; letter-spacing: .2px; }
 
@@ -189,7 +189,7 @@ a:hover { text-decoration: underline; }
 .dtable tbody tr.selected .sticky-col { background: var(--accent-soft); }
 .co-cell { display: flex; align-items: center; gap: 8px; min-width: 170px; }
 .logo-chip {
-  width: 22px; height: 22px; border-radius: 5px; background: var(--chrome-800); color: #fff;
+  width: 22px; height: 22px; border-radius: 5px; background: var(--accent); color: #fff;
   display: inline-flex; align-items: center; justify-content: center;
   font-size: 10.5px; font-weight: 700; flex-shrink: 0;
 }
@@ -267,7 +267,7 @@ a:hover { text-decoration: underline; }
   padding: 12px 16px 0; margin-bottom: 12px;
 }
 .ph-row { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
-.ph-logo { width: 40px; height: 40px; border-radius: 8px; background: var(--chrome-800); color: #fff;
+.ph-logo { width: 40px; height: 40px; border-radius: 8px; background: var(--accent); color: #fff;
   display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 16px; }
 .ph-title { font-size: 19px; font-weight: 800; margin: 0; }
 .ph-desc { color: var(--text-2); margin: 2px 0 4px; font-size: var(--fs-body); max-width: 760px; }

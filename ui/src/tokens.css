@@ -7,26 +7,20 @@
    (see CLAUDE.md's Design contract). Until that replacement lands, this remains the only place in
    ui/src where a colour literal is allowed — scripts/ix_lint.mjs enforces that.
 
-   Two things are deliberate and worth knowing before changing them:
+   One thing is deliberate and worth knowing before changing it:
 
-   1. The app is pinned to iX's LIGHT schema (see index.html). Workspace surfaces therefore read
-      var(--theme-color-*) directly and follow the theme.
+   The app is pinned to iX's LIGHT schema (see index.html). Workspace surfaces therefore read
+   var(--theme-color-*) directly and follow the theme.
 
-   2. The product chrome is dark over that light canvas. iX has no "dark chrome in a light app"
-      construct, so the --chrome-* tokens carry iX's DARK-schema values as literals. They are iX
-      colours, just not the ones the current schema resolves to. Swapping them for
-      var(--theme-color-*) would make the rail and top bar white — this whole seam is flagged for
-      a Phase 3 IA decision (docs/ix/current-state-inventory.md §4), not settled by this comment.
+   MIG-05 removed the dark-chrome palette (--chrome-*) that used to sit here. The product shell
+   (rail/top bar/side nav/assistant dock) previously carried iX's DARK-schema values as literals
+   over an otherwise light workspace — a construct iX has no equivalent for. Per CLAUDE.md's
+   design contract, that seam does not survive by default; MIG-06 through MIG-11 replace the
+   hand-rolled shell with iX's own shell primitives (IxApplication/IxApplicationHeader/IxMenu/
+   IxPane), which render in the same light schema as the rest of the app. `--chrome-*` consumers
+   in styles.css now read the workspace tokens below instead.
    ========================================================================== */
 :root {
-  /* chrome (product shell) — iX dark-schema palette, applied over a light workspace */
-  --chrome-900: #0f1619;        /* icon rail        — iX dark theme-color-1 */
-  --chrome-800: #283236;        /* top bar          — iX dark theme-color-2 */
-  --chrome-700: #3c484d;        /* chrome hover     — iX dark theme-color-3 */
-  --chrome-border: #4c5a60;     /*                  — iX dark theme-color-4 */
-  --chrome-text: rgba(245, 252, 255, 0.9);    /* iX dark std-text  */
-  --chrome-muted: rgba(229, 247, 255, 0.65);  /* iX dark soft-text */
-
   /* workspace (data canvas) — resolved from the active iX schema */
   --canvas: var(--theme-color-2);
   --surface: var(--theme-color-1);
