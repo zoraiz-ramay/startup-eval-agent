@@ -23,13 +23,18 @@ export function PillarPill({ pillar, ghost = false, children, ...rest }) {
   );
 }
 
+// MIG-29: both the primary pillar and each `secondary` pillar carried a `.pill.<Pillar>` class
+// (the secondary span's class list was `pill ghost <Pillar>`, which the CSS selector matches
+// regardless of the extra `ghost` class) — so both go through PillarPill now, and PillarPill's own
+// `ghost` prop (an outline treatment, see the component above) is what the secondary pillars use
+// in place of the old bespoke `.pill.ghost` rule.
 export function PillarPills({ routing }) {
   if (!routing) return null;
   return (
     <span>
-      <span className={`pill ${routing.pillar}`}>{routing.pillar}</span>{" "}
+      <PillarPill pillar={routing.pillar} />{" "}
       {(routing.secondary || []).map((s) => (
-        <span key={s} className={`pill ghost ${s}`}>+ {s}</span>
+        <span key={s}>+ <PillarPill pillar={s} ghost /></span>
       ))}{" "}
       {routing.sfs_relevant && (
         <span className="pill sfs" title={routing.sfs_rationale || ""}>💶 SFS financing</span>

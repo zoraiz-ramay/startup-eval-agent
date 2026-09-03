@@ -234,13 +234,13 @@
     },
     {
       "path": "ui/src/App.test.jsx",
-      "lines": 139,
+      "lines": 141,
       "exports": [],
       "css_classes": []
     },
     {
       "path": "ui/src/components/AssistantDock.jsx",
-      "lines": 110,
+      "lines": 114,
       "exports": [
         "AssistantDock"
       ],
@@ -255,7 +255,6 @@
         "dock-suggest",
         "input",
         "muted",
-        "spinner",
         "src"
       ]
     },
@@ -310,7 +309,7 @@
     },
     {
       "path": "ui/src/components/widgets.jsx",
-      "lines": 151,
+      "lines": 156,
       "exports": [
         "ExtLink",
         "Loading",
@@ -343,7 +342,7 @@
     },
     {
       "path": "ui/src/pages/Admin.jsx",
-      "lines": 344,
+      "lines": 348,
       "exports": [
         "Admin"
       ],
@@ -353,39 +352,31 @@
         "crumb",
         "dense",
         "dtable",
-        "empty",
         "grid2",
-        "input",
-        "k",
         "muted",
         "page-head",
         "page-meta",
         "page-title",
         "panel",
         "secondary",
-        "stat",
-        "stats-strip",
-        "v"
+        "stats-strip"
       ]
     },
     {
       "path": "ui/src/pages/Admin.test.jsx",
-      "lines": 123,
+      "lines": 135,
       "exports": [],
       "css_classes": []
     },
     {
       "path": "ui/src/pages/Alerts.jsx",
-      "lines": 74,
+      "lines": 82,
       "exports": [
         "Alerts"
       ],
       "css_classes": [
-        "big",
-        "btn",
         "crumb",
         "dtable",
-        "empty",
         "muted",
         "num",
         "on",
@@ -393,7 +384,6 @@
         "page-meta",
         "page-title",
         "panel",
-        "secondary",
         "star-btn",
         "tool-btn"
       ]
@@ -466,21 +456,14 @@
     },
     {
       "path": "ui/src/pages/Home.jsx",
-      "lines": 211,
+      "lines": 251,
       "exports": [
         "Home"
       ],
       "css_classes": [
-        "action",
         "badge",
-        "btn",
-        "chip",
         "crumb",
         "grid2",
-        "input",
-        "k",
-        "list-main",
-        "list-row",
         "logo-chip",
         "muted",
         "num",
@@ -488,11 +471,8 @@
         "page-meta",
         "page-title",
         "panel",
-        "secondary",
-        "stat",
         "stats-strip",
-        "tool-btn",
-        "v"
+        "tool-btn"
       ]
     },
     {
@@ -546,56 +526,42 @@
     },
     {
       "path": "ui/src/pages/Saved.jsx",
-      "lines": 42,
+      "lines": 63,
       "exports": [
         "Saved"
       ],
       "css_classes": [
-        "big",
-        "btn",
         "crumb",
-        "danger",
-        "empty",
-        "list-main",
-        "list-row",
         "muted",
         "page-head",
         "page-meta",
         "page-title",
-        "panel",
-        "secondary"
+        "panel"
       ]
     },
     {
       "path": "ui/src/pages/Settings.jsx",
-      "lines": 65,
+      "lines": 76,
       "exports": [
         "Settings"
       ],
       "css_classes": [
-        "btn",
         "crumb",
-        "k",
         "muted",
         "page-head",
         "page-title",
         "panel",
-        "secondary",
-        "spec",
-        "status-dot",
-        "v"
+        "status-dot"
       ]
     },
     {
       "path": "ui/src/pages/SignIn.jsx",
-      "lines": 100,
+      "lines": 107,
       "exports": [
         "SignIn"
       ],
       "css_classes": [
-        "btn",
         "muted",
-        "panel",
         "signin",
         "signin-card",
         "signin-foot",
@@ -605,7 +571,7 @@
     },
     {
       "path": "ui/src/pages/SignIn.test.jsx",
-      "lines": 79,
+      "lines": 87,
       "exports": [],
       "css_classes": []
     },
@@ -626,6 +592,6 @@
     "api_methods": 24,
     "design_tokens": 35,
     "jsx_files": 25,
-    "jsx_lines": 4265
+    "jsx_lines": 4387
   }
 }

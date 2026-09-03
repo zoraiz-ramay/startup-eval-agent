@@ -29,7 +29,9 @@ describe("authentication gate", () => {
   it("shows the sign-in screen when nobody is signed in", async () => {
     api.me.mockResolvedValue({ authenticated: false, mode: "entra" });
     renderApp();
-    expect(await screen.findByRole("button", { name: /sign in with siemens/i })).toBeInTheDocument();
+    // IxButton (button.js) has `encapsulation: "shadow"` — MIG-28 moved SignIn's button onto
+    // it, so its real <button> needs the same shadow-piercing query as the rail below.
+    expect(await findShadowRole(document.body, "button", { name: /sign in with siemens/i })).toBeInTheDocument();
   });
 
   it("never calls the API for data while signed out", async () => {
@@ -38,7 +40,7 @@ describe("authentication gate", () => {
     // asserts the gate is in the right place, which no rendering assertion would catch.
     api.me.mockResolvedValue({ authenticated: false, mode: "entra" });
     renderApp();
-    await screen.findByRole("button", { name: /sign in with siemens/i });
+    await findShadowRole(document.body, "button", { name: /sign in with siemens/i });
     expect(api.search).not.toHaveBeenCalled();
     expect(api.myRuns).not.toHaveBeenCalled();
   });

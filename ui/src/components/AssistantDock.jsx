@@ -3,6 +3,7 @@ import { IxPane } from "@siemens/ix-react";
 import { iconAi } from "@siemens/ix-icons/icons";
 import { api } from "../api.js";
 import { useApp } from "../state.jsx";
+import { Loading } from "./widgets.jsx";
 
 const GENERIC_SUGGESTIONS = [
   "Which evaluated startups best fit Siemens today?",
@@ -95,7 +96,10 @@ export default function AssistantDock() {
               )}
             </div>
           ))}
-          {busy && <p className="muted"><span className="spinner" /> Drafting, searching, refining…</p>}
+          {/* MIG-30: consolidated onto widgets.jsx's Loading (IxSpinner) rather than the
+              hand-rolled `.spinner` span, so this dock's busy state gets the same
+              role="status"/aria-live treatment as every other loading indicator in the app. */}
+          {busy && <Loading text="Drafting, searching, refining…" />}
         </div>
         <div className="dock-input">
           <input className="input" placeholder="Ask about this workspace…" value={q}

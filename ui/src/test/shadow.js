@@ -52,3 +52,28 @@ export async function findShadowRole(container, role, options, waitForOptions) {
   const { waitFor } = await import("@testing-library/react");
   return waitFor(() => getShadowRole(container, role, options), waitForOptions);
 }
+
+// Same problem, for text content: IxEmptyState (encapsulation: "shadow" in empty-state.js) puts
+// its header/subHeader inside an <ix-typography> in its shadow root, so a 403 message rendered
+// through it is invisible to `screen.findByText`.
+export function queryShadowText(container, text, options) {
+  for (const root of collectRoots(container)) {
+    const match = within(root).queryByText(text, options);
+    if (match) return match;
+  }
+  return null;
+}
+
+export function getShadowText(container, text, options) {
+  const match = queryShadowText(container, text, options);
+  if (!match) {
+    throw new Error(`No shadow root under the given container contains text matching ${text}`);
+  }
+  return match;
+}
+
+/** Polls until `getShadowText` succeeds — the shadow-piercing analogue of `findByText`. */
+export async function findShadowText(container, text, options, waitForOptions) {
+  const { waitFor } = await import("@testing-library/react");
+  return waitFor(() => getShadowText(container, text, options), waitForOptions);
+}
