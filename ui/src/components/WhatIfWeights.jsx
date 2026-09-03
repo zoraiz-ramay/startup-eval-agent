@@ -2,6 +2,7 @@ import React, { useMemo } from "react";
 import { IxBlind } from "@siemens/ix-react";
 import { DEFAULT_WEIGHTS, DIMENSIONS, DIMENSION_LABELS, reweight } from "../scoring/index.js";
 import { ROUTES, breakevenWeight, whatIfRouting } from "../scoring/routing.js";
+import { PillarPill } from "./widgets.jsx";
 import WeightSliders, { useWeighting } from "./WeightSliders.jsx";
 
 const pp = (x) => `${Math.round(x * 100)}%`;
@@ -134,20 +135,20 @@ export default function WhatIfWeights({ score, fit, routing, open, setOpen }) {
                   <p style={{ margin: "0 0 8px" }}>
                     {wRouting.invariant ? (
                       <>
-                        <span className={`pill ${baseline}`}>{baseline}</span>{" "}
+                        <PillarPill pillar={baseline} />{" "}
                         <span className="muted">— your weighting cannot change this.</span>
                       </>
                     ) : pillarChanged ? (
                       <>
-                        <span className={`pill ${baseline}`}>{baseline}</span>{" "}
+                        <PillarPill pillar={baseline} />{" "}
                         <span className="muted">→</span>{" "}
-                        <span className={`pill ${wRouting.pillar} ghost`}>{wRouting.pillar}</span>{" "}
+                        <PillarPill pillar={wRouting.pillar} ghost />{" "}
                         <span className="badge">not the evaluation result</span>
                       </>
                     ) : (
                       <>
                         <span className="muted">Still </span>
-                        <span className={`pill ${baseline}`}>{baseline}</span>{" "}
+                        <PillarPill pillar={baseline} />{" "}
                         <span className="muted">under your weighting.</span>
                       </>
                     )}
