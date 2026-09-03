@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppProvider } from "../state.jsx";
+import { findShadowRole } from "../test/shadow.js";
 
 /**
  * PROF-01 / PROF-04 — profile header and tab bar.
@@ -58,17 +59,24 @@ beforeEach(() => localStorage.clear());
 
 describe("Profile", () => {
   it("renders the tab bar as a tablist with a selected tab", async () => {
-    await renderProfile();
-    const tablist = await screen.findByRole("tablist");
-    const tabs = within(tablist).getAllByRole("tab");
+    // IxTabs renders its `role="tablist"` div inside its shadow root (compiled source:
+    // tabs.js), so finding the tablist itself needs a shadow-piercing query. Its IxTabItem
+    // children are slotted, i.e. still light-DOM children of <ix-tabs>, and each one carries
+    // `role="tab"`/`aria-selected` as a Host attribute (tab-item.js) rather than inside its own
+    // shadow root — those stay plain screen queries.
+    const { container } = await renderProfile();
+    expect(await findShadowRole(container, "tablist")).toBeTruthy();
+    const tabs = await screen.findAllByRole("tab");
     expect(tabs.length).toBeGreaterThan(1);
     expect(tabs.filter((t) => t.getAttribute("aria-selected") === "true")).toHaveLength(1);
   });
 
   it("keeps the tab bar reachable while scrolling a long report", async () => {
-    await renderProfile();
-    // The affordance, not the computed position — see the note above.
-    expect(await screen.findByRole("tablist")).toHaveClass("sticky-header");
+    const { container } = await renderProfile();
+    // The affordance, not the computed position — see the note above. The class lives on the
+    // <ix-tabs> host itself (light DOM), not inside its shadow root.
+    await screen.findAllByRole("tab");
+    expect(container.querySelector("ix-tabs.sticky-header")).toBeTruthy();
   });
 
   it("renders the header's pillar as an IxPill carrying its own colour, not a bare class name (MIG-01)", async () => {

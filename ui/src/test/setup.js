@@ -33,3 +33,6 @@ globalThis.ResizeObserver ??= class {
   unobserve() {}
   disconnect() {}
 };
+// jsdom doesn't implement it either, and IxTabs calls it on the newly-active tab item
+// (tabs.js's setTabActive) every time the active tab changes.
+Element.prototype.scrollIntoView ??= () => {};

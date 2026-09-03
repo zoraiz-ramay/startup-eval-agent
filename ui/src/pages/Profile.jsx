@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { IxContentHeader } from "@siemens/ix-react";
+import { IxContentHeader, IxTabItem, IxTabs } from "@siemens/ix-react";
 import { api } from "../api.js";
 import { useApp } from "../state.jsx";
 import { ScoreBar, Radar, Spec, ExtLink, PillarPill } from "../components/widgets.jsx";
@@ -610,16 +610,13 @@ export default function Profile() {
         {res.source === "web" && <span className="badge">web-sourced — verify figures</span>}
         {/* sticky-header keeps the tab bar reachable while reading a long profile — the
             Evidence tab in particular scrolls well past a screen, and losing the tabs means
-            scrolling back to the top to switch context. */}
-        <div className="tabs sticky-header" role="tablist">
-          {TABS.map((t) => (
-            <button key={t} role="tab" aria-selected={tab === t}
-              className={"tab" + (tab === t ? " active" : "")}
-              onClick={() => setParams({ tab: t }, { replace: true })}>
-              {t}
-            </button>
-          ))}
-        </div>
+            scrolling back to the top to switch context. Semantics (?tab= sync) are unchanged from
+            the hand-rolled bar: activeTabKey mirrors the query-param-driven `tab` state, and
+            onTabChange writes it back the same way the old onClick did. */}
+        <IxTabs className="sticky-header" activeTabKey={tab}
+          onTabChange={(e) => setParams({ tab: e.detail }, { replace: true })}>
+          {TABS.map((t) => <IxTabItem key={t} tabKey={t} label={t} aria-label={t} />)}
+        </IxTabs>
       </div>
 
       {tab === "Overview" && <OverviewTab res={res} />}
