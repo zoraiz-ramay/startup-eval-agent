@@ -6,6 +6,7 @@ import { MemoryRouter } from "react-router-dom";
 
 import Admin from "./Admin.jsx";
 import { api } from "../api.js";
+import { getShadowRole, findShadowText } from "../test/shadow.js";
 
 /**
  * The admin page is now the place access is granted, so the behaviour that matters is who
@@ -32,7 +33,16 @@ const ADMINS = {
   ],
 };
 
-const renderAdmin = () => render(<MemoryRouter><Admin /></MemoryRouter>);
+const renderAdmin = () => render(<MemoryRouter><Admin /></MemoryRouter>).container;
+
+// IxInput has `encapsulation: "shadow"` (input.js), so its <label> and the native <input> it
+// labels both live in a shadow root — screen.getByLabelText only ever walks the light DOM and
+// finds neither. The shadow-piercing role query is the fix; the accessible name still comes
+// from the `label` prop, so the query by name is unchanged from what getByLabelText expressed.
+const grantField = (container) => getShadowRole(container, "textbox", { name: /sign-in name/i });
+// IxButton (button.js) is also shadow-encapsulated — its rendered <button> is not a light-DOM
+// descendant either, so the "Grant access" click needs the same shadow-piercing query.
+const grantButton = (container) => getShadowRole(container, "button", { name: /grant access/i });
 
 // Matched on the first cell, scoped to the administrators table: the granting admin's own
 // name also appears in the "granted by" column, so a bare getByText finds two elements.
@@ -78,11 +88,11 @@ describe("Admin — administrators", () => {
 
   it("grants access and re-reads the list rather than guessing the new state", async () => {
     const grant = vi.spyOn(api, "adminGrant").mockResolvedValue({ upn: "new@siemens.com" });
-    renderAdmin();
+    const container = renderAdmin();
     await screen.findByRole("heading", { name: /administrators/i });
 
-    await userEvent.type(screen.getByLabelText(/sign-in name/i), "new@siemens.com");
-    await userEvent.click(screen.getByRole("button", { name: /grant access/i }));
+    await userEvent.type(grantField(container), "new@siemens.com");
+    await userEvent.click(grantButton(container));
 
     expect(grant).toHaveBeenCalledWith("new@siemens.com");
     // Two calls: the initial load and the reload after the change.
@@ -91,12 +101,12 @@ describe("Admin — administrators", () => {
 
   it("surfaces a refused grant instead of clearing the field", async () => {
     vi.spyOn(api, "adminGrant").mockRejectedValue(new Error("already an administrator"));
-    renderAdmin();
+    const container = renderAdmin();
     await screen.findByRole("heading", { name: /administrators/i });
 
-    const field = screen.getByLabelText(/sign-in name/i);
+    const field = grantField(container);
     await userEvent.type(field, "colleague@siemens.com");
-    await userEvent.click(screen.getByRole("button", { name: /grant access/i }));
+    await userEvent.click(grantButton(container));
 
     expect(await screen.findByText(/already an administrator/i)).toBeInTheDocument();
     expect(field).toHaveValue("colleague@siemens.com");
@@ -109,8 +119,10 @@ describe("Admin — administrators", () => {
     api.runs.mockRejectedValue(forbidden);
     api.adminList.mockRejectedValue(forbidden);
 
-    renderAdmin();
-    expect(await screen.findByText(/administrator access required/i)).toBeInTheDocument();
+    const container = renderAdmin();
+    // IxEmptyState (empty-state.js) is also shadow-encapsulated, so its header text needs the
+    // same shadow-piercing query as the grant field above.
+    expect(await findShadowText(container, /administrator access required/i)).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /^administrators/i })).not.toBeInTheDocument();
   });
 
