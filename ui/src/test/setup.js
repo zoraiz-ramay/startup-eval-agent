@@ -36,3 +36,11 @@ globalThis.ResizeObserver ??= class {
 // jsdom doesn't implement it either, and IxTabs calls it on the newly-active tab item
 // (tabs.js's setTabActive) every time the active tab changes.
 Element.prototype.scrollIntoView ??= () => {};
+
+// jsdom's ElementInternals stub (used by attachInternals()) implements the ARIA reflection
+// properties but not the form-association half of the spec -- setFormValue is simply absent. Every
+// form-associated iX control (ix-slider among them) calls it on every input event, so leaving it
+// missing throws on the very first interaction rather than on anything this suite is testing for.
+if (typeof ElementInternals !== "undefined") {
+  ElementInternals.prototype.setFormValue ??= () => {};
+}

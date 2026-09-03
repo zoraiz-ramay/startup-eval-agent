@@ -1,4 +1,5 @@
 import React from "react";
+import { IxSlider } from "@siemens/ix-react";
 import { useApp } from "../state.jsx";
 import {
   DEFAULT_WEIGHTS, DIMENSIONS, DIMENSION_LABELS, isDefaultWeights, normaliseWeights,
@@ -38,6 +39,9 @@ export function useWeighting() {
   return { active, ok, sum, modified, setShare, reset, shareOf };
 }
 
+// MIG-22: single-value 0-100 share per dimension, so IxSlider (min/max/step/value) is the right
+// primitive -- IxRangeField is a two-endpoint date/time range control (components.md) and has no
+// bearing on a single number.
 export default function WeightSliders({ idPrefix = "w", columns = 2 }) {
   const { ok, setShare, shareOf } = useWeighting();
   return (
@@ -45,26 +49,25 @@ export default function WeightSliders({ idPrefix = "w", columns = 2 }) {
       {DIMENSIONS.map((k) => {
         const share = shareOf(k);
         return (
-          <div key={k} className="spec" style={{ alignItems: "center" }}>
-            <div className="k">
-              <label htmlFor={`${idPrefix}-${k}`}>{DIMENSION_LABELS[k]}</label>
-            </div>
-            <div className="v" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <input
-                id={`${idPrefix}-${k}`}
-                className="wslider"
-                type="range"
-                min="0"
-                max="100"
-                step="1"
-                value={share}
-                aria-valuetext={`${share} percent`}
-                onChange={(e) => setShare(k, e.target.value)}
-              />
-              <span style={{ fontSize: 12, minWidth: 34, textAlign: "right" }}>
-                {ok ? `${share}%` : "—"}
-              </span>
-            </div>
+          <div key={k} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <IxSlider
+              id={`${idPrefix}-${k}`}
+              label={DIMENSION_LABELS[k]}
+              min={0}
+              max={100}
+              step={1}
+              value={share}
+              // ix-slider forwards any aria-* it doesn't compute itself onto the shadow input
+              // (slider.js's a11yHostAttributes, componentWillLoad) -- role/valuemin/max/now are
+              // excluded there because it derives those itself, valuetext is not, so it reaches
+              // the native control unchanged.
+              aria-valuetext={`${share} percent`}
+              onValueChange={(e) => setShare(k, e.detail)}
+              style={{ flex: 1 }}
+            />
+            <span style={{ fontSize: 12, minWidth: 34, textAlign: "right" }}>
+              {ok ? `${share}%` : "—"}
+            </span>
           </div>
         );
       })}

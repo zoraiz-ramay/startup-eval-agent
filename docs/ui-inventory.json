@@ -285,21 +285,16 @@
     },
     {
       "path": "ui/src/components/WeightSliders.jsx",
-      "lines": 74,
+      "lines": 77,
       "exports": [
         "WeightSliders",
         "useWeighting"
       ],
-      "css_classes": [
-        "k",
-        "spec",
-        "v",
-        "wslider"
-      ]
+      "css_classes": []
     },
     {
       "path": "ui/src/components/WhatIfWeights.jsx",
-      "lines": 247,
+      "lines": 250,
       "exports": [
         "WhatIfWeights"
       ],
@@ -308,10 +303,8 @@
         "btn",
         "k",
         "muted",
-        "panel",
         "secondary",
         "spec",
-        "tool-btn",
         "v"
       ]
     },
@@ -549,7 +542,7 @@
     },
     {
       "path": "ui/src/pages/Profile.test.jsx",
-      "lines": 361,
+      "lines": 371,
       "exports": [],
       "css_classes": []
     },
@@ -635,6 +628,6 @@
     "api_methods": 24,
     "design_tokens": 35,
     "jsx_files": 25,
-    "jsx_lines": 4221
+    "jsx_lines": 4237
   }
 }
