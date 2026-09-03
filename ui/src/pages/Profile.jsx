@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { IxCard, IxCardContent, IxContentHeader, IxKeyValueList, IxTabItem, IxTabs } from "@siemens/ix-react";
+import {
+  IxCard, IxCardContent, IxChip, IxContentHeader, IxIconButton, IxInput, IxKeyValueList, IxTabItem, IxTabs,
+} from "@siemens/ix-react";
+import { iconSendRight } from "@siemens/ix-icons/icons";
 import { api } from "../api.js";
 import { useApp } from "../state.jsx";
 import { ScoreBar, Radar, Spec, ExtLink, PillarPill } from "../components/widgets.jsx";
@@ -371,36 +374,42 @@ function MarketTab({ res }) {
   }
   return (
     <div className="grid2">
-      <div className="panel">
-        <h3>Market trend</h3>
-        <div className="metric-row">
-          <div className="metric"><div className="k">Verdict</div><div className="v" style={{ fontSize: 14 }}>{t.label}</div></div>
-          <div className="metric"><div className="k">Momentum</div><div className="v">{t.momentum ?? "—"}</div></div>
-        </div>
-        {t.niche && <Spec k="Niche">{t.niche}</Spec>}
-        <p style={{ marginBottom: 0 }}>{t.summary}</p>
-      </div>
-      <div>
-        <div className="panel">
-          <h3>Signals</h3>
-          {(t.signals || []).length
-            ? t.signals.map((s, i) => <div key={i} className="reason">{s}</div>)
-            : <p className="muted" style={{ margin: 0 }}>No discrete signals extracted.</p>}
-          {(rt.risks || []).length > 0 && <h3 style={{ marginTop: 12 }}>Risks</h3>}
-          {(rt.risks || []).map((r, i) => <div key={i} className="risk">{r}</div>)}
-        </div>
-        {(t.evidence || []).length > 0 && (
-          <div className="panel">
-            <h3>Market evidence</h3>
-            {t.evidence.slice(0, 6).map((e, i) => (
-              <div key={i} className="list-row" style={{ fontSize: 12.5 }}>
-                <div className="list-main">
-                  <ExtLink href={e.url || e.href}>{e.title || e.url || e.href}</ExtLink>
-                  <div className="muted">{(e.snippet || e.body || "").slice(0, 140)}</div>
-                </div>
-              </div>
-            ))}
+      <IxCard>
+        <IxCardContent>
+          <h3>Market trend</h3>
+          <div className="metric-row">
+            <div className="metric"><div className="k">Verdict</div><div className="v" style={{ fontSize: 14 }}>{t.label}</div></div>
+            <div className="metric"><div className="k">Momentum</div><div className="v">{t.momentum ?? "—"}</div></div>
           </div>
+          {t.niche && <Spec k="Niche">{t.niche}</Spec>}
+          <p style={{ marginBottom: 0 }}>{t.summary}</p>
+        </IxCardContent>
+      </IxCard>
+      <div>
+        <IxCard>
+          <IxCardContent>
+            <h3>Signals</h3>
+            {(t.signals || []).length
+              ? t.signals.map((s, i) => <div key={i} className="reason">{s}</div>)
+              : <p className="muted" style={{ margin: 0 }}>No discrete signals extracted.</p>}
+            {(rt.risks || []).length > 0 && <h3 style={{ marginTop: 12 }}>Risks</h3>}
+            {(rt.risks || []).map((r, i) => <div key={i} className="risk">{r}</div>)}
+          </IxCardContent>
+        </IxCard>
+        {(t.evidence || []).length > 0 && (
+          <IxCard>
+            <IxCardContent>
+              <h3>Market evidence</h3>
+              {t.evidence.slice(0, 6).map((e, i) => (
+                <div key={i} className="list-row" style={{ fontSize: 12.5 }}>
+                  <div className="list-main">
+                    <ExtLink href={e.url || e.href}>{e.title || e.url || e.href}</ExtLink>
+                    <div className="muted">{(e.snippet || e.body || "").slice(0, 140)}</div>
+                  </div>
+                </div>
+              ))}
+            </IxCardContent>
+          </IxCard>
         )}
       </div>
     </div>
@@ -414,35 +423,43 @@ function EvidenceTab({ res }) {
   const dot = (v) => (
     <span className="status-dot" style={{ background: v ? "var(--success)" : "var(--border-2)" }} />
   );
+  // The fact table itself keeps its plain <table> markup and .dtable/.dense classes untouched --
+  // that class is shared with Explore's grid (MIG-15's row, not yet done) and lives in the
+  // repo-wide styles.css, outside this row's file scope (Profile.jsx and named helpers only). Its
+  // colours already come from tokens (var(--border), var(--surface), var(--accent-soft)) bar two
+  // hard-coded hover backgrounds that are MIG-15's re-skin to fix, not this one's, since fixing
+  // them here would silently reskin Explore's table too.
   return (
-    <div className="panel" style={{ padding: 0 }}>
-      <div style={{ padding: "10px 12px", borderBottom: "1px solid var(--border)" }}>
-        <input className="input" style={{ maxWidth: 280 }} placeholder="Filter evidence…"
-          value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Filter evidence" />
-        <span className="muted" style={{ marginLeft: 10, fontSize: 12 }}>{facts.length} facts</span>
-      </div>
-      <div style={{ overflowX: "auto" }}>
-        <table className="dtable dense">
-          <thead>
-            <tr><th>Status</th><th>Claim</th><th>Value</th><th>Method</th><th>Source</th></tr>
-          </thead>
-          <tbody>
-            {facts.slice(0, 120).map((f, i) => (
-              <tr key={i} style={{ cursor: "default" }}>
-                <td>{dot(f.verified === true || f.verified === "True")}
-                  {f.verified === true || f.verified === "True" ? "verified" : "unverified"}</td>
-                <td>{f.key}</td>
-                <td style={{ whiteSpace: "normal", maxWidth: 380, overflowWrap: "anywhere" }}>{f.value}</td>
-                <td className="muted">{f.method}</td>
-                <td>{/^https?:\/\//.test(f.source_url || "")
-                  ? <ExtLink href={f.source_url}>link</ExtLink>
-                  : <span className="muted">{f.source_url || "—"}</span>}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
+    <IxCard>
+      <IxCardContent style={{ padding: 0 }}>
+        <div style={{ padding: "10px 12px", borderBottom: "1px solid var(--border)" }}>
+          <input className="input" style={{ maxWidth: 280 }} placeholder="Filter evidence…"
+            value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Filter evidence" />
+          <span className="muted" style={{ marginLeft: 10, fontSize: 12 }}>{facts.length} facts</span>
+        </div>
+        <div style={{ overflowX: "auto" }}>
+          <table className="dtable dense">
+            <thead>
+              <tr><th>Status</th><th>Claim</th><th>Value</th><th>Method</th><th>Source</th></tr>
+            </thead>
+            <tbody>
+              {facts.slice(0, 120).map((f, i) => (
+                <tr key={i} style={{ cursor: "default" }}>
+                  <td>{dot(f.verified === true || f.verified === "True")}
+                    {f.verified === true || f.verified === "True" ? "verified" : "unverified"}</td>
+                  <td>{f.key}</td>
+                  <td style={{ whiteSpace: "normal", maxWidth: 380, overflowWrap: "anywhere" }}>{f.value}</td>
+                  <td className="muted">{f.method}</td>
+                  <td>{/^https?:\/\//.test(f.source_url || "")
+                    ? <ExtLink href={f.source_url}>link</ExtLink>
+                    : <span className="muted">{f.source_url || "—"}</span>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </IxCardContent>
+    </IxCard>
   );
 }
 
@@ -469,38 +486,45 @@ function AskTab({ res, runId }) {
     } finally { setBusy(false); }
   };
   return (
-    <div className="panel">
-      <h3>Ask about {res.company}</h3>
-      <p className="muted" style={{ fontSize: 12.5, marginTop: 0 }}>
-        The assistant drafts from AI knowledge, verifies against a targeted web search, and cites sources.
-      </p>
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-        {suggestions.map((s) => (
-          <button key={s} className="chip action" onClick={() => send(s)}>{s}</button>
-        ))}
-      </div>
-      {msgs.map((m, i) => (
-        <div key={i} className={`dock-msg ${m.role}`} style={{ maxWidth: 760 }}>
-          {m.role === "assistant" && m.source && <div className="src">{m.source}</div>}
-          {m.text}
-          {m.evidence?.length > 0 && (
-            <div style={{ marginTop: 6 }}>
-              {m.evidence.slice(0, 5).map((e, j) => (
-                <div key={j} style={{ fontSize: 11 }}>
-                  <a href={e.url} target="_blank" rel="noopener noreferrer">[{j + 1}] {e.title || e.url}</a>
-                </div>
-              ))}
-            </div>
-          )}
+    <IxCard>
+      <IxCardContent>
+        <h3>Ask about {res.company}</h3>
+        <p className="muted" style={{ fontSize: 12.5, marginTop: 0 }}>
+          The assistant drafts from AI knowledge, verifies against a targeted web search, and cites sources.
+        </p>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+          {suggestions.map((s) => (
+            <IxChip key={s} onClick={() => send(s)}>{s}</IxChip>
+          ))}
         </div>
-      ))}
-      {busy && <p className="muted"><span className="spinner" /> Drafting, searching, refining…</p>}
-      <div style={{ display: "flex", gap: 6, maxWidth: 760 }}>
-        <input className="input" placeholder={`Ask about ${res.company}…`} value={q}
-          onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()} />
-        <button className="btn ai" disabled={busy || !q.trim()} onClick={() => send()}>Ask</button>
-      </div>
-    </div>
+        {msgs.map((m, i) => (
+          <div key={i} className={`dock-msg ${m.role}`} style={{ maxWidth: 760 }}>
+            {m.role === "assistant" && m.source && <div className="src">{m.source}</div>}
+            {m.text}
+            {m.evidence?.length > 0 && (
+              <div style={{ marginTop: 6 }}>
+                {m.evidence.slice(0, 5).map((e, j) => (
+                  <div key={j} style={{ fontSize: 11 }}>
+                    <a href={e.url} target="_blank" rel="noopener noreferrer">[{j + 1}] {e.title || e.url}</a>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+        {busy && <p className="muted"><span className="spinner" /> Drafting, searching, refining…</p>}
+        <div style={{ display: "flex", gap: 6, maxWidth: 760, alignItems: "center" }}>
+          <IxInput
+            style={{ flex: 1 }}
+            placeholder={`Ask about ${res.company}…`}
+            value={q}
+            onValueChange={(e) => setQ(e.detail)}
+            onKeyDown={(e) => e.key === "Enter" && send()}
+          />
+          <IxIconButton icon={iconSendRight} aria-label="Ask" disabled={busy || !q.trim()} onClick={() => send()} />
+        </div>
+      </IxCardContent>
+    </IxCard>
   );
 }
 

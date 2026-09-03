@@ -497,13 +497,11 @@
     },
     {
       "path": "ui/src/pages/Profile.jsx",
-      "lines": 648,
+      "lines": 672,
       "exports": [
         "Profile"
       ],
       "css_classes": [
-        "action",
-        "ai",
         "badge",
         "big",
         "btn",
@@ -628,6 +626,6 @@
     "api_methods": 24,
     "design_tokens": 35,
     "jsx_files": 25,
-    "jsx_lines": 4237
+    "jsx_lines": 4261
   }
 }
