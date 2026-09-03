@@ -266,13 +266,9 @@ a:hover { text-decoration: underline; }
 .score-big { font-size: 38px; font-weight: 800; line-height: 1; }
 
 /* ---------------- drawer (column customisation) ---------------- */
-.drawer-mask { position: fixed; inset: 0; background: rgba(20,26,43,.28); z-index: 90; }
-.drawer {
-  position: fixed; top: 0; right: 0; bottom: 0; width: 320px; z-index: 95;
-  background: var(--surface); border-left: 1px solid var(--border-2);
-  padding: 16px; overflow-y: auto; box-shadow: -8px 0 24px rgba(16,24,40,.10);
-}
-.drawer h2 { font-size: 15px; margin: 0 0 4px; }
+/* MIG-14: the drawer's own chrome (mask, panel positioning/surface/shadow) moved onto IxPane
+   (Explore.jsx's ColumnDrawer, Explore.css's .explore-drawer-pane) — .drawer-mask/.drawer are
+   gone. .drow/.mv stay: they style the column rows inside the pane's content, not the chrome. */
 .drow { display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-bottom: 1px solid var(--border); font-size: 13px; }
 .drow .mv { margin-left: auto; display: flex; gap: 2px; }
 .mv button { background: none; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; font-size: 11px; padding: 1px 6px; color: var(--text-2); }

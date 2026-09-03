@@ -4,3 +4,14 @@
   background: var(--bg, white);
   z-index: 2;
 }
+
+/* MIG-14: IxPane (the column-customise drawer) defaults every composition to position:relative,
+   in flow (verified against pane.css) — not what an overlay panel needs. Same override
+   AssistantDock's .assistant-pane already applies for the same reason. */
+.explore-drawer-pane {
+  position: fixed;
+  top: var(--topbar-h, 0);
+  right: 0;
+  bottom: 0;
+  z-index: 95;
+}

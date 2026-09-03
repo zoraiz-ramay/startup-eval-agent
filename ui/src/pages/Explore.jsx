@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { IxCategoryFilter, IxContentHeader, IxKpi } from "@siemens/ix-react";
+import { IxCategoryFilter, IxContentHeader, IxKpi, IxPane } from "@siemens/ix-react";
 import { api } from "../api.js";
 import { useApp } from "../state.jsx";
 import ErrorBox from "../components/ErrorBox.jsx";
@@ -8,6 +8,7 @@ import { PillarPill } from "../components/widgets.jsx";
 import WeightSliders, { useWeighting } from "../components/WeightSliders.jsx";
 import { DEFAULT_WEIGHTS, reweight } from "../scoring/index.js";
 import { whatIfRouting } from "../scoring/routing.js";
+import "./Explore.css";
 
 // MIG-12: the one category this filter row ever offered is the pillar, so it maps onto
 // IxCategoryFilter's single-category-hash shape (components.md) with one entry. Free text still
@@ -75,9 +76,10 @@ const SORTABLE = new Set(["final_score", "siemens_fit", "founded_year", "created
 function ColumnDrawer({ open, onClose, cols, setCols, onSaveView }) {
   const [viewName, setViewName] = useState("");
   const asideRef = useRef(null);
-  // Escape closes the drawer. It overlays the table behind a mask, so without a keyboard exit a
-  // keyboard-only user is trapped: the mask is a div and cannot be activated with a key.
-  // Registered before the early return below — hooks must run on every render.
+  // MIG-14: IxPane's own Escape handler (pane.js's registerEscapeListener) is attached to the
+  // host element itself, and only fires while focus is inside it — kept here too, on window,
+  // as a second path that doesn't depend on where focus happens to be. Both call the same
+  // onClose, which is idempotent, so there is no double-close to guard against.
   useEffect(() => {
     if (!open) return undefined;
     const onKey = (e) => {
@@ -86,10 +88,11 @@ function ColumnDrawer({ open, onClose, cols, setCols, onSaveView }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
-  // Opening the drawer doesn't move the trigger button out of the DOM, so without this a
-  // keyboard/screen-reader user who activates it hears nothing change — their focus stays put
-  // while a whole panel appears behind them. tabIndex=-1 makes the panel a valid focus target
-  // without adding it to the normal Tab order (it isn't a control itself).
+  // IxPane moves focus into itself on its own (pane.js's focusFirstSlottedElement), but only
+  // after its open animation's completion callback fires — real in a browser, not guaranteed in
+  // a test environment that doesn't run animation frames the same way. Doing it here too, plain
+  // and synchronous, means the "focus lands inside" contract holds regardless of the pane's own
+  // animation timing.
   useEffect(() => {
     if (open) asideRef.current?.focus();
   }, [open]);
@@ -103,15 +106,28 @@ function ColumnDrawer({ open, onClose, cols, setCols, onSaveView }) {
   };
   const inactive = Object.keys(COLUMNS).filter((k) => !cols.includes(k));
   return (
-    <>
-      {/* Click-outside-to-close is a mouse convenience, not a control: closing is already fully
-          keyboard-reachable via Escape (below) and doesn't need a second, redundant path. Giving
-          this div role="button"+tabIndex would add a tab stop that a screen reader announces as
-          an actionable "button" with no real label — worse than leaving it out of the
-          accessibility tree entirely, which aria-hidden does. */}
-      <div className="drawer-mask" aria-hidden="true" onClick={onClose} />
-      <aside ref={asideRef} tabIndex={-1} className="drawer" aria-label="Customise columns">
-        <h2>Customise columns</h2>
+    // variant="floating" + composition="right" is the same overlay shape AssistantDock (MIG-11)
+    // already uses; .explore-drawer-pane forces position:fixed the same way .assistant-pane
+    // does, since IxPane defaults every composition to position:relative (verified against
+    // pane.css). closeOnClickOutside replaces the old bare `.drawer-mask` div outright — X-04's
+    // complaint was a mouse-only control invisible to assistive tech, and there is now no
+    // backdrop element at all for that problem to attach to; a plain window click listener
+    // (pane.js's onExpandedChange, gated on event.composedPath()) closes it instead.
+    <IxPane
+      className="explore-drawer-pane"
+      variant="floating"
+      composition="right"
+      size="320px"
+      expanded
+      closeOnClickOutside
+      heading="Customise columns"
+      ariaLabelCollapseCloseButton="Close customise columns"
+      onExpandedChanged={(e) => { if (!e.detail.expanded) onClose(); }}
+    >
+      {/* IxPane's <aside> carries no aria-labelledby/aria-label wired to `heading` (verified
+          against the compiled source, same gap AssistantDock's own comment documents) — the
+          "Customise columns" landmark name has to come from a light-DOM wrapper we slot in. */}
+      <div ref={asideRef} tabIndex={-1} role="complementary" aria-label="Customise columns">
         <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>Reorder, remove, or add columns.</p>
         {cols.map((k, i) => (
           <div key={k} className="drow">
@@ -143,8 +159,8 @@ function ColumnDrawer({ open, onClose, cols, setCols, onSaveView }) {
             Save view
           </button>
         </div>
-      </aside>
-    </>
+      </div>
+    </IxPane>
   );
 }
 

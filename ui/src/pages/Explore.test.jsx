@@ -72,15 +72,18 @@ describe("Explore column drawer", () => {
     expect(screen.getAllByRole("checkbox", { name: /^(remove|add) /i }).length).toBeGreaterThan(0);
   });
 
-  it("X-04: the click-outside backdrop is hidden from assistive tech rather than a fake unlabelled button", async () => {
+  it("X-04: clicking outside the pane closes it, with no unlabelled backdrop element to click", async () => {
     const user = userEvent.setup();
     const { container } = renderExplore();
     await user.click(await screen.findByRole("button", { name: /customise columns/i }));
+    expect(screen.getByRole("complementary", { name: /customise columns/i })).toBeInTheDocument();
 
-    // The mask has no accessible name and duplicates a close that Escape already provides — it
-    // must not be exposed to the accessibility tree as an actionable, unlabelled element.
-    const mask = container.querySelector(".drawer-mask");
-    expect(mask).toHaveAttribute("aria-hidden", "true");
+    // MIG-14: IxPane's closeOnClickOutside replaces the old bare `.drawer-mask` div outright —
+    // there is no backdrop element left for an unlabelled-control problem to attach to at all,
+    // rather than one that is merely hidden from the accessibility tree.
+    expect(container.querySelector(".drawer-mask")).toBeNull();
+    await user.click(document.body);
+    expect(screen.queryByRole("complementary", { name: /customise columns/i })).toBeNull();
   });
 
   it("X-04: opening the drawer moves focus into it, and closing it with Escape returns focus to the trigger", async () => {
@@ -99,6 +102,14 @@ describe("Explore column drawer", () => {
     // Closing must not drop focus into <body> — it belongs back on the control that opened it.
     expect(trigger).toHaveFocus();
   });
+
+  // UI-14 (pre-existing focus-trap gap): pane.js's onExpandedChange does call the library's own
+  // addFocusTrap(hostElement, { trapFocusInShadowDom: 'both' }) while floating+expanded, which
+  // reads as a real Tab-cycling implementation in the compiled source. Tried as a test here —
+  // `user.tab()` repeatedly from inside the open pane — and empirically it does NOT hold in this
+  // jsdom/Testing-Library environment: focus lands on document.body rather than staying inside
+  // the pane or wrapping to another of its own controls. Left out of the committed suite because
+  // an assertion that fails is not something to ship green by loosening it; UI-14 stays open.
 });
 
 /**
