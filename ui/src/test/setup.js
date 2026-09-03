@@ -6,7 +6,7 @@ import { afterEach, vi } from "vitest";
 // test first imports a component that uses it eat several seconds against its own timeout.
 import "@siemens/ix-react";
 import { addIcons } from "@siemens/ix-icons";
-import { iconLock, iconStar, iconBookmark, iconTrashcan } from "@siemens/ix-icons/icons";
+import { iconLock, iconStar, iconBookmark, iconTrashcan, iconScale, iconTableRows } from "@siemens/ix-icons/icons";
 
 afterEach(cleanup);
 
@@ -16,8 +16,9 @@ afterEach(cleanup);
 // unregistered icon becomes an unhandled rejection that fails the whole run despite every
 // assertion passing. Registering the handful the pages under test actually use (lock: Admin's
 // forbidden state, star: Alerts' empty state, bookmark: Saved's empty state, trashcan: Saved's
-// delete action) resolves them from an in-memory cache instead of a fetch.
-addIcons({ iconLock, iconStar, iconBookmark, iconTrashcan });
+// delete action, table-rows/scale: Explore's density/weighting toggles, MIG-16) resolves them
+// from an in-memory cache instead of a fetch.
+addIcons({ iconLock, iconStar, iconBookmark, iconTrashcan, iconScale, iconTableRows });
 
 // Nothing in a component test may reach the network. A test that silently falls back to a real
 // fetch passes for the wrong reason locally and fails in CI, so the default is a hard error and

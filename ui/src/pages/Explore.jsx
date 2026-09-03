@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { IxCategoryFilter, IxContentHeader, IxKpi, IxPane } from "@siemens/ix-react";
+import { IxCategoryFilter, IxContentHeader, IxKpi, IxPane, IxToggleButton } from "@siemens/ix-react";
+import { iconScale, iconTableRows } from "@siemens/ix-icons/icons";
 import { api } from "../api.js";
 import { useApp } from "../state.jsx";
 import ErrorBox from "../components/ErrorBox.jsx";
@@ -397,14 +398,23 @@ export default function Explore() {
           Select all
         </label>
         <button ref={drawerTriggerRef} className="tool-btn" onClick={() => setDrawer(true)}>⚙ Customise columns</button>
-        <button className={"tool-btn" + (dense ? " active" : "")}
-          onClick={() => setParam("density", dense ? "comfortable" : "")}>
-          ☰ {dense ? "Compact" : "Comfortable"}
-        </button>
-        <button className={"tool-btn" + (weightingOn ? " active" : "")}
-          aria-expanded={weightingOn} onClick={() => setWeightingOn((v) => !v)}>
-          ⚖ Weighting: {weightingOn && modified ? "mine" : "engine"}
-        </button>
+        {/* MIG-16: IxToggleButton's own `pressed` reflects aria-pressed automatically
+            (toggle-button.js), which is the correct semantics for a two-state toggle — the
+            hand-rolled ".active" class carried no such signal to assistive tech at all.
+            aria-label is explicit rather than left to default: toggle-button.js always sets one
+            (inherited, or else a fallback derived from the icon name alone, e.g. "Scale"), which
+            would silently replace the slotted label text as the accessible name otherwise. */}
+        <IxToggleButton variant="secondary" icon={iconTableRows} pressed={dense}
+          aria-label={dense ? "Compact density" : "Comfortable density"}
+          onPressedChange={(e) => setParam("density", e.detail ? "" : "comfortable")}>
+          {dense ? "Compact" : "Comfortable"}
+        </IxToggleButton>
+        <IxToggleButton variant="secondary" icon={iconScale} pressed={weightingOn}
+          aria-expanded={weightingOn}
+          aria-label={`Weighting: ${weightingOn && modified ? "mine" : "engine"}`}
+          onPressedChange={(e) => setWeightingOn(e.detail)}>
+          Weighting: {weightingOn && modified ? "mine" : "engine"}
+        </IxToggleButton>
         <span className="spacer" />
         {selected.size > 0 && <span className="muted" style={{ fontSize: 12 }}>{selected.size} selected</span>}
         <button className="tool-btn" onClick={exportCsv}>⤓ Export</button>

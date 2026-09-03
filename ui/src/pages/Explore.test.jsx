@@ -219,8 +219,8 @@ describe("Explore portfolio weighting", () => {
 
   it("leaves the grid on the engine's numbers until a weight is actually moved", async () => {
     const user = userEvent.setup();
-    render1();
-    await user.click(await screen.findByRole("button", { name: /weighting/i }));
+    const { container } = render1();
+    await user.click(await findShadowRole(container, "button", { name: /weighting/i }));
 
     expect(screen.getByText(/move a slider to see what changes/i)).toBeInTheDocument();
     // No "(engine NN)" annotation yet: nothing has been re-weighted, so there is nothing to
@@ -231,7 +231,7 @@ describe("Explore portfolio weighting", () => {
   it("re-scores the table but keeps the engine's stored score on screen", async () => {
     const user = userEvent.setup();
     const { container } = render1();
-    await user.click(await screen.findByRole("button", { name: /weighting/i }));
+    await user.click(await findShadowRole(container, "button", { name: /weighting/i }));
 
     const slider = await findShadowRole(container, "slider", { name: "Product" });
     fireEvent.input(slider, { target: { value: "80" } });
@@ -245,7 +245,7 @@ describe("Explore portfolio weighting", () => {
   it("resets back to the engine weighting", async () => {
     const user = userEvent.setup();
     const { container } = render1();
-    await user.click(await screen.findByRole("button", { name: /weighting/i }));
+    await user.click(await findShadowRole(container, "button", { name: /weighting/i }));
     fireEvent.input(await findShadowRole(container, "slider", { name: "Product" }), { target: { value: "80" } });
     await screen.findByText(/\(engine 40\)/);
 
