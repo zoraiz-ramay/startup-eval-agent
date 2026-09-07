@@ -213,12 +213,46 @@ def test_ddg_many_reports_empty_and_timed_out(monkeypatch):
     Downstream these look identical (both yield []), which is why a throttled run used to be
     indistinguishable from a company the web genuinely knows nothing about.
     """
+    # **kw so the stub keeps matching ddg_search as its signature grows; the worker swallows a
+    # TypeError into an empty result, which is indistinguishable from the failure under test.
     monkeypatch.setattr(web, "ddg_search",
-                        lambda q, n=4: [{"title": "hit"}] if "good" in q else [])
+                        lambda q, n=4, **kw: [{"title": "hit"}] if "good" in q else [])
     stats = {}
     out = web._ddg_many({"a": "good one", "b": "bad one"}, stats=stats)
     assert out["a"] and out["b"] == []
-    assert stats == {"requested": 2, "returned": 2, "empty": 1, "timed_out": 0}
+    assert stats == {"requested": 2, "returned": 2, "empty": 1, "timed_out": 0,
+                     "cached": 0, "cached_at": {}}
+
+
+def test_ddg_many_reports_which_queries_were_replayed_from_cache(monkeypatch):
+    """A replayed result is older evidence than a fresh one, and the Facts built from it are
+    dated accordingly (core/enrich.py). That is only possible if the wave says which keys came
+    from cache and when they were originally searched."""
+    stamps = {"cached one": "2026-08-15T09:00:00+00:00"}
+
+    def fake_search(q, n=4, meta=None, **kw):
+        if q in stamps and isinstance(meta, dict):
+            meta["cached_at"] = stamps[q]
+        return [{"title": "hit"}]
+
+    monkeypatch.setattr(web, "ddg_search", fake_search)
+    stats = {}
+    web._ddg_many({"a": "cached one", "b": "fresh one"}, stats=stats)
+
+    assert stats["cached"] == 1
+    assert stats["cached_at"] == {"a": stamps["cached one"]}
+
+
+def test_cache_entry_getter_is_optional(monkeypatch):
+    """The engine runs uncached from tests and scripts, and with a backend that predates the
+    entry getter. Neither may change behaviour."""
+    calls = []
+    monkeypatch.setattr(web, "_cache_get", lambda kind, key: calls.append(key) or None)
+    monkeypatch.setattr(web, "_cache_put", lambda kind, key, payload: None)
+    monkeypatch.setattr(web, "_cache_entry", None)
+    meta = {}
+    assert web._cached("ddg", "k", meta) is None
+    assert calls == ["k"] and meta == {}
 
 
 def test_ddg_many_stats_on_empty_input():

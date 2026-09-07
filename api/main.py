@@ -19,7 +19,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from fastapi import Depends, FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 import glob
@@ -73,7 +73,7 @@ except Exception:
 # Give the engine its result cache. Injected rather than imported by core/ so nothing in core/
 # depends on api/ and the engine still runs (uncached) from tests, scripts and Streamlit.
 try:
-    core.web.install_cache(store.cache_get, store.cache_put)
+    core.web.install_cache(store.cache_get, store.cache_put, store.cache_get_entry)
     store.cache_purge_expired()
 except Exception:
     pass
@@ -318,13 +318,23 @@ def evaluate(body: EvaluateBody, user: Principal = Depends(current_user)) -> dic
             store.record_search(principal, name, company_name=str(cached.get("company", "")),
                                 run_id=cached.get("run_id"), served_from="cache")
             return cached
+    return _run_evaluation(name, body, principal)
+
+
+def _run_evaluation(name: str, body: "EvaluateBody", principal, on_partial=None) -> dict:
+    """The uncached half of /api/evaluate, shared with the streaming route.
+
+    Extracted rather than duplicated: the two endpoints must agree on what a fresh evaluation is,
+    including which searches get to replay from cache and what is recorded against the reviewer.
+    """
     df = None if _gd_key() else _get_local_df()
     # An explicit refresh must re-search: serving cached hits would replay the very evidence
     # the caller asked to renew.
     res = core.evaluate(name, None, core.DEFAULT_TOOLS_CSV, do_web=body.do_web, df=df,
-                        use_web_cache=not body.refresh)
+                        use_web_cache=not body.refresh, on_partial=on_partial)
     if not res.get("found"):
-        raise HTTPException(status_code=404, detail=f"No match for '{body.name}' in GlassDollar or on the web.")
+        raise HTTPException(status_code=404,
+                            detail=f"No match for '{body.name}' in GlassDollar or on the web.")
     if body.save:
         # The typed query is filed as an alias so the next reviewer who types it the same
         # way is served from the database instead of re-running the pipeline.
@@ -336,6 +346,77 @@ def evaluate(body: EvaluateBody, user: Principal = Depends(current_user)) -> dic
     res["run_created_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     res["freshness"] = _freshness(res["run_created_at"])
     return res
+
+
+@app.post("/api/evaluate/stream")
+def evaluate_stream(body: EvaluateBody, user: Principal = Depends(current_user)):
+    """The same evaluation as /api/evaluate, delivered in pieces as they become available.
+
+    A fresh run takes a minute or two, and all of it used to arrive at once: the page showed a
+    skeleton until routing finished, even though the company profile was ready long before. The
+    profile now reaches the browser the moment it is assembled.
+
+    Server-sent events over POST, so `fetch` + a stream reader rather than `EventSource` — that is
+    GET-only and this has to carry the session cookie. `core.evaluate` is blocking, so it runs on a
+    worker thread and pushes onto a queue this generator drains; `copy_context()` carries the
+    cache-bypass ContextVar across that boundary, the same rule as every other thread in the
+    engine. The final `done` event carries the complete result, so a client that ignores every
+    partial still gets exactly what /api/evaluate returns.
+    """
+    import contextvars
+    import json
+    import queue
+    import threading
+
+    name = body.name.strip()
+    principal = user.as_reviewer()
+    events: "queue.Queue" = queue.Queue()
+
+    # A cache hit is not a pipeline run: it emits one `done` and nothing else, so the cached path
+    # stays byte-identical to the non-streaming endpoint.
+    if not body.refresh:
+        cached = store.latest_run_for_alias(name)
+        if cached:
+            cached["cached"] = True
+            cached["freshness"] = _freshness(cached.get("run_created_at", ""))
+            store.record_search(principal, name, company_name=str(cached.get("company", "")),
+                                run_id=cached.get("run_id"), served_from="cache")
+            events.put(("done", cached))
+            events.put(None)
+
+    def _work():
+        try:
+            res = _run_evaluation(name, body, principal,
+                                  on_partial=lambda s, d: events.put(("partial",
+                                                                      {"section": s, "data": d})))
+            events.put(("done", res))
+        except HTTPException as exc:
+            events.put(("error", {"detail": exc.detail, "status": exc.status_code}))
+        except Exception as exc:                        # pragma: no cover - defensive
+            log.exception("[evaluate/stream] %s failed", name)
+            events.put(("error", {"detail": str(exc), "status": 500}))
+        finally:
+            events.put(None)
+
+    if events.empty():
+        threading.Thread(target=contextvars.copy_context().run, args=(_work,),
+                         daemon=True).start()
+
+    def _stream():
+        while True:
+            item = events.get()
+            if item is None:
+                return
+            event, payload = item
+            # `default=str` rather than a bespoke encoder: a partial can carry a pandas or
+            # datetime value, and a serialisation error mid-stream would truncate the response
+            # with no way for the client to tell that from a dropped connection.
+            yield f"event: {event}\ndata: {json.dumps(payload, default=str)}\n\n"
+
+    return StreamingResponse(_stream(), media_type="text/event-stream",
+                             # Proxies buffer text/event-stream by default, which would hold every
+                             # partial until the run finished and quietly undo the whole point.
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.get("/api/my/searches")

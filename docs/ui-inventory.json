@@ -196,9 +196,10 @@
     "--pillar-empower",
     "--pillar-empower-bg",
     "--pillar-pass",
-    "--pillar-pass-bg",
+    "--profile-sticky-h",
     "--radius",
     "--rail-w",
+    "--section-rail-w",
     "--sidenav-w",
     "--success",
     "--success-soft",
@@ -311,6 +312,55 @@
       "css_classes": []
     },
     {
+      "path": "ui/src/components/Loading.jsx",
+      "lines": 6,
+      "exports": [
+        "Loading"
+      ],
+      "css_classes": [
+        "loading"
+      ]
+    },
+    {
+      "path": "ui/src/components/ProfileSectionNav.jsx",
+      "lines": 72,
+      "exports": [
+        "ProfileSectionNav"
+      ],
+      "css_classes": [
+        "section-rail",
+        "section-rail-caret",
+        "section-rail-group-head",
+        "section-rail-group-label",
+        "section-rail-groups",
+        "section-rail-label",
+        "section-rail-list",
+        "section-rail-node"
+      ]
+    },
+    {
+      "path": "ui/src/components/ProfileSectionNav.test.jsx",
+      "lines": 152,
+      "exports": [],
+      "css_classes": []
+    },
+    {
+      "path": "ui/src/components/ResultView.jsx",
+      "lines": 3,
+      "exports": [],
+      "css_classes": []
+    },
+    {
+      "path": "ui/src/components/ScoreBar.jsx",
+      "lines": 43,
+      "exports": [
+        "ScoreBar"
+      ],
+      "css_classes": [
+        "score-bar"
+      ]
+    },
+    {
       "path": "ui/src/components/WeightSliders.jsx",
       "lines": 77,
       "exports": [
@@ -337,7 +387,7 @@
     },
     {
       "path": "ui/src/components/widgets.jsx",
-      "lines": 156,
+      "lines": 129,
       "exports": [
         "ExtLink",
         "Loading",
@@ -345,7 +395,8 @@
         "PillarPills",
         "Radar",
         "ScoreBar",
-        "Spec"
+        "Spec",
+        "toHref"
       ],
       "css_classes": [
         "bar-fill",
@@ -358,7 +409,7 @@
     },
     {
       "path": "ui/src/components/widgets.test.jsx",
-      "lines": 114,
+      "lines": 145,
       "exports": [],
       "css_classes": []
     },
@@ -370,7 +421,7 @@
     },
     {
       "path": "ui/src/pages/Admin.jsx",
-      "lines": 349,
+      "lines": 352,
       "exports": [
         "Admin"
       ],
@@ -392,7 +443,7 @@
     },
     {
       "path": "ui/src/pages/Admin.test.jsx",
-      "lines": 135,
+      "lines": 165,
       "exports": [],
       "css_classes": []
     },
@@ -432,7 +483,7 @@
     },
     {
       "path": "ui/src/pages/Explore.jsx",
-      "lines": 554,
+      "lines": 523,
       "exports": [
         "Explore"
       ],
@@ -501,23 +552,29 @@
       ]
     },
     {
-      "path": "ui/src/pages/Profile.jsx",
-      "lines": 795,
+      "path": "ui/src/pages/profile/EvidenceTab.jsx",
+      "lines": 69,
+      "exports": [],
+      "css_classes": [
+        "dense",
+        "dtable",
+        "flush",
+        "input",
+        "muted",
+        "panel",
+        "status-dot"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/MarketTab.jsx",
+      "lines": 167,
       "exports": [
-        "Profile"
+        "MarketTab"
       ],
       "css_classes": [
         "badge",
         "big",
-        "btn",
-        "caret",
-        "chip",
-        "dense",
-        "dtable",
         "empty",
-        "grid2",
-        "info-box",
-        "input",
         "k",
         "list-main",
         "list-row",
@@ -525,7 +582,188 @@
         "metric",
         "metric-row",
         "muted",
+        "reason",
+        "risk",
+        "v"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/OverviewTab.jsx",
+      "lines": 212,
+      "exports": [
+        "OverviewTab"
+      ],
+      "css_classes": [
+        "chip",
+        "k",
+        "list-main",
+        "list-row",
+        "metric",
+        "metric-row",
+        "muted",
+        "reason",
+        "s",
+        "v"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/ProfileLayout.jsx",
+      "lines": 61,
+      "exports": [
+        "ProfileLayout"
+      ],
+      "css_classes": [
+        "profile-body",
+        "profile-body-main"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/scoring/BreakdownPanel.jsx",
+      "lines": 60,
+      "exports": [
+        "BreakdownPanel"
+      ],
+      "css_classes": [
+        "muted",
+        "panel",
+        "score-split"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/scoring/CollaboratePanel.jsx",
+      "lines": 77,
+      "exports": [
+        "CollaboratePanel"
+      ],
+      "css_classes": [
+        "body",
+        "chip",
+        "info-box",
+        "k",
+        "label",
+        "mark",
+        "muted",
+        "spec",
+        "sr-only",
+        "v",
+        "why"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/scoring/EmpowerPanel.jsx",
+      "lines": 83,
+      "exports": [
+        "EmpowerPanel"
+      ],
+      "css_classes": [
+        "body",
+        "info-box",
+        "k",
+        "label",
+        "mark",
+        "muted",
+        "spec",
+        "sr-only",
+        "v",
+        "why"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/scoring/OverridePanel.jsx",
+      "lines": 74,
+      "exports": [
+        "OverridePanel"
+      ],
+      "css_classes": [
+        "badge",
+        "btn",
+        "input",
+        "muted",
+        "risk",
+        "secondary",
+        "tool-btn"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/scoring/PillarSection.jsx",
+      "lines": 154,
+      "exports": [
+        "PillarSection"
+      ],
+      "css_classes": [
+        "badge",
+        "body",
+        "danger",
+        "label",
+        "mark",
+        "muted",
         "num",
+        "reason",
+        "risk",
+        "sr-only",
+        "why"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/scoring/ScoringTab.jsx",
+      "lines": 128,
+      "exports": [
+        "ScoringTab"
+      ],
+      "css_classes": [
+        "badge",
+        "info-box",
+        "muted",
+        "pill",
+        "reason",
+        "risk",
+        "sfs"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/scoring/SfsPanel.jsx",
+      "lines": 45,
+      "exports": [
+        "SfsPanel"
+      ],
+      "css_classes": [
+        "badge",
+        "k",
+        "muted",
+        "pill",
+        "sfs",
+        "spec",
+        "v"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/Section.jsx",
+      "lines": 22,
+      "exports": [
+        "Section"
+      ],
+      "css_classes": []
+    },
+    {
+      "path": "ui/src/pages/profile/useScrollSpy.test.jsx",
+      "lines": 175,
+      "exports": [],
+      "css_classes": []
+    },
+    {
+      "path": "ui/src/pages/Profile.jsx",
+      "lines": 254,
+      "exports": [
+        "Profile"
+      ],
+      "css_classes": [
+        "badge",
+        "big",
+        "btn",
+        "chip",
+        "empty",
+        "grid2",
+        "muted",
         "panel",
         "ph-header-slot",
         "ph-meta",
@@ -533,27 +771,28 @@
         "pill",
         "profile-body",
         "profile-head",
-        "profile-sections",
-        "reason",
-        "risk",
-        "sec-head",
-        "sec-nav",
-        "sec-title",
         "secondary",
         "sfs",
         "skel",
-        "spec",
         "spinner",
-        "status-dot",
-        "sub",
-        "tool-btn",
-        "unverified",
-        "v"
+        "tool-btn"
       ]
     },
     {
       "path": "ui/src/pages/Profile.test.jsx",
-      "lines": 385,
+      "lines": 522,
+      "exports": [],
+      "css_classes": []
+    },
+    {
+      "path": "ui/src/pages/ProgrammeCriteria.test.jsx",
+      "lines": 284,
+      "exports": [],
+      "css_classes": []
+    },
+    {
+      "path": "ui/src/pages/RunDetail.jsx",
+      "lines": 3,
       "exports": [],
       "css_classes": []
     },
@@ -623,8 +862,8 @@
   "totals": {
     "routes": 9,
     "api_methods": 24,
-    "design_tokens": 54,
-    "jsx_files": 25,
-    "jsx_lines": 4646
+    "design_tokens": 39,
+    "jsx_files": 52,
+    "jsx_lines": 6300
   }
 }

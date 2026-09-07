@@ -241,7 +241,12 @@ def _conn() -> sqlite3.Connection:
     os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
     con = sqlite3.connect(DB_PATH)
     con.executescript(_SCHEMA)
-    for col, typ in (("summary", "TEXT"), ("parent_group", "TEXT"), ("company_id", "INTEGER")):
+    # sfs_line names WHICH Siemens Financial Services product line applies, alongside the older
+    # boolean. It is additive rather than a replacement: every row written before core/programs.py
+    # existed has an sfs flag that was true regardless, and rewriting those to a line we never
+    # determined would invent a finding. They read back blank, which is what we know.
+    for col, typ in (("summary", "TEXT"), ("parent_group", "TEXT"), ("company_id", "INTEGER"),
+                     ("sfs_line", "TEXT")):
         try:
             con.execute(f"ALTER TABLE runs ADD COLUMN {col} {typ}")
         except sqlite3.OperationalError:
@@ -303,6 +308,30 @@ def cache_get(kind: str, key: str) -> "object | None":
         return json.loads(row[0])
     except Exception:
         return None            # a cache fault must never break an evaluation
+
+
+def cache_get_entry(kind: str, key: str) -> "tuple | None":
+    """``(payload, created_at)`` for a live cache row, or None.
+
+    Same lookup as `cache_get`, which already reads `created_at` to apply the TTL and then throws
+    it away. Handing it back is what lets a Fact record when its evidence was ACTUALLY retrieved
+    rather than when the run that replayed it happened to execute — a re-run served from cache is
+    reasoning over results up to WEB_CACHE_TTL_DAYS old, and nothing said so.
+    """
+    try:
+        with _cache_lock, _cache_conn() as con:
+            row = con.execute(
+                "SELECT payload, created_at FROM web_cache WHERE key=? AND kind=?",
+                (key, kind)).fetchone()
+        if not row:
+            return None
+        age = (datetime.now(timezone.utc)
+               - datetime.fromisoformat(row[1])).total_seconds() / 86400
+        if age > WEB_CACHE_TTL_DAYS or age < 0:
+            return None
+        return json.loads(row[0]), row[1]
+    except Exception:
+        return None
 
 
 def cache_put(kind: str, key: str, payload) -> None:
@@ -451,11 +480,12 @@ def save_run(result: dict, aliases: Iterable[str] = ()) -> int:
     dp = result.get("deep_profile", {}) or {}
     with _conn() as con:
         cur = con.execute(
-            "INSERT INTO runs (company, pillar, secondary, final_score, sfs, engine, created_at, "
-            "result_json, summary, parent_group) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO runs (company, pillar, secondary, final_score, sfs, sfs_line, engine, "
+            "created_at, result_json, summary, parent_group) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (str(result.get("company", "")), str(rt.get("pillar", "")),
              ",".join(rt.get("secondary", []) or []), float(sc.get("final_score", 0) or 0),
-             1 if rt.get("sfs_relevant") else 0, str(result.get("engine", "")),
+             1 if rt.get("sfs_relevant") else 0, str(rt.get("sfs_line", ""))[:60],
+             str(result.get("engine", "")),
              datetime.now(timezone.utc).isoformat(timespec="seconds"),
              json.dumps(result, default=str),
              str(result.get("summary", ""))[:300], str(dp.get("parent_group", ""))[:120]))
@@ -525,7 +555,7 @@ def list_runs(limit: int = 100) -> list[dict]:
     (fine at this scale; switch to real columns if runs grow past a few thousand)."""
     with _conn() as con:
         rows = con.execute(
-            "SELECT id, company, pillar, secondary, final_score, sfs, engine, created_at, "
+            "SELECT id, company, pillar, secondary, final_score, sfs, sfs_line, engine, created_at, "
             "summary, parent_group, result_json FROM runs ORDER BY id DESC LIMIT ?",
             (limit,)).fetchall()
         overridden = {r[0] for r in con.execute("SELECT DISTINCT run_id FROM overrides").fetchall()}
@@ -534,11 +564,12 @@ def list_runs(limit: int = 100) -> list[dict]:
         item = {"id": r[0], "company": r[1], "pillar": r[2],
                 "secondary": [s for s in (r[3] or "").split(",") if s],
                 "final_score": r[4], "sfs_relevant": bool(r[5]),
-                "engine": r[6], "created_at": r[7],
-                "summary": r[8] or "", "parent_group": r[9] or "",
+                "sfs_line": r[6] or "",
+                "engine": r[7], "created_at": r[8],
+                "summary": r[9] or "", "parent_group": r[10] or "",
                 "overridden": r[0] in overridden}
         try:
-            res = json.loads(r[10] or "{}")
+            res = json.loads(r[11] or "{}")
             p, sc = res.get("profile", {}) or {}, res.get("score", {}) or {}
             dims = sc.get("dimensions", {}) or {}
             facts = res.get("facts", []) or []
@@ -562,7 +593,17 @@ def list_runs(limit: int = 100) -> list[dict]:
                 # priorities" without a round trip per row.
                 "dimensions": {k: v for k, v in dims.items() if isinstance(v, (int, float))},
                 "data_completeness": sc.get("data_completeness", 0),
+                # The browser's re-scoring applies the same contradiction penalty the engine does,
+                # so it needs the count and not just the rounded confidence it produced.
+                "contradicted": sc.get("contradicted", 0),
                 "fit_aligned": bool((res.get("fit", {}) or {}).get("aligned")),
+                # Where the startup sits against the portfolio, so a scout can filter the grid for
+                # competitors without opening every profile. Blank on runs stored before route.py
+                # started reporting it.
+                "stance": ((res.get("routing", {}) or {}).get("portfolio_stance") or {})
+                          .get("label", ""),
+                "competes": bool(((res.get("routing", {}) or {}).get("portfolio_stance") or {})
+                                 .get("competes")),
             })
         except Exception:
             pass
@@ -698,8 +739,16 @@ def admin_overview(recent_days: int = 30, top: int = 10) -> dict:
         sessions_recent = q("SELECT COUNT(*) FROM sessions WHERE started_at>=?", (since,))
         searches_total = q("SELECT COUNT(*) FROM searches")
         searches_recent = q("SELECT COUNT(*) FROM searches WHERE created_at>=?", (since,))
+        # Both from `sessions`, so total and recent answer the same question at two scales.
+        # `recent` used to count DISTINCT oid in `searches`, which made the pair incomparable:
+        # a reviewer who signed in and read someone else's evaluation without searching was
+        # absent from the second number and present in the first. Who searched is still worth
+        # knowing, so it stays — under a name that says which of the two it is.
         users_total = q("SELECT COUNT(DISTINCT user_oid) FROM sessions")
-        users_recent = q("SELECT COUNT(DISTINCT user_oid) FROM searches WHERE created_at>=?", (since,))
+        users_recent = q("SELECT COUNT(DISTINCT user_oid) FROM sessions WHERE started_at>=?",
+                         (since,))
+        searchers_recent = q("SELECT COUNT(DISTINCT user_oid) FROM searches WHERE created_at>=?",
+                             (since,))
         companies_searched = q("SELECT COUNT(DISTINCT LOWER(company_name)) FROM searches "
                                "WHERE company_name<>''")
         cache_hits = q("SELECT COUNT(*) FROM searches WHERE served_from='cache'")
@@ -708,16 +757,31 @@ def admin_overview(recent_days: int = 30, top: int = 10) -> dict:
         top_companies = [{"company": r[0], "searches": r[1]} for r in con.execute(
             "SELECT company_name, COUNT(*) c FROM searches WHERE company_name<>'' "
             "GROUP BY LOWER(company_name) ORDER BY c DESC, company_name LIMIT ?", (top,)).fetchall()]
-        per_user = [{"upn": r[0] or r[1], "oid": r[1], "searches": r[2], "companies": r[3],
-                     "last_seen": r[4]} for r in con.execute(
-            "SELECT MAX(user_upn), user_oid, COUNT(*), COUNT(DISTINCT LOWER(company_name)), "
-            "MAX(created_at) FROM searches GROUP BY user_oid "
-            "ORDER BY COUNT(*) DESC LIMIT ?", (top,)).fetchall()]
+        # Keyed on oid and filled from both tables, because the table is the explanation for
+        # the headline count above it. Built from `searches` alone, a reviewer who has signed
+        # in but never searched was counted in "Reviewers" and then missing from the list of
+        # them — the kind of disagreement that makes someone distrust the whole dashboard.
+        by_oid: dict[str, dict] = {}
+        for oid, upn, n, companies, last_seen in con.execute(
+                "SELECT user_oid, MAX(user_upn), COUNT(*), COUNT(DISTINCT LOWER(company_name)), "
+                "MAX(created_at) FROM searches GROUP BY user_oid").fetchall():
+            by_oid[oid] = {"upn": upn or oid, "oid": oid, "searches": n, "companies": companies,
+                           "last_seen": last_seen, "sign_ins": 0, "last_sign_in": ""}
+        for oid, upn, n, last_in in con.execute(
+                "SELECT user_oid, MAX(user_upn), COUNT(*), MAX(started_at) "
+                "FROM sessions GROUP BY user_oid").fetchall():
+            row = by_oid.setdefault(oid, {"upn": upn or oid, "oid": oid, "searches": 0,
+                                          "companies": 0, "last_seen": ""})
+            row["sign_ins"] = n
+            row["last_sign_in"] = last_in
+        per_user = sorted(by_oid.values(),
+                          key=lambda r: (r["searches"], r["sign_ins"]), reverse=True)[:top]
     return {
         "window_days": recent_days,
         "sessions": {"total": sessions_total, "recent": sessions_recent},
         "searches": {"total": searches_total, "recent": searches_recent},
-        "users": {"total": users_total, "recent": users_recent},
+        "users": {"total": users_total, "recent": users_recent,
+                  "searched_recent": searchers_recent},
         "companies": {"searched": companies_searched, "evaluated": companies_total},
         "runs": runs_total,
         # The share of searches answered from the database instead of the pipeline — the

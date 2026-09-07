@@ -88,7 +88,16 @@ def test_researched_funding_reaches_the_score():
 
 def test_stage_only_funding_counts():
     """A paywalled amount still evidences a raise; the stage alone must register."""
-    assert _score_with("", "Pre-Seed, amount undisclosed")["dimensions"]["market"] == 70
+    assert _score_with("", "Pre-Seed, amount undisclosed")["dimensions"]["market"] > \
+        _score_with("", "")["dimensions"]["market"]
+
+
+def test_a_bigger_round_is_a_bigger_signal_than_a_smaller_one():
+    """Funding used to be a yes/no, so a pre-seed and a $200M round scored identically."""
+    small = _score_with("", "Pre-Seed, amount undisclosed")["dimensions"]
+    large = _score_with("", "Series C, $200M")["dimensions"]
+    assert large["market"] > small["market"]
+    assert large["traction"] > small["traction"]
 
 
 def test_database_funding_stays_authoritative():
@@ -96,7 +105,9 @@ def test_database_funding_stays_authoritative():
     row = pd.Series({"company_name": "Acme", "funding": "Series B, $30M"})
     profile = {"founders": [], "advisors": [], "programs": [], "parent_group": "",
                "funding": "Pre-Seed, amount undisclosed"}
-    assert score_startup(row, {"facts": []}, {}, {}, profile)["dimensions"]["market"] == 70
+    scored = score_startup(row, {"facts": []}, {}, {}, profile)["dimensions"]
+    assert scored == _score_with("Series B, $30M", "")["dimensions"]
+    assert scored["market"] != _score_with("", "Pre-Seed, amount undisclosed")["dimensions"]["market"]
 
 
 def test_knowledge_gapfill_never_invents_verifiable_facts():

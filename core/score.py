@@ -6,7 +6,9 @@ import re
 import pandas as pd
 
 from .config import (WEIGHTS, THIN_PROFILE_CAP, PROGRAM_PRESTIGE_WEIGHTS, PROGRAM_PRESTIGE_CAP,
-                     PROGRAM_SELF_ASSERTED_FACTOR, PROGRAM_SELF_ASSERTED_CAP)
+                     PROGRAM_SELF_ASSERTED_FACTOR, PROGRAM_SELF_ASSERTED_CAP,
+                     CONTRADICTION_PENALTY, CONTRADICTION_FLOOR)
+from .text import has_funding_signal, parse_funding_amount
 
 # Per-route weight profiles (each sums to 1.0). The universal WEIGHTS remain the
 # backwards-compatible headline score; these drive route-specific recommendations.
@@ -20,13 +22,103 @@ ROUTE_WEIGHTS = {
 }
 
 
+STAGE_GROWTH_COL = ("Stage: Growth market stage (your solution is mature, and you are selling it "
+                    "to your main target market)")
+STAGE_EARLY_COL = ("Stage: Early market stage (you are selling an early version of your solution, "
+                   "early adopters are your main clients)")
+STAGE_PROTO_COL = "Stage: Prototype stage (a working prototype of your solution does exist)"
+
+# Read in order; the first match wins, so the strongest wording present decides.
+_STAGE_WORDS = (
+    (90.0, r"\bgrowth\b|\bscal(?:e|ing)\b|\bcommercialis(?:ed|ing)\b|\bcommercializ(?:ed|ing)\b"
+           r"|\bmature\b|\bmass[- ]market\b|\bexpansion\b"),
+    (75.0, r"\bearly market\b|\bearly adopter|\bgo[- ]to[- ]market\b|\bpaying customer"
+           r"|\blaunched\b|\brevenue\b|\bin production\b|\bdeployed\b|\bgenerally available\b"),
+    (55.0, r"\bprototype\b|\bmvp\b|\bpilot|\bbeta\b|\bproof[- ]of[- ]concept\b|\bpoc\b|\bdemo\b"),
+    (35.0, r"\bidea\b|\bideation\b|\bconcept\b|\bresearch stage\b|\bpre[- ]product\b"),
+)
+
+# Application columns that answer the same question as a `key_fields` entry, tried in order.
+_ROW_EQUIVALENTS = {
+    "customers": ("customers", "Reference customers"),
+    "linkedin_url": ("linkedin_url", "crunchbase_url", "website", "domain"),
+    "Your pitch": ("Your pitch", "short_description"),
+}
+# Researched `deep_profile` keys that answer it instead, when no column does.
+_PROFILE_EQUIVALENTS = {
+    "founded_year": ("founded_year",),
+    "employees_count": ("employees",),
+    "funding": ("funding",),
+    "customers": ("reference_customers", "customer_segment"),
+}
+
+
+def _txt(value) -> str:
+    """A cell as text, with pandas' and JSON's two spellings of "no value" treated as blank.
+
+    `str(None)` is "None" and `str(float('nan'))` is "nan", both of which are truthy and both
+    of which would count as a known field below.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, float) and value != value:
+        return ""
+    text = str(value).strip()
+    return "" if text.lower() in ("nan", "none") else text
+
+
 def _has(row, *cols) -> bool:
-    return any(str(row.get(c, "")).strip() for c in cols)
+    return any(_txt(row.get(c, "")) for c in cols)
+
+
+def _flag(row, col) -> bool:
+    """A pitch-form checkbox, read as a checkbox.
+
+    The three Stage columns hold 0/1 flags, and the old test was non-emptiness: "0" is a
+    non-empty string, so *every* application row registered as growth stage. Phena — founded
+    2026, two to ten staff, Early=1 and Growth=0 — scored 85 for a "mature solution being sold
+    to its main target market". The float64 spelling "1.0" is accepted for the same reason
+    `_cell` exists: a column containing one blank types the whole column as float.
+    """
+    return _txt(row.get(col, "")).lower() in ("1", "1.0", "true", "yes", "y", "x", "checked")
+
+
+def _headcount(row: pd.Series, profile: dict) -> int:
+    """Lower bound of the stated headcount — "11-50" counts as 11, "8.0" as 8, else 0."""
+    text = _txt(row.get("employees_count", "")) or _txt(row.get("employee_band", "")) \
+        or _txt(profile.get("employees", ""))
+    nums = [float(n.replace(",", "")) for n in re.findall(r"\d[\d,]*(?:\.\d+)?", text)]
+    return int(min(nums)) if nums else 0
+
+
+def _known(row: pd.Series, profile: dict, field: str) -> bool:
+    """Whether the RUN knows this field, from the application row or from research.
+
+    Completeness used to read the application row alone, so it measured how much of the pitch
+    form an applicant had filled in rather than how much the evaluation established. Two
+    consequences, both wrong: a web-sourced company has no form at all, and the researched
+    values that the profile header displays are merged in by `backfill_profile` *after* this
+    point in the pipeline. A company whose HQ, founding year, headcount, funding and customers
+    had all been found and cited could still be scored as a thin profile and lose a third of
+    its score to the confidence multiplier. Line 43 below already applies this row-then-profile
+    fallback to funding; completeness never got the same fix.
+    """
+    if any(_txt(row.get(c, "")) for c in _ROW_EQUIVALENTS.get(field, (field,))):
+        return True
+    for key in _PROFILE_EQUIVALENTS.get(field, ()):
+        value = profile.get(key)
+        if isinstance(value, (list, tuple)):
+            if any(value):
+                return True
+        elif _txt(value):
+            return True
+    return False
 
 
 def score_startup(row: pd.Series, enrichment: dict, verification: dict, fit: dict,
-                  profile: dict = None) -> dict:
+                  profile: dict = None, trend: dict = None) -> dict:
     profile = profile or {}
+    trend = trend or {}
     facts = enrichment["facts"]
     _W = {"verified": 1.0, "partial": 0.5, "unverified": 0.25, "contradicted": 0.0}
     cust = [c for c in verification.get("claims", []) if c.get("field") == "reference_customer"]
@@ -40,32 +132,93 @@ def score_startup(row: pd.Series, enrichment: dict, verification: dict, fit: dic
     # web-sourced company it does not exist at all. Reading only the row meant a round the
     # research had actually established (and which the profile header already displayed) was
     # invisible to scoring, despite being worth 20 traction points and market 70 vs 50.
-    funding_txt = str(row.get("funding", "")).strip() or str(profile.get("funding", "")).strip()
-    has_funding = bool(re.search(r"[\$€£]|\bm\b|million|seed|series", funding_txt, re.I))
-
-    stage_growth = str(row.get("Stage: Growth market stage (your solution is mature, and you are selling it to your main target market)", "")).strip()
-    stage_proto = str(row.get("Stage: Prototype stage (a working prototype of your solution does exist)", "")).strip()
-    stage_early = str(row.get("Stage: Early market stage (you are selling an early version of your solution, early adopters are your main clients)", "")).strip()
+    funding_txt = _txt(row.get("funding", "")) or _txt(profile.get("funding", ""))
+    funding_amount = parse_funding_amount(funding_txt)
+    has_funding = has_funding_signal(funding_txt) or funding_amount > 0
 
     dims = {}
-    dims["traction"] = min(100, 35 * effective_traction + (20 if has_funding else 0))
+
+    # traction: evidence that someone outside the company has committed something to it —
+    # named accounts, investor money, payroll. Reference customers used to be the only route
+    # (35 points each, so three verified accounts for full marks) plus a flat 20 for having
+    # raised anything at all. That put a hard ceiling of 20 on every company that does not
+    # sell to nameable accounts, so a consumer business with a billion-dollar raise and ten
+    # thousand staff scored the same as a company with no traction whatsoever.
+    traction = min(45.0, 15.0 * effective_traction)
+    if has_funding:
+        traction += (30.0 if funding_amount >= 25_000_000 else
+                     22.0 if funding_amount >= 3_000_000 else 15.0)
+    headcount = _headcount(row, profile)
+    traction += (20.0 if headcount >= 50 else
+                 12.0 if headcount >= 10 else
+                 5.0 if headcount >= 3 else 0.0)
+    if not cust and _txt(profile.get("customer_segment", "")):
+        # A described customer base, for the companies whose accounts are not nameable.
+        # Weaker than a corroborated logo, but it is not the absence of customers.
+        traction += 10.0
+    dims["traction"] = min(100.0, traction)
 
     # siemens_fit: supply-side tool match, relation-aware (a substitute/competitor is a much
-    # weaker partnership signal than a complement), blended with the demand-side challenge
-    # match when the challenge library has entries.
+    # weaker partnership signal than a complement), lifted -- never lowered -- by the
+    # demand-side challenge match. See the note below the tool match for why the direction
+    # matters.
     _REL = {"complement": 1.0, "integration": 0.95, "adjacent": 0.75, "substitute": 0.55}
+    # An UNSTATED relation takes the cautious multiplier, not the generous one. The default was
+    # 1.0, so a match the model declined to classify scored exactly as well as one it explicitly
+    # called a complement -- and 15 of the 54 matches in the stored corpus carry no relation at
+    # all. Failing to commit is not evidence of the best case.
     if fit.get("matches"):
         m0 = fit["matches"][0]
-        tool_fit = float(m0.get("confidence", 0)) * _REL.get(str(m0.get("relation", "")).lower(), 1.0)
+        tool_fit = float(m0.get("confidence", 0)) * _REL.get(str(m0.get("relation", "")).lower(),
+                                                             _REL["adjacent"])
     else:
         tool_fit = 0.0
+    # The demand-side challenge match is a BONUS, never a penalty. This was a fixed 0.7/0.3
+    # blend applied whenever the library held anything at all, which taxed every startup 30% of
+    # its tool fit against whatever unrelated problem happened to be the nearest one recorded.
+    # With one approved challenge in the library the best match scored 0-5.6 for every company
+    # in the corpus, so Phena's tool fit of 52.2 became 36.6 and Makkook AI's became 38.3 --
+    # both under FIT_ALIGN_THRESHOLD, and both routed to Pass by a challenge neither had any
+    # reason to match. The library is a small, opt-in, human-curated list of problems Siemens
+    # people happened to type in; its silence about a startup is not evidence against it.
+    # A challenge match can now only pull fit UP, and only insofar as it beats the tool match.
     ch = fit.get("challenge_match", {}) or {}
-    if ch.get("library_size"):
-        dims["siemens_fit"] = min(100.0, 0.7 * tool_fit + 0.3 * float(ch.get("score", 0)))
+    ch_score = float(ch.get("score", 0) or 0) if ch.get("library_size") else 0.0
+    dims["siemens_fit"] = min(100.0, tool_fit + 0.3 * max(0.0, ch_score - tool_fit))
+    # product: how far the solution has actually got. The pitch form's three Stage checkboxes
+    # first; failing those, the free-text stage description, which is the only stage answer a
+    # web-sourced company has and which used to score every one of them 40.
+    #
+    # An unknown stage lands mid-scale rather than at the bottom. Not knowing is already
+    # priced in — by the data-confidence multiplier, which scales the whole score — and
+    # charging for it a second time here is what made a researched company score below an
+    # applicant who ticked a box.
+    if _flag(row, STAGE_GROWTH_COL):
+        product = 90.0
+    elif _flag(row, STAGE_EARLY_COL):
+        product = 75.0
+    elif _flag(row, STAGE_PROTO_COL):
+        product = 55.0
     else:
-        dims["siemens_fit"] = min(100.0, tool_fit)
-    dims["product"] = 85 if stage_growth else 65 if stage_early else 50 if stage_proto else 40
-    dims["market"] = 70 if has_funding else 50
+        stage_txt = " ".join((_txt(row.get("Development stage of your solution", "")),
+                              _txt(row.get("Business model", ""))))
+        product = next((pts for pts, pat in _STAGE_WORDS if re.search(pat, stage_txt, re.I)), 55.0)
+    if verified_custs and product < 75.0:
+        product = 75.0        # a corroborated deployment outranks whatever the form claimed
+    dims["product"] = product
+
+    # market: the size and heat of the space. This was binary — 70 with funding, 50 without —
+    # which made it a second, coarser reading of traction and could not tell a booming niche
+    # from a flat one. `analyze_trend` already researches exactly that on every run and scores
+    # it 0-100; its verdict simply was never passed to the scorer.
+    market = 50.0
+    if has_funding:
+        market += 15.0 if funding_amount >= 25_000_000 else 10.0
+    if str(trend.get("method", "")) in ("web+llm", "llm-knowledge"):
+        # Centred on 50: a neutral niche moves nothing, and an unanalysed one cannot move it
+        # at all, so a failed trend step never reads as a bad market.
+        market += 0.5 * (float(trend.get("momentum", 50) or 50) - 50.0)
+    dims["market"] = max(0.0, min(100.0, market))
 
     # founder: real researched signal (identified founders, backgrounds, advisors),
     # falling back to the old contact-presence heuristic when research found nothing.
@@ -113,17 +266,34 @@ def score_startup(row: pd.Series, enrichment: dict, verification: dict, fit: dic
     prestige_pts = min(sum(_tier_pts(p) for p in evidenced_programs), PROGRAM_PRESTIGE_CAP)
     claimed_pts = min(PROGRAM_SELF_ASSERTED_FACTOR * sum(_tier_pts(p) for p in claimed_programs),
                       PROGRAM_SELF_ASSERTED_CAP)
-    eco = 30 + 20 * len([f for f in facts if f.method == "ddg_search" and f.verified])
+    # Web presence is a THRESHOLD, not a ladder: that the open web corroborates a company at
+    # all says it is real, and the fifth corroborated search result says nothing the fourth
+    # did not. At 30 + 20 per verified fact, four of them — which a normal enrichment wave
+    # produces for almost anyone — already reached 110, so this dimension scored exactly 100
+    # in every one of fifteen real runs and the prestige tiers, the self-asserted discount and
+    # the corporate parent below decided nothing at all.
+    corroborated = len([f for f in facts if f.method == "ddg_search" and f.verified])
+    eco = 15.0 + min(25.0, 5.0 * corroborated)
     eco += prestige_pts + claimed_pts
-    eco += 10 if str(profile.get("parent_group", "")).strip() else 0
-    dims["ecosystem"] = min(100, eco)
+    eco += 10 if _txt(profile.get("parent_group", "")) else 0
+    dims["ecosystem"] = min(100.0, eco)
 
     raw = sum(dims[k] * WEIGHTS[k] for k in WEIGHTS)
 
     key_fields = ["company_name", "hq", "founded_year", "employees_count", "funding",
                   "customers", "linkedin_url", "Your pitch"]
-    completeness = sum(1 for c in key_fields if str(row.get(c, "")).strip()) / len(key_fields)
+    known = {c: _known(row, profile, c) for c in key_fields}
+    completeness = sum(1 for c in key_fields if known[c]) / len(key_fields)
     data_confidence = 0.5 + 0.5 * completeness
+    # A contradicted claim is worse than a missing one, and until now it cost nothing at all.
+    # Datasaki's run 12 carried four — funding status, founding year and HQ all disagreed between
+    # Crunchbase, Tracxn and CB Insights — and scored exactly as confidently as a run where every
+    # source agreed. Completeness measures how much we know; it cannot notice that what we know
+    # conflicts. Bounded at 15% so a single aggregator disagreement is a dent rather than a
+    # verdict: these contradictions are frequently the aggregators being stale, not the startup
+    # misreporting, which is why this reduces confidence rather than scoring against the company.
+    data_confidence *= max(CONTRADICTION_FLOOR, 1.0 - CONTRADICTION_PENALTY * contradicted)
+    data_confidence = round(data_confidence, 4)
     final = raw * data_confidence
     if completeness < 0.5:               # confidence caps thin profiles
         final = min(final, THIN_PROFILE_CAP)
@@ -138,7 +308,9 @@ def score_startup(row: pd.Series, enrichment: dict, verification: dict, fit: dic
 
     # ---- missing evidence (absence of data) — kept strictly separate from red flags
     # (negative evidence). "We don't know" must never read as "it's bad".
-    missing = [c for c in key_fields if not str(row.get(c, "")).strip()]
+    # Same test as completeness, so the list the UI shows and the number that caps the score
+    # cannot disagree about what the run knows.
+    missing = [c for c in key_fields if not known[c]]
 
     # ---- red flags: only genuinely negative signals
     red_flags = [str(f) for f in verification.get("red_flags", []) if str(f).strip()]

@@ -90,6 +90,10 @@
      shell replacement is a Phase 3 decision (docs/ix/current-state-inventory.md §4). */
   --radius: 6px;
   --topbar-h: 56px;
+  /* Overview section rail. --profile-sticky-h is written at runtime by
+     useStickyOffset; the fallback here is what CSS uses before the first measure. */
+  --section-rail-w: 220px;
+  --profile-sticky-h: 200px;
   --rail-w: 68px;
   --sidenav-w: 236px;
 

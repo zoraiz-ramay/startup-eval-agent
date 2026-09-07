@@ -128,11 +128,33 @@ export function Spec({ k, children }) {
   );
 }
 
+/* A stored value without a scheme is still a link.
+   `core/data.py::web_profile_row` derives the website from a search result and can store a bare
+   host ("bliro.io"). Every such profile rendered the Website row EMPTY — the value was there the
+   whole time, and a strict `^https?://` test dropped it on the floor. Upgrading here is what
+   rescues the runs already in the database; the engine normalises new ones at the source.
+
+   The bar is deliberately narrow, because `source_url` legitimately carries non-URL labels:
+   "GlassDollar" for a database fact, a filename for a pitch deck. Prefixing those would
+   manufacture a link to a host that does not exist, which is worse than showing plain text. */
+const _BARE_DOMAIN = /^(?!-)[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}(\/\S*)?$/i;
+const _FILE_EXT = /\.(pdf|docx?|xlsx?|pptx?|csv|txt|zip|png|jpe?g|gif|svg)$/i;
+
+export function toHref(value) {
+  const s = String(value || "").trim();
+  if (!s) return "";
+  if (/^https?:\/\//i.test(s)) return s;
+  // Any other scheme (mailto:, javascript:, data:) is never turned into an external link.
+  if (/^[a-z][a-z0-9+.-]*:/i.test(s)) return "";
+  return _BARE_DOMAIN.test(s) && !_FILE_EXT.test(s) ? `https://${s}` : "";
+}
+
 export function ExtLink({ href, children }) {
-  if (!href || !/^https?:\/\//i.test(String(href))) return children || null;
+  const url = toHref(href);
+  if (!url) return children || null;
   return (
-    <a href={href} target="_blank" rel="noopener noreferrer">
-      {children || String(href).replace(/^https?:\/\//, "")}
+    <a href={url} target="_blank" rel="noopener noreferrer">
+      {children || String(href).replace(/^https?:\/\//i, "")}
     </a>
   );
 }

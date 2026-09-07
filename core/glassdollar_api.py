@@ -216,21 +216,8 @@ class GlassDollarClient:
 
 
 # ----------------------------------------------------------------------------- mapping helpers
-def _fmt_funding(value) -> str:
-    """Format the bigint `funding` (in currency units) as a compact human string."""
-    if value in (None, "", 0):
-        return ""
-    try:
-        amount = float(value)
-    except (TypeError, ValueError):
-        return str(value)
-    if amount >= 1_000_000_000:
-        return f"€{amount / 1_000_000_000:.1f}B"
-    if amount >= 1_000_000:
-        return f"€{amount / 1_000_000:.1f}M"
-    if amount >= 1_000:
-        return f"€{amount / 1_000:.0f}K"
-    return f"€{amount:.0f}"
+# Shared with the xlsx path, which carries the same kind of bare amount — see core/text.py.
+from .text import format_funding as _fmt_funding    # noqa: E402  (kept at its original name)
 
 
 def _parse_customers(value) -> str:

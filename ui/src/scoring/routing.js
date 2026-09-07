@@ -164,6 +164,64 @@ export function whatIfRouting(score, fit, weights) {
   };
 }
 
+/**
+ * The engine's OWN gate for one route, read off the stored run.
+ *
+ * Distinct from `whatIfRouting`, which recomputes scorecards under a reviewer's weighting. This
+ * reports what actually happened: the scorecard the engine recorded, against the threshold it
+ * applied, so a reviewer looking at "Connect" can see 47.2 / 70 and which clause is the one
+ * holding it. `route_recommendations` cannot answer that — the engine only emits a row for a
+ * route that already QUALIFIED, so a rejected pillar explained nothing at all.
+ *
+ * Read here rather than added to the engine's response because the thresholds are already
+ * mirrored in this module and pinned by tests/test_whatif_route_parity.py, and because reading
+ * them client-side makes every run already in the database explain itself. It stays sound for the
+ * same reason the what-if does: these are score gates, not the evidence criteria in
+ * core/programs.py, which are deliberately never mirrored.
+ *
+ * Returns null for a run with no dimensions — an old row renders "unavailable", never NaN.
+ */
+export function engineGate(route, score, fit) {
+  const gate = GATES[route];
+  const dims = (score || {}).dimensions;
+  if (!gate || !dims || typeof dims.traction !== "number") return null;
+
+  const cards = score.route_scorecards || {};
+  // The engine falls back to the universal final score for runs produced before scorecards
+  // existed (core/route.py), so this mirrors that fallback rather than showing a blank.
+  const scorecard = Number(cards[route] ?? score.final_score ?? 0);
+
+  const clauses = [];
+  if (typeof gate.route_score === "number") {
+    clauses.push(clause("route_score", scorecard, gate.route_score, scorecard, true));
+  }
+  if (typeof gate.traction === "number") {
+    clauses.push(clause("traction", dims.traction, gate.traction, dims.traction, false));
+  }
+
+  const siemensFit = dims.siemens_fit;
+  const aligned = Boolean((fit || {}).aligned);
+  const alignment = {
+    kind: "alignment",
+    passes: aligned && siemensFit >= FIT_ALIGN_THRESHOLD,
+    aligned,
+    value: siemensFit,
+    threshold: FIT_ALIGN_THRESHOLD,
+    shortfall: siemensFit >= FIT_ALIGN_THRESHOLD ? 0
+      : Math.round((FIT_ALIGN_THRESHOLD - siemensFit) * 10) / 10,
+  };
+
+  // The binding constraint is the failing clause furthest from its threshold — the one a reviewer
+  // would have to move first. Alignment is included because it bars every route at once, and
+  // naming a route score as "binding" while alignment fails would send them after the wrong thing.
+  const failing = [alignment, ...clauses].filter((c) => !c.passes);
+  const binding = failing.length
+    ? failing.reduce((worst, c) => (c.shortfall > worst.shortfall ? c : worst))
+    : null;
+
+  return { route, scorecard, clauses, alignment, binding, passes: !failing.length };
+}
+
 /* ---------------------------------------------------------------- breakeven sensitivity */
 
 // 0.5pp steps. Fine enough to report a breakeven to the nearest percentage point, and cheap:
