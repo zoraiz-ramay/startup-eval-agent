@@ -1,9 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import {
-  IxCard, IxCardContent, IxChip, IxContentHeader, IxIconButton, IxInput, IxKeyValueList, IxTabItem, IxTabs,
-} from "@siemens/ix-react";
-import { iconSendRight } from "@siemens/ix-icons/icons";
+import { IxCard, IxCardContent, IxContentHeader, IxKeyValueList } from "@siemens/ix-react";
 import { api } from "../api.js";
 import { useApp } from "../state.jsx";
 import { ScoreBar, Radar, Spec, ExtLink, PillarPill } from "../components/widgets.jsx";
@@ -11,7 +8,51 @@ import ErrorBox from "../components/ErrorBox.jsx";
 import WhatIfWeights from "../components/WhatIfWeights.jsx";
 import { contributionProfile, DEFAULT_WEIGHTS, DIMENSIONS, DIMENSION_LABELS } from "../scoring/index.js";
 
-const TABS = ["Overview", "Scoring & Fit", "Market & Risk", "Evidence", "Ask"];
+/**
+ * The profile is one continuously scrolling page with a section rail beside it, not a tab set.
+ *
+ * Tabs hid the shape of an evaluation: a reviewer comparing a score against the evidence behind it
+ * had to leave the score to look, and could not tell from the Overview that a scoring risk had been raised at
+ * all. Everything the run produced is now on one page in reading order — profile, then how it
+ * scored, then market risk, then the raw facts — and the rail is a map of it that scroll-spies
+ * rather than a set of doors.
+ *
+ * `subs` are anchor targets inside a group. Several are conditional on what the run found, so the
+ * rail is filtered against a `present` set rather than listing anchors that scroll nowhere.
+ */
+const SECTIONS = [
+  {
+    id: "sec-profile", label: "Profile", subs: [
+      { id: "sub-metrics", label: "Key metrics" },
+      { id: "sub-summary", label: "Executive summary" },
+      { id: "sub-team", label: "Team & ecosystem" },
+      { id: "sub-customers", label: "Reference customers" },
+      { id: "sub-headcount", label: "Headcount trend" },
+      { id: "sub-signals", label: "Recent signals" },
+    ],
+  },
+  {
+    id: "sec-scoring", label: "Scoring & Fit", subs: [
+      { id: "sub-score", label: "Score breakdown" },
+      { id: "sub-routing", label: "Routing rationale" },
+      { id: "sub-flags", label: "Risk flags & gaps" },
+      { id: "sub-fit", label: "Siemens portfolio fit" },
+      { id: "sub-decision", label: "Reviewer decision" },
+    ],
+  },
+  {
+    id: "sec-market", label: "Market & Risk", subs: [
+      { id: "sub-trend", label: "Market trend" },
+      { id: "sub-market-signals", label: "Signals" },
+      { id: "sub-market-evidence", label: "Market evidence" },
+    ],
+  },
+  {
+    id: "sec-evidence", label: "Evidence", subs: [
+      { id: "sub-facts", label: "Fact table" },
+    ],
+  },
+];
 // Derived, not written out: these percentages used to be literals, which quietly became a claim
 // the code could contradict. They are the engine's weights and say so.
 const DIM_META = Object.fromEntries(
@@ -34,7 +75,78 @@ function SkeletonProfile({ name }) {
   );
 }
 
-/* ---------------- tab bodies ---------------- */
+/* ---------------- section rail ---------------- */
+/** Anchor target. `data-sub` is what the scroll-spy observes; the id is what a jump scrolls to. */
+function Sub({ id, children }) {
+  return <div id={id} data-sub={id} className="sub">{children}</div>;
+}
+
+/**
+ * Which anchor is being read, from an IntersectionObserver rather than a scroll handler.
+ *
+ * rootMargin's -45% bottom inset means a section counts as "current" once its top reaches the
+ * upper half of the viewport — without it the last short section on the page can never win,
+ * because a taller neighbour above it is always intersecting too.
+ */
+function useScrollSpy(deps) {
+  const [active, setActive] = useState("");
+  useEffect(() => {
+    const nodes = Array.from(document.querySelectorAll("[data-sub]"));
+    if (!nodes.length) return;
+    const visible = new Map();
+    const obs = new IntersectionObserver((entries) => {
+      for (const e of entries) visible.set(e.target.id, e.isIntersecting ? e.boundingClientRect.top : null);
+      const candidates = nodes.map((n) => n.id).filter((id) => visible.get(id) != null);
+      if (candidates.length) setActive(candidates[0]);
+    }, { rootMargin: "0px 0px -45% 0px", threshold: 0 });
+    nodes.forEach((n) => obs.observe(n));
+    return () => obs.disconnect();
+  }, deps);                     // eslint-disable-line react-hooks/exhaustive-deps
+  return active;
+}
+
+function SectionNav({ present, active }) {
+  const activeSection = SECTIONS.find((s) => s.subs.some((x) => x.id === active)) || SECTIONS[0];
+  const jump = (id) => {
+    const el = document.getElementById(id);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  return (
+    <nav className="sec-nav" aria-label="Profile sections">
+      {SECTIONS.map((s) => {
+        const subs = s.subs.filter((x) => present.has(x.id));
+        const open = s.id === activeSection.id;
+        return (
+          <div key={s.id} className={"sec-group" + (open ? " open" : "")}>
+            {/* A section with no anchors still rendered — it shows its own empty state, e.g.
+                "No market analysis" — so the group stays in the rail and jumps to the section
+                itself. Dropping it would hide from the reader that the run covered that ground
+                and found nothing, which is not the same as not having looked. */}
+            <button className="sec-head" onClick={() => jump(subs[0]?.id || s.id)} aria-current={open ? "true" : undefined}>
+              <span className="caret" aria-hidden="true">{open ? "▾" : "▸"}</span>{s.label}
+            </button>
+            {/* Only the group being read lists its anchors, as the reference layout did: all four
+                expanded at once is a 15-item wall that stops being a map. */}
+            {open && (
+              <ul>
+                {subs.map((x) => (
+                  <li key={x.id}>
+                    <button className={"sec-item" + (x.id === active ? " active" : "")}
+                      onClick={() => jump(x.id)} aria-current={x.id === active ? "true" : undefined}>
+                      {x.label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        );
+      })}
+    </nav>
+  );
+}
+
+/* ---------------- section bodies ---------------- */
 /* A value the DB did not have, filled in from web research. Marked so it is never mistaken
    for application data — the source link is the evidence for it.
    `field` names which metric this badge sources (e.g. "employees"), so that when several of
@@ -44,6 +156,17 @@ function SkeletonProfile({ name }) {
    visible word, so speech-input users saying "click web" keep matching. */
 function WebSourced({ src, field }) {
   if (!src) return null;
+  // origin "llm" means the engine had neither a database record nor a cited page and answered
+  // from model knowledge (core/profile.py's _recall_hq_offline). Calling that "web" would claim
+  // a source that does not exist, so it gets its own word.
+  if (src.origin === "llm") {
+    return (
+      <span className="chip unverified"
+        title={`Not evidenced — recalled by the model${field ? ` for ${field}` : ""}, no source found`}>
+        unverified
+      </span>
+    );
+  }
   const title = src.url ? `Web-sourced: ${src.url}` : "Web-sourced (no direct link captured)";
   const label = field ? `web — ${field} source` : "web";
   // The no-URL span is inert (no href to follow, nothing to activate), so it gets no role or
@@ -90,7 +213,7 @@ function HeadcountTrend({ points }) {
   );
 }
 
-function OverviewTab({ res }) {
+function ProfileSection({ res }) {
   const p = res.profile || {}, sc = res.score || {}, dp = res.deep_profile || {};
   const trend = res.trend || {};
   const psrc = res.profile_sources || {};
@@ -101,18 +224,28 @@ function OverviewTab({ res }) {
     : String(p.customers || p["Reference customers"] || "").split(/[,;|\n]+/).map((s) => s.trim()).filter(Boolean);
   return (
     <div>
-      <div className="metric-row">
-        <div className="metric"><div className="k">Fit Score</div><div className="v">{Number(sc.final_score || 0).toFixed(0)}</div></div>
-        <div className="metric"><div className="k">Employees</div>
-          <div className="v">{dp.employees || p.employees_count || p.employee_band || "—"} <WebSourced src={psrc.employees_count} field="employees" /></div></div>
-        <div className="metric"><div className="k">Founded</div>
-          <div className="v">{p.founded_year || "—"} <WebSourced src={psrc.founded_year} field="founded year" /></div></div>
-        <div className="metric"><div className="k">Completeness</div><div className="v">{Math.round((sc.data_completeness || 0) * 100)}%</div></div>
-        <div className="metric"><div className="k">Verified customers</div><div className="v">{sc.verified_customers ?? "—"}</div></div>
-        <div className="metric"><div className="k">Market signal</div><div className="v" style={{ fontSize: 13 }}>{trend.label || "—"}</div></div>
-      </div>
-      <div className="grid2">
+      {/* Location and Funding replace Completeness and Market signal. Both of those were derived
+          numbers about the *run* — how much of the record was filled in, and a one-word trend
+          verdict — sitting where a reviewer looks for facts about the *company*. Completeness is
+          still stated where it does work, in the score arithmetic under Score breakdown; the trend
+          verdict is the Market & Risk section's own headline. */}
+      <Sub id="sub-metrics">
+        <div className="metric-row">
+          <div className="metric"><div className="k">Fit Score</div><div className="v">{Number(sc.final_score || 0).toFixed(0)}</div></div>
+          <div className="metric"><div className="k">Employees</div>
+            <div className="v">{dp.employees || p.employees_count || p.employee_band || "—"} <WebSourced src={psrc.employees_count} field="employees" /></div></div>
+          <div className="metric"><div className="k">Founded</div>
+            <div className="v">{p.founded_year || "—"} <WebSourced src={psrc.founded_year} field="founded year" /></div></div>
+          <div className="metric"><div className="k">Funding</div>
+            <div className="v">{p.funding || "—"} <WebSourced src={psrc.funding} field="funding" /></div></div>
+          <div className="metric"><div className="k">Verified customers</div><div className="v">{sc.verified_customers ?? "—"}</div></div>
+          <div className="metric"><div className="k">Location</div>
+            <div className="v loc">{p.hq || "—"} <WebSourced src={psrc.hq} field="location" /></div></div>
+        </div>
+      </Sub>
+      <div>
         <div>
+          <Sub id="sub-summary">
           <IxCard>
             <IxCardContent>
               <h3>Executive summary</h3>
@@ -128,9 +261,10 @@ function OverviewTab({ res }) {
               </IxKeyValueList>
             </IxCardContent>
           </IxCard>
-          <HeadcountTrend points={dp.employees_over_time} />
+          </Sub>
         </div>
         <div>
+          <Sub id="sub-team">
           <IxCard>
             <IxCardContent>
               <h3>Team &amp; ecosystem</h3>
@@ -171,6 +305,8 @@ function OverviewTab({ res }) {
               )}
             </IxCardContent>
           </IxCard>
+          </Sub>
+          <Sub id="sub-customers">
           <IxCard>
             <IxCardContent>
               <h3>Reference customers</h3>
@@ -186,15 +322,19 @@ function OverviewTab({ res }) {
               )}
             </IxCardContent>
           </IxCard>
+          </Sub>
         </div>
       </div>
+      <Sub id="sub-headcount"><HeadcountTrend points={dp.employees_over_time} /></Sub>
       {(trend.signals || []).length > 0 && (
-        <IxCard>
-          <IxCardContent>
-            <h3>Recent signals</h3>
-            {trend.signals.map((s, i) => <div key={i} className="reason">{s}</div>)}
-          </IxCardContent>
-        </IxCard>
+        <Sub id="sub-signals">
+          <IxCard>
+            <IxCardContent>
+              <h3>Recent signals</h3>
+              {trend.signals.map((s, i) => <div key={i} className="reason">{s}</div>)}
+            </IxCardContent>
+          </IxCard>
+        </Sub>
       )}
     </div>
   );
@@ -267,7 +407,7 @@ function OverridePanel({ runId, currentPillar }) {
   );
 }
 
-function ScoringTab({ res, runId }) {
+function ScoringSection({ res, runId }) {
   const sc = res.score || {}, fit = res.fit || {}, rt = res.routing || {};
   const dims = sc.dimensions || {};
   const { whatIfWeights } = useApp();
@@ -277,20 +417,37 @@ function ScoringTab({ res, runId }) {
   const [whatIfOpen, setWhatIfOpen] = useState(false);
   const contribution = whatIfOpen ? contributionProfile(dims, whatIfWeights || DEFAULT_WEIGHTS) : null;
   return (
-    <div className="grid2">
-      <div>
-        <div className="panel">
-          <h3>Score breakdown</h3>
-          {Object.entries(DIM_META).map(([k, label]) =>
-            k in dims ? <ScoreBar key={k} label={label} value={dims[k]} /> : null)}
-          <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
-            Raw {sc.raw_score} × data confidence {sc.data_confidence} (completeness{" "}
-            {Math.round((sc.data_completeness || 0) * 100)}%) = <strong>{Number(sc.final_score || 0).toFixed(0)}</strong>.
-            Effective traction {sc.effective_traction} (verified {sc.verified_customers} /
-            unverified {sc.unverified_customers}).
-          </p>
+    <div>
+      {/* The radar stays beside the bars it plots — they are two readings of the same six
+          dimensions, and separating them onto different scroll positions would make the chart
+          an unlabelled shape. Everything after this is full width, in reading order. */}
+      <Sub id="sub-score">
+        <div className="grid2">
+          <div className="panel">
+            <h3>Score breakdown</h3>
+            {Object.entries(DIM_META).map(([k, label]) =>
+              k in dims ? <ScoreBar key={k} label={label} value={dims[k]} /> : null)}
+            <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
+              Raw {sc.raw_score} × data confidence {sc.data_confidence} (completeness{" "}
+              {Math.round((sc.data_completeness || 0) * 100)}%) = <strong>{Number(sc.final_score || 0).toFixed(0)}</strong>.
+              Effective traction {sc.effective_traction} (verified {sc.verified_customers} /
+              unverified {sc.unverified_customers}).
+            </p>
+          </div>
+          <div className="panel" style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+            <Radar dimensions={dims} overlay={contribution ? contribution.values : null} />
+            {contribution && (
+              <p className="muted" style={{ fontSize: 11.5, margin: "6px 0 0", textAlign: "center" }}>
+                Solid = evidence scores · dashed = each dimension&apos;s share of the score under your
+                weighting. They coincide only when all six are weighted equally; the engine&apos;s own
+                weights lean on traction and Siemens fit.
+              </p>
+            )}
+          </div>
         </div>
         <WhatIfWeights score={sc} fit={fit} routing={rt} open={whatIfOpen} setOpen={setWhatIfOpen} />
+      </Sub>
+      <Sub id="sub-routing">
         <div className="panel">
           <h3>Routing rationale</h3>
           <p style={{ margin: "0 0 6px" }}>
@@ -316,9 +473,11 @@ function ScoringTab({ res, runId }) {
             </>
           )}
         </div>
-        {((sc.red_flags || []).length > 0 || (sc.missing_evidence || []).length > 0) && (
+      </Sub>
+      {((sc.red_flags || []).length > 0 || (sc.missing_evidence || []).length > 0) && (
+        <Sub id="sub-flags">
           <div className="panel">
-            <h3>Red flags &amp; gaps</h3>
+            <h3>Risk flags &amp; gaps</h3>
             {(sc.red_flags || []).map((f, i) => (
               <div key={i} className="risk" style={{ borderLeftColor: "var(--danger)", background: "var(--danger-soft)" }}>{f}</div>
             ))}
@@ -328,20 +487,9 @@ function ScoringTab({ res, runId }) {
               </p>
             )}
           </div>
-        )}
-        <OverridePanel runId={runId} currentPillar={rt.pillar} />
-      </div>
-      <div>
-        <div className="panel" style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-          <Radar dimensions={dims} overlay={contribution ? contribution.values : null} />
-          {contribution && (
-            <p className="muted" style={{ fontSize: 11.5, margin: "6px 0 0", textAlign: "center" }}>
-              Solid = evidence scores · dashed = each dimension&apos;s share of the score under your
-              weighting. They coincide only when all six are weighted equally; the engine&apos;s own
-              weights lean on traction and Siemens fit.
-            </p>
-          )}
-        </div>
+        </Sub>
+      )}
+      <Sub id="sub-fit">
         <div className="panel">
           <h3>Siemens portfolio fit</h3>
           {fit.aligned && (fit.matches || []).length ? fit.matches.map((m, i) => (
@@ -361,19 +509,21 @@ function ScoringTab({ res, runId }) {
           )}
           <p className="muted" style={{ fontSize: 11.5, marginBottom: 0 }}>method: {fit.method || "—"}</p>
         </div>
-      </div>
+      </Sub>
+      <Sub id="sub-decision"><OverridePanel runId={runId} currentPillar={rt.pillar} /></Sub>
     </div>
   );
 }
 
-function MarketTab({ res }) {
+function MarketSection({ res }) {
   const t = res.trend || {}, rt = res.routing || {};
   if (!t.label || t.method === "disabled") {
     return <div className="empty"><div className="big">◔</div><h4>No market analysis</h4>
       <p>Trend analysis was disabled or returned nothing for this run.</p></div>;
   }
   return (
-    <div className="grid2">
+    <div>
+      <Sub id="sub-trend">
       <IxCard>
         <IxCardContent>
           <h3>Market trend</h3>
@@ -385,7 +535,9 @@ function MarketTab({ res }) {
           <p style={{ marginBottom: 0 }}>{t.summary}</p>
         </IxCardContent>
       </IxCard>
+      </Sub>
       <div>
+        <Sub id="sub-market-signals">
         <IxCard>
           <IxCardContent>
             <h3>Signals</h3>
@@ -396,7 +548,9 @@ function MarketTab({ res }) {
             {(rt.risks || []).map((r, i) => <div key={i} className="risk">{r}</div>)}
           </IxCardContent>
         </IxCard>
+        </Sub>
         {(t.evidence || []).length > 0 && (
+          <Sub id="sub-market-evidence">
           <IxCard>
             <IxCardContent>
               <h3>Market evidence</h3>
@@ -410,13 +564,14 @@ function MarketTab({ res }) {
               ))}
             </IxCardContent>
           </IxCard>
+          </Sub>
         )}
       </div>
     </div>
   );
 }
 
-function EvidenceTab({ res }) {
+function EvidenceSection({ res }) {
   const [filter, setFilter] = useState("");
   const facts = (res.facts || []).filter((f) =>
     !filter || `${f.key} ${f.value} ${f.method}`.toLowerCase().includes(filter.toLowerCase()));
@@ -430,6 +585,7 @@ function EvidenceTab({ res }) {
   // hard-coded hover backgrounds that are MIG-15's re-skin to fix, not this one's, since fixing
   // them here would silently reskin Explore's table too.
   return (
+    <Sub id="sub-facts">
     <IxCard>
       <IxCardContent style={{ padding: 0 }}>
         <div style={{ padding: "10px 12px", borderBottom: "1px solid var(--border)" }}>
@@ -460,71 +616,7 @@ function EvidenceTab({ res }) {
         </div>
       </IxCardContent>
     </IxCard>
-  );
-}
-
-function AskTab({ res, runId }) {
-  const [msgs, setMsgs] = useState([]);
-  const [q, setQ] = useState("");
-  const [busy, setBusy] = useState(false);
-  const suggestions = [
-    "Summarise why this startup matches the brief",
-    "What are the top risks?",
-    "Compare this startup with similar companies",
-    "What evidence is weakest?",
-  ];
-  const send = async (text) => {
-    const question = (text || q).trim();
-    if (!question || busy) return;
-    setQ(""); setBusy(true);
-    setMsgs((m) => [...m, { role: "user", text: question }]);
-    try {
-      const r = await api.ask(question, runId);
-      setMsgs((m) => [...m, { role: "assistant", text: r.answer, source: r.source, evidence: r.evidence }]);
-    } catch (e) {
-      setMsgs((m) => [...m, { role: "assistant", text: `Request failed: ${e.message}`, source: "error" }]);
-    } finally { setBusy(false); }
-  };
-  return (
-    <IxCard>
-      <IxCardContent>
-        <h3>Ask about {res.company}</h3>
-        <p className="muted" style={{ fontSize: 12.5, marginTop: 0 }}>
-          The assistant drafts from AI knowledge, verifies against a targeted web search, and cites sources.
-        </p>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-          {suggestions.map((s) => (
-            <IxChip key={s} onClick={() => send(s)}>{s}</IxChip>
-          ))}
-        </div>
-        {msgs.map((m, i) => (
-          <div key={i} className={`dock-msg ${m.role}`} style={{ maxWidth: 760 }}>
-            {m.role === "assistant" && m.source && <div className="src">{m.source}</div>}
-            {m.text}
-            {m.evidence?.length > 0 && (
-              <div style={{ marginTop: 6 }}>
-                {m.evidence.slice(0, 5).map((e, j) => (
-                  <div key={j} style={{ fontSize: 11 }}>
-                    <a href={e.url} target="_blank" rel="noopener noreferrer">[{j + 1}] {e.title || e.url}</a>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
-        {busy && <p className="muted"><span className="spinner" /> Drafting, searching, refining…</p>}
-        <div style={{ display: "flex", gap: 6, maxWidth: 760, alignItems: "center" }}>
-          <IxInput
-            style={{ flex: 1 }}
-            placeholder={`Ask about ${res.company}…`}
-            value={q}
-            onValueChange={(e) => setQ(e.detail)}
-            onKeyDown={(e) => e.key === "Enter" && send()}
-          />
-          <IxIconButton icon={iconSendRight} aria-label="Ask" disabled={busy || !q.trim()} onClick={() => send()} />
-        </div>
-      </IxCardContent>
-    </IxCard>
+    </Sub>
   );
 }
 
@@ -532,13 +624,12 @@ function AskTab({ res, runId }) {
 export default function Profile() {
   const { id } = useParams();
   const nav = useNavigate();
-  const [params, setParams] = useSearchParams();
+  const [params] = useSearchParams();
   const { watchlist, toggleWatch, setDockCtx, setDockOpen } = useApp();
   const [res, setRes] = useState(null);
   const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const evalName = params.get("name") || "";
-  const tab = params.get("tab") || "Overview";
   const runId = id === "new" ? null : Number(id);
 
   const refreshData = async () => {
@@ -581,6 +672,9 @@ export default function Profile() {
     return () => setDockCtx(null);
   }, [res]);                    // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Re-observed whenever the run changes, because the anchors are conditional on what it found.
+  const active = useScrollSpy([res]);
+
   const p = res?.profile || {};
   const tags = useMemo(() => {
     const t = [];
@@ -596,13 +690,26 @@ export default function Profile() {
         <div className="big">△</div>
         <h4>Could not load this startup</h4>
         <p>{error}</p>
-        <button className="btn secondary" onClick={() => nav("/explore")}>Back to Explore</button>
+        <button className="btn secondary" onClick={() => nav("/explore")}>Back to Databases</button>
       </div>
     );
   }
   if (!res) return <SkeletonProfile name={evalName || `run #${id}`} />;
 
   const rt = res.routing || {}, sc = res.score || {};
+  const trend = res.trend || {};
+  const hasMarket = Boolean(trend.label) && trend.method !== "disabled";
+  // Which anchors actually rendered. The rail lists a destination only when there is something
+  // there to scroll to — a "Recent signals" entry that jumps nowhere is worse than no entry.
+  const present = new Set([
+    "sub-metrics", "sub-summary", "sub-team", "sub-customers", "sub-headcount",
+    "sub-score", "sub-routing", "sub-fit", "sub-facts",
+    ...((trend.signals || []).length ? ["sub-signals"] : []),
+    ...((sc.red_flags || []).length || (sc.missing_evidence || []).length ? ["sub-flags"] : []),
+    ...(runId ? ["sub-decision"] : []),
+    ...(hasMarket ? ["sub-trend", "sub-market-signals"] : []),
+    ...(hasMarket && (trend.evidence || []).length ? ["sub-market-evidence"] : []),
+  ]);
 
   return (
     <div>
@@ -611,12 +718,16 @@ export default function Profile() {
             action-row block. Its `header` slot carries the pillar pill + secondary pills + tags
             (content that belongs beside the title, not below it); its default slot carries the
             action row. hasBackButton subsumes the old "← Explore" button, so that one is dropped
-            rather than kept alongside a second, redundant way back. */}
+            rather than kept alongside a second, redundant way back.
+
+            headerSubtitle is deliberately NOT used for the description any more. iX renders the
+            subtitle with its `titleOverflow` class, which truncates to a single line — so a real
+            two-or-three sentence description arrived as a thin clipped strip. It is a paragraph
+            below the header instead, where it wraps and can be read. */}
         <IxContentHeader
           hasBackButton
           onBackButtonClick={() => nav("/explore")}
           headerTitle={res.company}
-          headerSubtitle={res.summary}
         >
           <div slot="header" className="ph-header-slot">
             <PillarPill pillar={rt.pillar} />{" "}
@@ -642,30 +753,42 @@ export default function Profile() {
           </button>
           <button className="tool-btn" onClick={() => setDockOpen(true)}>✦ Assistant</button>
         </IxContentHeader>
+        {res.summary && <p className="ph-summary">{res.summary}</p>}
+        {/* Location and funding have left this line: they are headline facts about the company and
+            now sit in the metric tiles, where a reviewer can compare them across evaluations. What
+            stays is metadata about the run itself, each figure labelled rather than run together.
+            The "web-sourced — verify figures" banner is gone too: every field that came from the
+            web already carries its own `web` chip linking to the page it came from, which says the
+            same thing per-fact instead of casting doubt over the whole page. */}
         <div className="ph-meta">
-          {p.hq && <span>📍 {p.hq}</span>}
-          {p.funding && <span>💰 {p.funding}</span>}
-          <span>Score <strong>{Number(sc.final_score || 0).toFixed(0)}</strong></span>
-          <span>Confidence {Math.round((rt.confidence || 0) * 100)}%</span>
-          <span className="muted">{res.engine}</span>
+          {/* The explicit spaces are load-bearing: without them the label and the figure are
+              adjacent elements and the span's text reads "Score38". */}
+          <span><span className="k">Score</span>{" "}<strong>{Number(sc.final_score || 0).toFixed(0)}</strong></span>
+          <span><span className="k">Confidence</span>{" "}<strong>{Math.round((rt.confidence || 0) * 100)}%</strong></span>
+          <span><span className="k">Engine</span>{" "}{res.engine}</span>
         </div>
-        {res.source === "web" && <span className="badge">web-sourced — verify figures</span>}
-        {/* sticky-header keeps the tab bar reachable while reading a long profile — the
-            Evidence tab in particular scrolls well past a screen, and losing the tabs means
-            scrolling back to the top to switch context. Semantics (?tab= sync) are unchanged from
-            the hand-rolled bar: activeTabKey mirrors the query-param-driven `tab` state, and
-            onTabChange writes it back the same way the old onClick did. */}
-        <IxTabs className="sticky-header" activeTabKey={tab}
-          onTabChange={(e) => setParams({ tab: e.detail }, { replace: true })}>
-          {TABS.map((t) => <IxTabItem key={t} tabKey={t} label={t} aria-label={t} />)}
-        </IxTabs>
       </div>
 
-      {tab === "Overview" && <OverviewTab res={res} />}
-      {tab === "Scoring & Fit" && <ScoringTab res={res} runId={runId} />}
-      {tab === "Market & Risk" && <MarketTab res={res} />}
-      {tab === "Evidence" && <EvidenceTab res={res} />}
-      {tab === "Ask" && <AskTab res={res} runId={runId} />}
+      <div className="profile-body">
+        <SectionNav present={present} active={active} />
+        <div className="profile-sections">
+          <section id="sec-profile" aria-label="Profile">
+            <ProfileSection res={res} />
+          </section>
+          <section id="sec-scoring" aria-label="Scoring &amp; Fit">
+            <h2 className="sec-title">Scoring &amp; Fit</h2>
+            <ScoringSection res={res} runId={runId} />
+          </section>
+          <section id="sec-market" aria-label="Market &amp; Risk">
+            <h2 className="sec-title">Market &amp; Risk</h2>
+            <MarketSection res={res} />
+          </section>
+          <section id="sec-evidence" aria-label="Evidence">
+            <h2 className="sec-title">Evidence</h2>
+            <EvidenceSection res={res} />
+          </section>
+        </div>
+      </div>
     </div>
   );
 }

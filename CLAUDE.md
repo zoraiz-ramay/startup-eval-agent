@@ -18,6 +18,11 @@ codebase enforces this in several places, and changes must not weaken them:
 - `core/data.py` — `web_profile_row` deliberately does **not** fill verifiable fields (funding,
   founded year, employees, HQ, customers) from model memory. It used to, and produced a funding
   round of "SAR 3.75 million" for makkook.ai that exists nowhere on the web.
+- The **one** sanctioned exception is `profile.py`'s `_recall_hq_offline`: headquarters, and only
+  after GlassDollar and both web passes come back empty. It was added deliberately when Location
+  became a headline tile. The value is stamped `hq_origin="llm"`, carries no source URL, files its
+  Fact under method `model_recall` (so provenance grades it `inferred`), and the UI labels it
+  **unverified** rather than web-sourced. Do not widen this to another field.
 - `core/score.py` — a self-asserted program membership scores at a discount to an independently
   corroborated one; a source URL alone is not evidence.
 
@@ -142,10 +147,18 @@ extraction, xlsx + web instead of the live database — rather than failing.
 
 ## Frontend map
 
-Routes (`ui/src/App.jsx`): `/` Home · `/explore` · `/startup/:id` Profile · `/saved` · `/alerts` ·
+Routes (`ui/src/App.jsx`): `/` Home, a bare search landing that evaluates whatever you type ·
+`/workspace` the scouting workspace, labelled **Explore** in the rail (the file is still
+`pages/Home.jsx`) · `/explore` the companies grid, labelled **Databases** (route deliberately
+unchanged so saved-view links keep resolving) · `/startup/:id` Profile · `/saved` · `/alerts` ·
 `/ask` · `/settings` · `/admin` (rail entry hidden unless `/api/auth/me` reports `is_admin`; the
 page itself explains a 403 rather than 404ing, so a shared link is diagnosable). API client:
 `ui/src/api.js`. Shared state: `ui/src/state.jsx`.
+
+The Profile is **one scrolling page with a section rail**, not a tab set: Profile → Scoring & Fit →
+Market & Risk → Evidence, each anchored and scroll-spied (`SECTIONS` / `useScrollSpy` in
+`Profile.jsx`). A rail entry is rendered only when its anchor exists (`present`), so no destination
+scrolls nowhere.
 
 Icons are Siemens iX, via `ui/src/components/Icon.jsx`. It inlines the SVG and repaints it in
 `currentColor` because the shipped glyphs carry `fill='none'` and expect the host to paint them —

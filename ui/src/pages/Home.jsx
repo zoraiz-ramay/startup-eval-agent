@@ -42,7 +42,6 @@ export default function Home() {
   const [params] = useSearchParams();
   const { watchlist, savedViews } = useApp();
   const [runs, setRuns] = useState(null);
-  const [challenges, setChallenges] = useState([]);
   const [problem, setProblem] = useState("");
   const [solving, setSolving] = useState(false);
   const [solveRes, setSolveRes] = useState(null);
@@ -51,7 +50,6 @@ export default function Home() {
 
   useEffect(() => {
     api.myRuns().then((d) => setRuns(d.runs)).catch((e) => setError(e.message));
-    api.challenges().then((d) => setChallenges(d.challenges || [])).catch(() => {});
   }, []);
   useEffect(() => {
     // IxInput's ref is the <ix-input> host, not the native <input> — .focus() on the host
@@ -66,9 +64,8 @@ export default function Home() {
       avg: (runs.reduce((s, r) => s + (r.final_score || 0), 0) / runs.length).toFixed(0),
       aligned: runs.filter((r) => r.pillar !== "Pass").length,
       watched: watchlist.length,
-      challenges: challenges.length,
     };
-  }, [runs, watchlist, challenges]);
+  }, [runs, watchlist]);
 
   const solve = async (text) => {
     const prob = (text || problem).trim();
@@ -97,7 +94,7 @@ export default function Home() {
     <div>
       <div className="crumb">Command Centre</div>
       <div className="page-head">
-        <h1 className="page-title">Home</h1>
+        <h1 className="page-title">Explore</h1>
         <span className="page-meta">Scouting workspace</span>
       </div>
 
@@ -107,17 +104,16 @@ export default function Home() {
           <IxKpi label="Avg Fit Score" value={stats.avg} />
           <IxKpi label="Siemens-aligned" value={stats.aligned} />
           <IxKpi label="Watching" value={stats.watched} />
-          <IxKpi label="Challenges recorded" value={stats.challenges} />
         </div>
       )}
       {error && <ErrorBox message={error} hint="is the API running?" />}
 
       {/* scouting query composer — compact, integrated */}
-      <IxCard>
+      <IxCard className="composer-card">
         <IxCardContent>
           <h3>Start a scouting query</h3>
-          <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
-            <div style={{ flex: 1 }}>
+          <div className="composer-row">
+            <div className="composer-input">
               <IxInput ref={composeRef}
                 placeholder="Describe a problem to solve — e.g. predictive maintenance for legacy PLCs…"
                 value={problem} maxLength={2000}
@@ -167,24 +163,37 @@ export default function Home() {
           {recent.length > 0 && (
             <IxCardList>
               {recent.map((r) => (
+                // The score and pillar used to be slotted after the description <div>, which put
+                // them on a third line and left the row reading as a stack rather than an entry.
+                // They belong with the name — a run is "company, score, pillar" — so the headline
+                // is one flex line and the summary sits under it. The initial logo-chip is gone:
+                // a generated letter tile is not information, and it pushed the name off the row
+                // start where the eye scans for it.
                 <Row key={r.id} onActivate={() => nav(`/startup/${r.id}`)}>
-                  <span className="logo-chip">{r.company.slice(0, 1).toUpperCase()}</span>{" "}
-                  <strong>{r.company}</strong>
-                  <div className="muted" style={{ fontSize: 12 }}>{(r.summary || "").slice(0, 90)}</div>
-                  <span className="num">{Number(r.final_score).toFixed(0)}</span>{" "}
-                  <PillarPill pillar={r.pillar} />
+                  {/* One wrapper, not two sibling <div>s: IxEventListItem lays its slotted
+                      children out in a flex ROW inside its shadow DOM, so two siblings sit side
+                      by side rather than stacking — which is what put the summary beside the
+                      name instead of under it. */}
+                  <div className="run-cell">
+                    <div className="run-row">
+                      <strong className="run-name">{r.company}</strong>
+                      <span className="num">{Number(r.final_score).toFixed(0)}</span>
+                      <PillarPill pillar={r.pillar} />
+                    </div>
+                    <div className="muted run-desc">{(r.summary || "").slice(0, 90)}</div>
+                  </div>
                 </Row>
               ))}
             </IxCardList>
           )}
-          {runs?.length > 0 && <Link to="/explore" style={{ fontSize: 12.5 }}>Open Explore →</Link>}
+          {runs?.length > 0 && <Link to="/explore" style={{ fontSize: 12.5 }}>Open Databases →</Link>}
         </div>
 
         <div>
           <div className="panel">
             <h3>Tracked companies</h3>
             {watched.length === 0 && (
-              <p className="muted" style={{ margin: 0 }}>Star companies in Explore to track them here.</p>
+              <p className="muted" style={{ margin: 0 }}>Star companies in Databases to track them here.</p>
             )}
             {watched.length > 0 && (
               <IxCardList>
@@ -201,7 +210,7 @@ export default function Home() {
           <div className="panel">
             <h3>Saved views</h3>
             {savedViews.length === 0 && (
-              <p className="muted" style={{ margin: 0 }}>Save a column set from Explore to reuse it.</p>
+              <p className="muted" style={{ margin: 0 }}>Save a column set from Databases to reuse it.</p>
             )}
             {savedViews.length > 0 && (
               <IxCardList>
@@ -213,35 +222,6 @@ export default function Home() {
                 ))}
               </IxCardList>
             )}
-          </div>
-          <div className="panel">
-            <h3>Recent challenges</h3>
-            {challenges.length > 0 && (
-              <IxCardList>
-                {challenges.map((c, idx) => ({ ...c, idx })).slice(-4).reverse().map((c) => (
-                  <IxEventListItem key={c.idx}>
-                    <div style={{ fontSize: 12.5 }}>
-                      {c.problem}{" "}
-                      <span className="badge" style={c.status === "approved" ? { color: "var(--success)" }
-                        : c.status === "rejected" ? { color: "var(--danger)" } : {}}>
-                        {c.status || "pending"}
-                      </span>
-                    </div>
-                    {(c.status || "pending") === "pending" && (
-                      <span style={{ display: "flex", gap: 4 }}>
-                        <button className="tool-btn" title="Approve"
-                          onClick={() => api.setChallengeStatus(c.idx, "approved")
-                            .then(() => api.challenges().then((d) => setChallenges(d.challenges || [])))}>✓</button>
-                        <button className="tool-btn" title="Reject"
-                          onClick={() => api.setChallengeStatus(c.idx, "rejected")
-                            .then(() => api.challenges().then((d) => setChallenges(d.challenges || [])))}>✕</button>
-                      </span>
-                    )}
-                  </IxEventListItem>
-                ))}
-              </IxCardList>
-            )}
-            {challenges.length === 0 && <p className="muted" style={{ margin: 0 }}>No challenges recorded yet.</p>}
           </div>
         </div>
       </div>

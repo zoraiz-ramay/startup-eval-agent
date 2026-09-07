@@ -4,8 +4,8 @@ import {
   IxApplication, IxApplicationHeader, IxContent, IxMenu, IxMenuCategory, IxMenuItem,
 } from "@siemens/ix-react";
 import {
-  iconAi, iconAlarmBell, iconBookmark, iconCogwheel, iconDashboard, iconEye, iconHome,
-  iconSearch, iconTable,
+  iconAi, iconBookmark, iconCogwheel, iconDashboard, iconDatabase, iconHome, iconList,
+  iconSearch, iconStar, iconUserManagement,
 } from "@siemens/ix-icons/icons";
 import { api } from "./api.js";
 import { AppProvider, AuthProvider, useApp, useAuth } from "./state.jsx";
@@ -57,7 +57,7 @@ function CommandBar() {
     const v = (name || q).trim();
     setOpen(false); setQ("");
     if (!v) return;
-    if (v.startsWith("/solve")) return nav("/?compose=1");
+    if (v.startsWith("/solve")) return nav("/workspace?compose=1");
     if (v.startsWith("/explore")) return nav("/explore");
     nav(`/startup/new?name=${encodeURIComponent(v)}`);
   };
@@ -87,60 +87,89 @@ function CommandBar() {
   );
 }
 
-/* ------------------------------------------------ top bar */
-// MIG-07: IxApplicationHeader replaces the hand-rolled <header class="topbar">. name/nameSuffix
-// carry the brand text the header owns internally (no slot exists to attach a click-to-home
-// handler to them, unlike the old <div className="brand" onClick>) — Home stays one tap away on
-// the rail/menu, so that affordance isn't lost, just relocated. The command bar is deliberately
-// NOT slotted in here (CLAUDE.md: command-bar-in-header is MIG-10, out of scope for this batch) —
-// Shell renders it as its own row, outside the header. The right-side controls go in the
-// header's default slot ("Place items on the right side of the header" — components.md).
-function TopBar() {
-  const { watchlist } = useApp();
-  const { user } = useAuth();
+/* ------------------------------------------------ search landing (route "/")
+ * "/" is a search page, not a dashboard: one centred field whose only job is to name a startup and
+ * evaluate it. The scouting workspace it replaced now lives at /workspace ("Explore").
+ * The command-bar row is hidden here (Shell) so the hero is the only search field on the page —
+ * two identical inputs stacked would be a coin-flip for both a reviewer and a test locator. The
+ * hero therefore has to carry the Ctrl/Cmd+K binding itself, or the shortcut would do nothing on
+ * the one route where searching is the whole point.
+ */
+function SearchHome() {
   const nav = useNavigate();
-  const account = user?.name || user?.email || "Account";
+  const [q, setQ] = useState("");
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        inputRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const submit = () => {
+    const v = q.trim();
+    if (!v) return;
+    nav(`/startup/new?name=${encodeURIComponent(v)}`);
+  };
+
   return (
-    <IxApplicationHeader slot="application-header" name="ScoutGrid"
-      nameSuffix="Startup intelligence · Siemens for Startups">
-      {/* title alone is not an accessible name for an icon-only button — scripts/ix_lint.mjs
-          checks for aria-label, and a screen reader gets nothing from the glyph. */}
-      <button className="icon-btn" aria-label="Advanced search" title="Advanced search"
-        onClick={() => nav("/explore")}>
-        <Icon icon={iconSearch} size={17} />
-      </button>
-      <button className="icon-btn" title="Tracking"
-        aria-label={watchlist.length
-          ? `Tracking, ${watchlist.length} companies watched`
-          : "Tracking"}
-        onClick={() => nav("/alerts")}>
-        <Icon icon={iconAlarmBell} size={17} />
-        {watchlist.length > 0 && <span className="dot">{watchlist.length}</span>}
-      </button>
-      {/* The Export button that used to sit here navigated to /explore — the same place as
-          Advanced search — and exported nothing. The real CSV export is Explore's own
-          toolbar button, which knows what rows and columns are on screen. */}
-      <button className="avatar-btn" aria-label={`Account: ${account}`} title={account}
-        onClick={() => nav("/settings")}>{user?.initials || "?"}</button>
-    </IxApplicationHeader>
+    <div className="search-hero">
+      <h1 className="search-hero-title">Explore a startup</h1>
+      <div className="search-hero-field">
+        <span className="lens"><Icon icon={iconSearch} size={18} /></span>
+        <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()}
+          placeholder="Search a startup to evaluate…" aria-label="Search a startup" />
+        <span className="kbd">Ctrl K</span>
+      </div>
+    </div>
   );
+}
+
+/* ------------------------------------------------ mobile menu launcher
+ * The reference Siemens shell has no top bar, so the header is hidden on every width where the
+ * rail is visible (md and up — styles.css). It survives ONLY at the sm breakpoint, where iX's
+ * IxMenu collapses its items and offers no toggle of its own: the application header is the only
+ * thing that renders the hamburger that reopens the menu, so a phone would otherwise have no way
+ * to navigate. Empty of slotted controls — the brand, account and Tracking count all live in the
+ * rail; this is just the launcher.
+ */
+function MobileHeader() {
+  return <IxApplicationHeader slot="application-header" name="ScoutGrid" />;
 }
 
 /* ------------------------------------------------ icon rail + secondary nav */
 // iX icons rather than Unicode box-drawing glyphs: ▦ (Explore) and ▤ (Views) were the same
 // shape at 17px, and 🔔 rendered as a colour emoji in otherwise monochrome chrome.
+// Home is now the search landing; "Explore" names the scouting workspace that used to be Home
+// (/workspace), and the companies grid keeps its /explore route under the name "Databases" — the
+// route is unchanged deliberately, so every saved-view link and visual baseline pointing at
+// /explore still resolves to the grid it always did.
 const RAIL = [
   { to: "/", label: "Home", icon: iconHome, end: true },
-  { to: "/explore", label: "Explore", icon: iconTable },
+  // iconDashboard was previously rejected here as a second generic "overview" glyph sitting next
+  // to Home. It reads correctly now that Home is a bare search field rather than the dashboard.
+  { to: "/workspace", label: "Explore", icon: iconDashboard },
+  { to: "/explore", label: "Databases", icon: iconDatabase },
   { to: "/saved", label: "Views", icon: iconBookmark },
-  { to: "/alerts", label: "Tracking", icon: iconEye },
+  // Tracking is the watchlist — the same ★ affordance the Explore/Home rows use to add a
+  // company — so iconStar names the destination directly and is distinct from the header's
+  // alarm-bell (notifications) that shared the old iconEye's ambiguous "watching" meaning.
+  { to: "/alerts", label: "Tracking", icon: iconStar },
   // Not a link: this is the one control for the assistant now that the command bar's
   // duplicate has gone. The dock opens itself on a wide screen, so without a way back the
   // close button in its header would be one-way for the rest of the session.
   { action: "dock", label: "Ask AI", icon: iconAi },
   { to: "/settings", label: "Settings", icon: iconCogwheel },
 ];
-const ADMIN_RAIL = { to: "/admin", label: "Admin", icon: iconDashboard };
+// Admin manages reviewers and access, so iconUserManagement names it; iconDashboard read as a
+// second, generic "overview" glyph next to Home.
+const ADMIN_RAIL = { to: "/admin", label: "Admin", icon: iconUserManagement };
 
 // MIG-08: IxMenu replaces the hand-rolled <nav class="rail">. IxMenu's default aria-label
 // ("Application Navigation", i18nAriaLabelMenu) names the inner role="menubar" region, not the
@@ -156,11 +185,24 @@ const ADMIN_RAIL = { to: "/admin", label: "Admin", icon: iconDashboard };
 // used to gate the whole <SideNav/> element with; IxMenuCategory has no route-awareness of its
 // own, so the conditional still has to live in the caller (Shell), just threaded through a prop
 // instead of a sibling.
+// href + an intercepted click is what makes a routed IxMenuItem a real anchor (middle-click,
+// ctrl/cmd-click, right-click "copy link address") while keeping navigation client-side for a
+// plain left click — a modified click is left alone so it falls through to the browser's own
+// open-in-new-tab/-window handling instead of being hijacked.
+function routeClick(nav, to) {
+  return (e) => {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    nav(to);
+  };
+}
+
 function Rail({ showSecondary }) {
   const { user } = useAuth();
   const { dockOpen, setDockOpen, savedViews, watchlist } = useApp();
   const nav = useNavigate();
   const loc = useLocation();
+  const account = user?.name || user?.email || "Account";
   // The route is guarded server-side by require_admin; this only decides whether a reviewer
   // is shown a door they cannot open.
   const items = user?.is_admin ? [...RAIL, ADMIN_RAIL] : RAIL;
@@ -170,37 +212,50 @@ function Rail({ showSecondary }) {
   const view = new URLSearchParams(loc.search).get("view") || "";
   return (
     <IxMenu slot="menu" applicationName="Primary Navigation">
+      {/* Visible brand at the top of the rail. `ix-menu-avatar` is the only slot iX renders above
+          the Home item (verified against the compiled menu.js), so the app identity now lives in
+          the sidebar rather than the application header. It is a real link to Home; the nav
+          landmark's accessible name stays `applicationName` (asserted by the shell tests),
+          separate from this visible mark. Collapsed rail shows just the monogram; the name
+          appears when the menu is expanded (styles.css keys off ix-menu.expanded). */}
+      <a slot="ix-menu-avatar" className="menu-brand" href="/" onClick={routeClick(nav, "/")}
+        aria-label="ScoutGrid — Home">
+        <span className="brand-mark" aria-hidden="true">SG</span>
+        <span className="brand-text">ScoutGrid</span>
+      </a>
       {items.map((n) => (
         n.action === "dock" ? (
           // slot="bottom" per IxMenuItem's own prop note: `bottom` is documented as "no longer
           // working, use slot='bottom' instead" — this is the one control for the assistant now
           // that the command bar's duplicate has gone, so it stays reachable rather than a
-          // one-way close.
+          // one-way close. Not a route, so no href: there is nothing to link to, only a panel
+          // to toggle.
           <IxMenuItem key={n.label} slot="bottom" icon={n.icon} label={n.label}
             aria-label={n.label} active={dockOpen} aria-expanded={dockOpen}
             onClick={() => setDockOpen(!dockOpen)} />
         ) : (
+          // home: Home is the one item TopBar's comment says is "relocated, not lost" from the
+          // old clickable brand — the home slot (menu.js) renders unconditionally, ahead of the
+          // isHiddenFromViewport() check that hides everything else behind the mobile toggle, so
+          // this is what actually keeps a click-to-home reachable without opening the menu first.
           <IxMenuItem key={n.to} icon={n.icon} label={n.label} active={isActive(n)}
-            onClick={() => nav(n.to)} />
+            href={n.to} home={n.to === "/"} onClick={routeClick(nav, n.to)}
+            notifications={n.to === "/alerts" && watchlist.length ? watchlist.length : undefined} />
         )
       ))}
       {showSecondary && (
         <>
           {/* className="menu-secondary" (a plain DOM class on the host element, same mechanism
               as the old .sidenav) is what styles.css's <1180px media query hides — IxMenuCategory
-              itself carries no breakpoint prop (verified against the compiled source). */}
-          <IxMenuCategory className="menu-secondary" label="Quick access" icon={iconSearch}>
-            <IxMenuItem label="Start a scouting query" onClick={() => nav("/?compose=1")} />
-            <IxMenuItem label="Explore startups" active={loc.pathname === "/explore"}
-              onClick={() => nav("/explore")} />
-            <IxMenuItem label="Watchlist" notifications={watchlist.length}
-              onClick={() => nav("/alerts")} />
-          </IxMenuCategory>
-          <IxMenuCategory className="menu-secondary" label="Saved views" icon={iconBookmark}>
+              itself carries no breakpoint prop (verified against the compiled source). The old
+              "Quick access" group was removed: every item in it routed somewhere the primary rail
+              already reaches (Explore startups → Explore, Watchlist → Tracking) or was a Home
+              action (Start a scouting query), so it was pure duplication of the rail above. */}
+          <IxMenuCategory className="menu-secondary" label="Saved views" icon={iconList}>
             {savedViews.length === 0 ? (
               // `disabled`, not a styled-but-inert <div>: IxMenuItem's own prop note says
               // disabled "removes event handlers", which is what an unclickable placeholder needs.
-              <IxMenuItem label="None yet — save one from Explore" disabled />
+              <IxMenuItem label="None yet — save one from Databases" disabled />
             ) : (
               savedViews.map((v) => (
                 <IxMenuItem key={v.name} label={v.name} active={view === v.name}
@@ -210,6 +265,15 @@ function Rail({ showSecondary }) {
           </IxMenuCategory>
         </>
       )}
+      {/* Account at the very bottom of the rail (Siemens shell reference puts identity at the
+          sidebar foot). Opens Settings; initials + name come from the authenticated principal.
+          slot="bottom" lands it below the primary items and the Ask AI toggle. Collapsed rail
+          shows the initials disc only; the name appears when the menu is expanded. */}
+      <button slot="bottom" className="menu-account" onClick={() => nav("/settings")}
+        aria-label={`Account: ${account}`} title={account}>
+        <span className="acct-avatar" aria-hidden="true">{user?.initials || "?"}</span>
+        <span className="acct-name">{account}</span>
+      </button>
     </IxMenu>
   );
 }
@@ -224,22 +288,29 @@ function Rail({ showSecondary }) {
 // explicitly out of scope for this batch.
 function Shell() {
   const loc = useLocation();
+  const { dockOpen } = useApp();
   const noSidenav = loc.pathname.startsWith("/startup/");
+  // "/" is itself a search page — its hero field is the same control, so the row would only
+  // duplicate it (and make "the" search box ambiguous).
+  const isSearchHome = loc.pathname === "/";
   return (
     <IxApplication>
-      <TopBar />
+      <MobileHeader />
       <Rail showSecondary={!noSidenav} />
       <IxContent>
-        {/* Deliberately outside IxApplicationHeader — see TopBar's comment. Not moved into the
-            header until MIG-10. */}
-        <div className="cmdbar-row"><CommandBar /></div>
+        {/* The command bar is the app's own row at the top of the content area (the application
+            header is hidden on every width where the rail shows). */}
+        {!isSearchHome && <div className="cmdbar-row"><CommandBar /></div>}
         {/* "with-dock" reserved margin for the old fixed dock; MIG-06 already deleted its CSS
             (there was never layout to reserve once the shell stopped fixed-positioning things
             by hand), so this dropped the now-inert class rather than keep threading dead state
             through the className. */}
-        <main className={"content" + (noSidenav ? " no-sidenav" : "")}>
+        <main className={"content" + (noSidenav ? " no-sidenav" : "") + (dockOpen ? " with-dock" : "")}>
           <Routes>
-            <Route path="/" element={<Home />} />
+            <Route path="/" element={<SearchHome />} />
+            {/* pages/Home.jsx is the scouting workspace the rail now calls "Explore". The file
+                keeps its name; only the route and the label moved. */}
+            <Route path="/workspace" element={<Home />} />
             <Route path="/explore" element={<Explore />} />
             <Route path="/startup/:id" element={<Profile />} />
             <Route path="/saved" element={<Saved />} />

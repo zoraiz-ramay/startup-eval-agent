@@ -39,6 +39,7 @@
      never the #ffbb00 fill, which fails contrast on white. */
   --accent: var(--theme-color-primary);
   --accent-soft: var(--theme-color-primary-10, rgba(0, 110, 147, 0.1));
+  --accent-hover: var(--theme-color-primary--hover);
   --success: var(--theme-color-success);
   --success-soft: rgba(44, 133, 0, 0.1);
   --warning: var(--theme-color-warning-text);
@@ -97,6 +98,92 @@
      baselines machine-dependent and the gate untrustworthy. Add it only together with a bundled
      webfont, and re-baseline deliberately at that point. */
   font-family: -apple-system, "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Dark schema (index.html pins data-ix-color-schema="dark"). The full override lives in the
+   selector below; see its inline notes for why both the app tokens and the iX --theme-color-*
+   tokens are repainted together. */
+[data-ix-color-schema="dark"] {
+  /* ---- Siemens brand dark palette (from the reference screenshot) ----
+     iX's stock dark schema is a neutral charcoal; this repaints it in the Siemens deep-blue +
+     teal identity. Two seams are driven at once, because the app reads colour from two places:
+       1. the app's own semantic tokens (--canvas, --surface, --text-N, --accent), consumed by
+          styles.css for every hand-styled surface, and
+       2. iX's own theme tokens (--theme-color-N), which the iX components (IxCard, IxMenu,
+          IxApplicationHeader, IxButton, IxKpi, IxChip, IxInput, IxPill) render from internally.
+     The two are overridden together so a hand-styled panel and an IxCard next to it read as the
+     same surface. Literals are legal only here (scripts/ix_lint.mjs); every other file references
+     these tokens. Siemens Sans is deliberately NOT named — it is licensed and unbundled, and
+     naming it would make the visual baselines machine-dependent (see the :root note above). */
+
+  /* app canvas + surfaces */
+  --canvas: #000028;            /* page background — Siemens deep blue */
+  --surface: #23233c;           /* sidebar, cards, inputs */
+  --surface-2: #2a2a48;         /* hover / elevated surface */
+  --border: #40405e;
+  --border-2: #7d8099;
+
+  /* app text */
+  --text-1: #fff;
+  --text-2: #b3b3be;
+  --text-3: #8e8ea0;
+
+  /* app accent (teal) */
+  --accent: #0cc;
+  --accent-hover: #00ffb9;
+  --accent-soft: rgba(0, 204, 204, 0.12);
+
+  /* app semantic */
+  --success: #28bf66;
+  --success-soft: rgba(40, 191, 102, 0.14);
+  --warning: #e5a500;
+  --warning-soft: rgba(229, 165, 0, 0.14);
+  --danger: #ff8e9c;            /* alarm as TEXT on dark — the #d72339 fill fails contrast here */
+  --danger-soft: rgba(215, 35, 50, 0.16);
+
+  /* Assistant accent. iX has no "AI" semantic, and the old violet (#7d4dff) fought the Siemens
+     teal identity everywhere the dock and Ask tab used it. Re-pointed at the brand teal so the
+     assistant reads as part of the product, not a third accent colour. */
+  --ai: #19d3d3;
+  --ai-soft: rgba(0, 204, 204, 0.14);
+
+  /* Active rail item: a teal tint behind the selected menu item (the reference shell shows the
+     current destination teal-highlighted, not grey). Overrides iX's own selected-nav token, which
+     defaults to --theme-color-1 (the same grey as a card) and read as "no selection" on dark. */
+  --theme-nav-item-primary--background--selected: rgba(0, 204, 204, 0.14);
+
+  /* iX theme tokens — so the iX components match the surfaces above.
+     color-1 is the elevated component surface (cards/menu/header), color-2 the recessed one. */
+  --theme-color-1: #23233c;
+  --theme-color-1--hover: #2a2a48;
+  --theme-color-1--active: #2a2a48;
+  --theme-color-2: #000028;
+  --theme-color-2--hover: #23233c;
+  --theme-color-3: #40405e;
+  --theme-color-4: #7d8099;
+  --theme-color-std-text: #fff;
+  --theme-color-soft-text: #b3b3be;
+  --theme-color-weak-text: #8e8ea0;
+  --theme-color-primary: #0cc;
+  --theme-color-primary--hover: #00ffb9;
+  --theme-color-primary--active: #00b3b3;
+  --theme-color-primary--contrast: #000028;
+  --theme-color-success: #28bf66;
+  --theme-color-warning: #e5a500;
+  --theme-color-alarm: #d72339;
+
+  /* pillar ramp (kept from MIG-01/X-06): bright hue-text on opaque dark tints of the same hue,
+     opaque so the ratio never depends on the canvas beneath. Measured with the X-06 algorithm:
+     Connect 7.1, Collaborate 7.3, Empower 7.0, Pass 6.4 : 1 — all clear AA. */
+  --pillar-connect: #3fc463;
+  --pillar-collaborate: #2ec7c7;
+  --pillar-empower: #00bde3;
+  --pillar-pass: #aab4bf;
+
+  --pillar-connect-bg: #10251a;
+  --pillar-collaborate-bg: #0c2a2a;
+  --pillar-empower-bg: #08272f;
+  --pillar-pass-bg: #2a2f35;
 }
 
 /* iX ships a Bootstrap-style reset whose `body` rule sets font-family, font-size, line-height and

@@ -104,8 +104,12 @@ def test_seeded_fields_stop_the_recall_net_searching_for_them(monkeypatch):
             raise AssertionError("the recall net called the model for a field the DB answered")
 
     prof = _blank_profile()
+    # hq joined _DB_SEEDABLE when Location became a headline tile on the profile. The row has to
+    # answer it too for this test to still be about a database that answered EVERYTHING — left
+    # out, the net legitimately fires a wave for the one field nothing had.
     profile_mod._seed_from_database(prof, pd.Series(
-        {"founded_year": "2019", "funding": "€3.8M", "employees_count": "11-50"}))
+        {"founded_year": "2019", "funding": "€3.8M", "employees_count": "11-50",
+         "hq": "Munich, Germany"}))
     profile_mod._recover_headline_facts(prof, "Aeroview", pd.Series({}), _LLM())
     assert searched == []
 

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { IxKpi, IxInput, IxButton, IxEmptyState } from "@siemens/ix-react";
+import { iconLock } from "@siemens/ix-icons/icons";
 import { api } from "../api.js";
 import ErrorBox from "../components/ErrorBox.jsx";
 import { Loading } from "../components/widgets.jsx";
@@ -196,7 +197,7 @@ export default function Admin() {
         <IxEmptyState
           header="Administrator access required"
           subHeader="This page shows activity across every reviewer, so it is limited to administrators. Ask one of them to grant your sign-in name access from this page."
-          icon="lock"
+          icon={iconLock}
           action="Back to Home"
           onActionClick={() => nav("/")}
         />

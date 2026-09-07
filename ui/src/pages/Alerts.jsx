@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { IxEmptyState } from "@siemens/ix-react";
+import { iconStar } from "@siemens/ix-icons/icons";
 import { api } from "../api.js";
 import { useApp } from "../state.jsx";
 import ErrorBox from "../components/ErrorBox.jsx";
@@ -36,7 +37,7 @@ export default function Alerts() {
         <IxEmptyState
           header="Nothing tracked yet"
           subHeader="Star companies in Explore or on a profile to build your watchlist. Re-evaluate any time to refresh scores and signals."
-          icon="star"
+          icon={iconStar}
           action="Open Explore"
           onActionClick={() => nav("/explore")}
         />

@@ -1,6 +1,7 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import { IxCardList, IxEventListItem, IxIconButton, IxEmptyState } from "@siemens/ix-react";
+import { iconBookmark, iconTrashcan } from "@siemens/ix-icons/icons";
 import { useApp } from "../state.jsx";
 
 export default function Saved() {
@@ -15,7 +16,7 @@ export default function Saved() {
         <IxEmptyState
           header="No saved views yet"
           subHeader="Open Explore, customise the columns, and save the configuration as a view."
-          icon="bookmark"
+          icon={iconBookmark}
           action="Open Explore"
           onActionClick={() => nav("/explore")}
         />
@@ -49,7 +50,7 @@ export default function Saved() {
                   {/* IxEventListItem's prop table (components.md) has no trailing-action slot, so
                       the delete action is a plain icon button placed after the label content;
                       stopPropagation keeps its click from also triggering the row's own onClick. */}
-                  <IxIconButton icon="trashcan" variant="danger-secondary" aria-label={`Delete view ${v.name}`}
+                  <IxIconButton icon={iconTrashcan} variant="danger-secondary" aria-label={`Delete view ${v.name}`}
                     onClick={(e) => { e.stopPropagation(); removeView(v.name); }} />
                 </div>
               </IxEventListItem>

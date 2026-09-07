@@ -9,6 +9,105 @@ a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 3px; }
 
+/* ---------------- shell ambience (dark schema) ----------------
+   The palette alone reads flat; these three effects are most of the reference screenshot's
+   character. All are token-driven (color-mix over var(--accent), no colour literal), so the
+   ix_lint no-raw-colour rule is satisfied and they follow the accent if it ever changes. Scoped
+   to the dark schema because the light canvas wants none of this glow.
+   - Sidebar (IxMenu): a teal fade down its top edge.
+   - Main content: two large, faint corner glows.
+   - Active nav item: a short, glowing teal left bar. */
+[data-ix-color-schema="dark"] ix-menu {
+  background-image: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent) 7%, transparent),
+    transparent 240px
+  );
+}
+[data-ix-color-schema="dark"] main.content {
+  background-image:
+    radial-gradient(1100px 620px at 92% -10%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 60%),
+    radial-gradient(820px 560px at -8% -4%, color-mix(in srgb, var(--accent) 6%, transparent), transparent 55%);
+  background-repeat: no-repeat;
+}
+[data-ix-color-schema="dark"] ix-menu-item[active] {
+  position: relative;
+}
+[data-ix-color-schema="dark"] ix-menu-item[active]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 21%;
+  width: 3px;
+  height: 58%;
+  border-radius: 0 2px 2px 0;
+  background: var(--accent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 55%, transparent);
+  z-index: 1;
+}
+
+/* The application header (MobileHeader) exists only to launch the collapsed menu on a phone.
+   iX hides the rail behind a hamburger at the sm breakpoint, and that hamburger lives in the
+   header; at every wider breakpoint the rail is always visible, so the header would just be the
+   empty top bar the reference design drops. Show it only when ix-application is at breakpoint-sm. */
+ix-application:not(.breakpoint-sm) ix-application-header[slot="application-header"] { display: none; }
+
+/* ---------------- rail brand (top) + account (bottom) ----------------
+   The app identity and the account both live in the rail now (moved out of the application
+   header). Slotted into ix-menu's own top and bottom regions; the text collapses with the rail
+   so a 56px icon rail shows only the monogram / initials disc, and the full label appears when
+   the menu is expanded (ix-menu carries an `expanded` class on its host). */
+.menu-brand,
+.menu-account {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  box-sizing: border-box;
+  text-decoration: none;
+  color: var(--text-1);
+}
+.menu-brand { padding: 16px 13px 12px; }
+.menu-brand:hover { text-decoration: none; }
+.brand-mark,
+.acct-avatar {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  background: var(--accent);
+  color: var(--theme-color-primary--contrast);
+  font-weight: 800;
+  font-size: 12px;
+}
+.brand-mark { border-radius: 6px; }
+.acct-avatar { border-radius: 50%; font-weight: 700; }
+.brand-text { font-weight: 700; font-size: 15px; color: var(--text-1); white-space: nowrap; }
+
+.menu-account {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 12px 13px;
+  text-align: left;
+  font: inherit;
+}
+.menu-account:hover { background: var(--surface-2); }
+.acct-name {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Collapsed rail: hide the labels and centre the marks so they fit the 56px width. */
+ix-menu:not(.expanded) .menu-brand,
+ix-menu:not(.expanded) .menu-account { justify-content: center; padding-left: 0; padding-right: 0; gap: 0; }
+ix-menu:not(.expanded) .brand-text,
+ix-menu:not(.expanded) .acct-name { display: none; }
+
 /* ---------------- top bar ----------------
    MIG-07: the brand/logo row and right-action wrapper are gone — IxApplicationHeader
    (App.jsx's TopBar) owns that layout internally now. The command bar stays app-owned (it has
@@ -33,6 +132,40 @@ a:hover { text-decoration: underline; }
   position: absolute; right: 8px; top: 7px; font-size: 10.5px; color: var(--text-2);
   border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px;
 }
+/* ---------------- search landing ("/") ----------------
+   The whole route is one control, so it is centred in the content area rather than laid out from
+   the top-left like every data page. The field is deliberately larger than .cmdbar's 34px row:
+   there it is chrome above a page, here it IS the page. Sat slightly above true centre (the top
+   padding is smaller than the bottom margin's share) because a block pinned to the exact middle
+   reads as low. */
+.search-hero {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-height: 58vh; padding: 24px 16px; text-align: center;
+}
+.search-hero-title { font-size: 34px; font-weight: 800; margin: 0 0 18px; letter-spacing: -.4px; }
+.search-hero-field { position: relative; width: 100%; max-width: 560px; }
+.search-hero-field input {
+  width: 100%; height: 48px; background: var(--surface-2); color: var(--text-1);
+  border: 1px solid var(--border); border-radius: 999px;
+  padding: 0 74px 0 42px; font-size: 15px; outline: none;
+}
+.search-hero-field input::placeholder { color: var(--text-2); }
+.search-hero-field input:focus { border-color: var(--accent); }
+.search-hero-field .lens {
+  position: absolute; left: 16px; top: 50%; transform: translateY(-50%);
+  color: var(--text-2); display: flex; pointer-events: none;
+}
+.search-hero-field .kbd {
+  position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+  font-size: 10.5px; color: var(--text-2);
+  border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px;
+}
+@media (max-width: 560px) {
+  .search-hero-title { font-size: 26px; }
+  .search-hero-field .kbd { display: none; }
+  .search-hero-field input { padding-right: 20px; }
+}
+
 .icon-btn {
   background: none; border: none; color: var(--text-2); cursor: pointer;
   font-size: 15px; padding: 7px 9px; border-radius: var(--radius); line-height: 1;
@@ -88,6 +221,16 @@ a:hover { text-decoration: underline; }
   padding: 16px 20px 90px;
 }
 
+/* The assistant dock (AssistantDock.jsx) is a `position: fixed` overlay pinned to the right
+   edge. Without reserving space it sits ON TOP of the page, clipping the right of Explore's
+   grid and Home's panels (the reflow defect Batch A shipped unverified). The dock only
+   auto-opens above 1180px (state.jsx's DOCK_AUTO_OPEN_QUERY), so the reserved margin is scoped
+   to the same breakpoint — below it the dock is a tap-away overlay and squeezing a phone-width
+   canvas by 360px would be worse than a temporary overlay. */
+@media (min-width: 1181px) {
+  .content.with-dock { margin-right: 360px; }
+}
+
 .crumb { color: var(--text-3); font-size: var(--fs-meta); margin-bottom: 2px; }
 .page-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
 .page-title { font-size: var(--fs-title); font-weight: 700; margin: 0; }
@@ -125,7 +268,7 @@ a:hover { text-decoration: underline; }
 }
 .fchip {
   display: inline-flex; align-items: center; gap: 5px; background: var(--accent-soft);
-  color: var(--accent); border: 1px solid #c6d5f2; border-radius: 999px;
+  color: var(--accent); border: 1px solid var(--accent); border-radius: 999px;
   padding: 2px 10px; font-size: var(--fs-meta); font-weight: 600;
 }
 .fchip button { background: none; border: none; color: inherit; cursor: pointer; font-size: 12px; padding: 0; }
@@ -146,11 +289,11 @@ a:hover { text-decoration: underline; }
 .dtable td { border-bottom: 1px solid var(--border); padding: 7px 10px; white-space: nowrap; }
 .dtable.dense td { padding: 4px 10px; }
 .dtable tbody tr { cursor: pointer; }
-.dtable tbody tr:hover td { background: #f2f6fd; }
+.dtable tbody tr:hover td { background: var(--surface-2); }
 .dtable tbody tr.selected td { background: var(--accent-soft); }
 .dtable .sticky-col { position: sticky; left: 0; z-index: 2; background: var(--surface); }
 .dtable th.sticky-col { z-index: 4; background: var(--surface-2); }
-.dtable tbody tr:hover .sticky-col { background: #f2f6fd; }
+.dtable tbody tr:hover .sticky-col { background: var(--surface-2); }
 .dtable tbody tr.selected .sticky-col { background: var(--accent-soft); }
 .co-cell { display: flex; align-items: center; gap: 8px; min-width: 170px; }
 .logo-chip {
@@ -163,6 +306,15 @@ a:hover { text-decoration: underline; }
 .kebab { background: none; border: none; cursor: pointer; color: var(--text-3); font-size: 14px; padding: 2px 6px; border-radius: 4px; }
 .kebab:hover { background: var(--surface-2); color: var(--text-1); }
 .num { font-variant-numeric: tabular-nums; font-weight: 700; }
+/* Recent-evaluations row: name, score and pillar are one headline line with the score pushed to
+   the right edge, the summary underneath. A long company name truncates rather than wrapping,
+   because a wrapped name would drag the score onto a second line — the defect this replaced. */
+.run-cell { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.run-row { display: flex; align-items: center; gap: 8px; width: 100%; }
+.run-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.run-row .num { flex: none; margin-left: auto; }
+.run-row ix-pill { flex: none; }
+.run-desc { font-size: 12px; margin-top: 2px; }
 .desc-clip { max-width: 300px; overflow: hidden; text-overflow: ellipsis; color: var(--text-2); }
 
 /* ---------------- pills / badges ---------------- */
@@ -175,7 +327,7 @@ a:hover { text-decoration: underline; }
   display: inline-block; padding: 1px 9px; border-radius: 999px;
   font-weight: 700; font-size: 11px; border: 1px solid transparent;
 }
-.pill.sfs { background: var(--warning-soft); color: var(--warning); border-color: #ecd9ac; }
+.pill.sfs { background: var(--warning-soft); color: var(--warning); border-color: var(--warning); }
 .pill.ghost { opacity: .8; }
 .badge {
   display: inline-block; border: 1px solid var(--border-2); background: var(--surface-2);
@@ -183,6 +335,9 @@ a:hover { text-decoration: underline; }
 }
 .chip { display: inline-block; background: var(--surface-2); border: 1px solid var(--border);
   padding: 2px 9px; border-radius: 999px; font-size: 12px; margin: 2px 4px 2px 0; }
+/* A value the engine could not evidence. Warning-coloured, not neutral: a reviewer scanning the
+   tiles has to be able to see at a glance that this one is not backed by anything. */
+.chip.unverified { color: var(--warning); border-color: var(--warning); background: var(--warning-soft); }
 .chip.action { cursor: pointer; }
 .chip.action:hover { border-color: var(--accent); color: var(--accent); }
 .status-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; }
@@ -192,14 +347,59 @@ a:hover { text-decoration: underline; }
   padding: 12px 14px; margin-bottom: 12px; }
 .panel h3 { margin: 0 0 8px; font-size: 11.5px; color: var(--text-3);
   text-transform: uppercase; letter-spacing: .6px; font-weight: 700; }
-.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-@media (max-width: 1000px) { .grid2, .grid3 { grid-template-columns: 1fr; } }
+.grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 1000px) { .grid2, .grid3 { grid-template-columns: minmax(0, 1fr); } }
+/* minmax(0,1fr) above (not the default `1fr` = minmax(auto,1fr)) lets a track shrink below its
+   content's min-content width. Paired with min-width:0 on the panels, this stops an iX
+   card-list / event-list-item's intrinsic width from expanding a column past the viewport and
+   being clipped by ix-content's overflow:hidden. The event-list-item lays its slotted content
+   in a white-space:nowrap row inside its shadow DOM, which long challenge/summary strings
+   inherit — re-wrapped here so they stay inside the panel instead of overflowing it. */
+.grid2 > *, .grid3 > *, .panel { min-width: 0; }
+.panel ix-card-list { width: 100%; }
+.panel ix-event-list-item > * { white-space: normal; overflow-wrap: anywhere; }
+/* IxCard sizes to its content's intrinsic width, so the composer card (an IxInput + IxButton in a
+   flex row) reports a min-content wider than a 390px viewport's content box and overflows it,
+   clipped by ix-content's overflow:hidden — the same class of defect the grid fix above solves,
+   one level up. Constrain the card to its container and let the input shrink. */
+.content ix-card { max-width: 100%; }
+.content ix-card, .content ix-input { min-width: 0; }
+/* The same intrinsic-width behaviour left every IxCard on the Profile page shrunk to its own
+   content instead of filling its column — which on a two-column grid produced a large empty gutter
+   between a half-width card and the next. Cards in the content flow are block-level surfaces and
+   should own their column's width. */
+.content ix-card { display: block; width: 100%; }
+
+/* The scouting-query composer read as a cramped ~320px box wedged top-left: iX's ix-card sizes to
+   its own content and ix-card-content is a flex column that does not stretch its slotted rows, so
+   the IxInput never filled the row. Force the card to the panel width and let its rows + the input
+   span it — the input is the primary control here and should own the width, with Run query beside
+   it. !important is needed because ix-card sets its own width on :host. */
+/* ix-card carries no outer margin of its own, so the composer sat flush against the panels below
+   it — with the card's own drop shadow over their top border the two read as one overlapping
+   block. This is the same 12px rhythm .panel uses between stacked surfaces. */
+.composer-card { width: 100% !important; margin-bottom: 12px; }
+.composer-card ix-card-content > div { width: 100%; }
+.composer-card ix-input { width: 100%; display: block; }
+.composer-row { display: flex; gap: 8px; align-items: flex-end; }
+.composer-input { flex: 1; min-width: 0; }
+/* On a narrow canvas the input + Run query no longer fit side by side without squeezing the
+   field to a stub, so the row wraps: the input takes the full width and the button drops beneath
+   it. */
+@media (max-width: 560px) {
+  .composer-row { flex-wrap: wrap; }
+  .composer-input { flex: 1 1 100%; }
+  .composer-row > ix-button { width: 100%; }
+}
 .metric-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 8px; margin-bottom: 12px; }
 .metric { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 9px 12px; }
 .metric .k { font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; color: var(--text-3); font-weight: 700; }
 .metric .v { font-size: 17px; font-weight: 800; margin-top: 2px; }
 .metric .s { font-size: var(--fs-meta); color: var(--text-2); }
+/* "Munich, Germany" is a phrase, not a figure — at the tile's 17px it either overflows or forces
+   every tile in the row taller. Smaller and allowed to wrap onto a second line. */
+.metric .v.loc { font-size: 13.5px; line-height: 1.3; }
 
 /* ---------------- forms ---------------- */
 .input, .textarea, select.input {
@@ -207,13 +407,13 @@ a:hover { text-decoration: underline; }
   border: 1px solid var(--border-2); border-radius: var(--radius);
   padding: 7px 10px; font-size: var(--fs-body); outline: none;
 }
-.input:focus, .textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(36,87,197,.12); }
+.input:focus, .textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .textarea { resize: vertical; min-height: 66px; font-family: inherit; }
 .btn {
   background: var(--accent); color: #fff; font-weight: 600; border: 1px solid var(--accent);
   cursor: pointer; padding: 7px 16px; border-radius: var(--radius); font-size: 13px;
 }
-.btn:hover { background: #1e4aa8; }
+.btn:hover { background: var(--accent-hover); }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
 .btn.secondary { background: var(--surface); color: var(--accent); }
 .btn.secondary:hover { background: var(--accent-soft); }
@@ -222,10 +422,68 @@ a:hover { text-decoration: underline; }
 .btn.ai:hover { background: #5b3fae; }
 
 /* ---------------- profile workspace ---------------- */
+/* No longer sticky. The header now carries the full description rather than a clipped one-liner,
+   so pinning it would hold a growing block of text against the top of a page whose whole point is
+   that you scroll it. The section rail is what stays in view instead. */
 .profile-head {
-  position: sticky; top: var(--topbar-h); z-index: 40; background: var(--surface);
+  background: var(--surface);
   border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 12px 16px 0; margin-bottom: 12px;
+  padding: 12px 16px 14px; margin-bottom: 12px;
+}
+/* The description, out of iX's truncating subtitle slot. max-width because a measure of ~90
+   characters is the readable limit and the content area is far wider than that. */
+.ph-summary {
+  color: var(--text-1); font-size: var(--fs-body); line-height: 1.55;
+  margin: 6px 0 10px; max-width: 78ch;
+}
+/* Each figure is a label + value pair rather than three phrases run together. The separator is a
+   rule between items, not punctuation, so the eye can count them. */
+.ph-meta > span { display: inline-flex; align-items: baseline; gap: 6px; }
+.ph-meta > span + span { border-left: 1px solid var(--border); padding-left: 14px; }
+.ph-meta .k { text-transform: uppercase; letter-spacing: .4px; font-size: 10.5px; font-weight: 700; color: var(--text-3); }
+.ph-meta strong { color: var(--text-1); font-size: 14px; }
+
+/* ---------------- profile section rail ----------------
+   The rail is sticky and the page scrolls past it. `align-self: start` is what lets a sticky
+   element work inside a grid track — a stretched track item is as tall as the column and has
+   nothing to stick within. */
+.profile-body { display: grid; grid-template-columns: 216px minmax(0, 1fr); gap: 12px; align-items: start; }
+.profile-sections { min-width: 0; }
+.sec-nav {
+  position: sticky; top: 0; align-self: start;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 6px; max-height: calc(100vh - 90px); overflow-y: auto;
+}
+.sec-nav .sec-head {
+  display: flex; align-items: center; gap: 6px; width: 100%; text-align: left;
+  background: none; border: none; cursor: pointer; border-radius: 4px;
+  padding: 7px 8px; font-size: 11.5px; font-weight: 700; letter-spacing: .6px;
+  text-transform: uppercase; color: var(--text-3);
+}
+.sec-nav .sec-head:hover { color: var(--text-1); background: var(--surface-2); }
+.sec-nav .sec-group.open .sec-head { color: var(--accent); background: var(--accent-soft); }
+.sec-nav .caret { font-size: 9px; }
+.sec-nav ul { list-style: none; margin: 0 0 4px; padding: 0 0 0 14px; border-left: 1px solid var(--border); margin-left: 13px; }
+.sec-nav .sec-item {
+  display: block; width: 100%; text-align: left; background: none; border: none; cursor: pointer;
+  padding: 5px 8px; font-size: 12.5px; color: var(--text-2); border-radius: 4px;
+}
+.sec-nav .sec-item:hover { color: var(--text-1); background: var(--surface-2); }
+.sec-nav .sec-item.active { color: var(--text-1); font-weight: 700; background: var(--surface-2); }
+/* scroll-margin, not padding: it offsets where scrollIntoView() lands so a jumped-to card is not
+   flush against the top edge of the scroll container. */
+.sub { scroll-margin-top: 12px; }
+.sec-title {
+  font-size: 11.5px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase;
+  color: var(--text-3); margin: 20px 0 8px; padding-top: 8px; border-top: 1px solid var(--border);
+}
+@media (max-width: 900px) {
+  /* Below this a 216px column costs more width than it earns, so the rail stops being a column
+     and becomes a block above the report. Not hidden: it is the only map of a page that is now
+     several screens long, and a narrow viewport needs that more than a wide one, not less.
+     Un-sticky here because pinning it would eat a third of a short viewport. */
+  .profile-body { grid-template-columns: minmax(0, 1fr); }
+  .sec-nav { position: static; max-height: none; margin-bottom: 4px; }
 }
 .ph-row { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
 .ph-logo { width: 40px; height: 40px; border-radius: 8px; background: var(--accent); color: #fff;
@@ -240,7 +498,7 @@ a:hover { text-decoration: underline; }
   color: var(--text-3); padding: 2px 8px; border-radius: 3px; background: var(--surface-2);
   border: 1px solid var(--border);
 }
-.ribbon .step.done { color: var(--success); background: var(--success-soft); border-color: #bfe3cd; }
+.ribbon .step.done { color: var(--success); background: var(--success-soft); border-color: var(--success); }
 .ribbon .sep { color: var(--border-2); font-size: 10px; }
 .tabs { display: flex; gap: 2px; margin-top: 8px; border-bottom: 1px solid var(--border); }
 /* Keeps the profile tab bar in view while reading a long report. Sits below the fixed top bar,
@@ -293,14 +551,14 @@ a:hover { text-decoration: underline; }
 .dock-msg .src { font-size: 10.5px; color: var(--ai); font-weight: 700; margin-bottom: 3px; }
 .dock-suggest { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .dock-suggest button {
-  text-align: left; background: var(--ai-soft); color: var(--ai); border: 1px solid #ddd2f4;
+  text-align: left; background: var(--ai-soft); color: var(--ai); border: 1px solid var(--ai);
   border-radius: var(--radius); padding: 6px 10px; font-size: 12px; cursor: pointer;
 }
 .dock-suggest button:hover { border-color: var(--ai); }
 .dock-input { border-top: 1px solid var(--border); padding: 10px 12px; display: flex; gap: 6px; }
 
 /* ---------------- states ---------------- */
-.skel { background: linear-gradient(90deg, var(--surface-2) 25%, #eef1f6 50%, var(--surface-2) 75%);
+.skel { background: linear-gradient(90deg, var(--surface-2) 25%, var(--border) 50%, var(--surface-2) 75%);
   background-size: 200% 100%; animation: shim 1.2s infinite; border-radius: 4px; }
 @keyframes shim { to { background-position: -200% 0; } }
 .skel-row { height: 30px; margin: 6px 0; }
@@ -310,7 +568,7 @@ a:hover { text-decoration: underline; }
 }
 .empty .big { font-size: 26px; margin-bottom: 6px; }
 .empty h4 { margin: 0 0 4px; color: var(--text-1); font-size: 15px; }
-.error-box { border: 1px solid #eec4c1; background: var(--danger-soft); color: var(--danger);
+.error-box { border: 1px solid var(--danger); background: var(--danger-soft); color: var(--danger);
   border-radius: var(--radius); padding: 9px 13px; margin: 8px 0; font-size: var(--fs-body); }
 .info-box { border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2);
   border-radius: var(--radius); padding: 9px 13px; margin: 8px 0; font-size: var(--fs-body); }

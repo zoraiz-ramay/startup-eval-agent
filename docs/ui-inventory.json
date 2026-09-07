@@ -4,6 +4,10 @@
   "routes": [
     {
       "path": "/",
+      "component": "SearchHome"
+    },
+    {
+      "path": "/workspace",
       "component": "Home"
     },
     {
@@ -171,6 +175,7 @@
   ],
   "design_tokens": [
     "--accent",
+    "--accent-hover",
     "--accent-soft",
     "--ai",
     "--ai-soft",
@@ -202,6 +207,24 @@
     "--text-1",
     "--text-2",
     "--text-3",
+    "--theme-color-1",
+    "--theme-color-1--active",
+    "--theme-color-1--hover",
+    "--theme-color-2",
+    "--theme-color-2--hover",
+    "--theme-color-3",
+    "--theme-color-4",
+    "--theme-color-alarm",
+    "--theme-color-primary",
+    "--theme-color-primary--active",
+    "--theme-color-primary--contrast",
+    "--theme-color-primary--hover",
+    "--theme-color-soft-text",
+    "--theme-color-std-text",
+    "--theme-color-success",
+    "--theme-color-warning",
+    "--theme-color-weak-text",
+    "--theme-nav-item-primary--background--selected",
     "--topbar-h",
     "--warning",
     "--warning-soft"
@@ -209,21 +232,26 @@
   "files": [
     {
       "path": "ui/src/App.jsx",
-      "lines": 304,
+      "lines": 375,
       "exports": [
         "App"
       ],
       "css_classes": [
-        "avatar-btn",
+        "acct-avatar",
+        "acct-name",
         "badge",
-        "brand",
+        "brand-mark",
+        "brand-text",
         "cmdbar",
         "cmdbar-row",
-        "dot",
-        "icon-btn",
         "kbd",
         "lens",
+        "menu-account",
+        "menu-brand",
         "menu-secondary",
+        "search-hero",
+        "search-hero-field",
+        "search-hero-title",
         "signin",
         "stub-banner",
         "sub",
@@ -342,7 +370,7 @@
     },
     {
       "path": "ui/src/pages/Admin.jsx",
-      "lines": 348,
+      "lines": 349,
       "exports": [
         "Admin"
       ],
@@ -370,7 +398,7 @@
     },
     {
       "path": "ui/src/pages/Alerts.jsx",
-      "lines": 82,
+      "lines": 83,
       "exports": [
         "Alerts"
       ],
@@ -404,7 +432,7 @@
     },
     {
       "path": "ui/src/pages/Explore.jsx",
-      "lines": 548,
+      "lines": 554,
       "exports": [
         "Explore"
       ],
@@ -448,28 +476,33 @@
     },
     {
       "path": "ui/src/pages/Home.jsx",
-      "lines": 251,
+      "lines": 231,
       "exports": [
         "Home"
       ],
       "css_classes": [
         "badge",
+        "composer-card",
+        "composer-input",
+        "composer-row",
         "crumb",
         "grid2",
-        "logo-chip",
         "muted",
         "num",
         "page-head",
         "page-meta",
         "page-title",
         "panel",
-        "stats-strip",
-        "tool-btn"
+        "run-cell",
+        "run-desc",
+        "run-name",
+        "run-row",
+        "stats-strip"
       ]
     },
     {
       "path": "ui/src/pages/Profile.jsx",
-      "lines": 672,
+      "lines": 795,
       "exports": [
         "Profile"
       ],
@@ -477,6 +510,7 @@
         "badge",
         "big",
         "btn",
+        "caret",
         "chip",
         "dense",
         "dtable",
@@ -487,6 +521,7 @@
         "k",
         "list-main",
         "list-row",
+        "loc",
         "metric",
         "metric-row",
         "muted",
@@ -494,31 +529,37 @@
         "panel",
         "ph-header-slot",
         "ph-meta",
+        "ph-summary",
         "pill",
+        "profile-body",
         "profile-head",
+        "profile-sections",
         "reason",
         "risk",
+        "sec-head",
+        "sec-nav",
+        "sec-title",
         "secondary",
         "sfs",
         "skel",
         "spec",
         "spinner",
-        "src",
         "status-dot",
-        "sticky-header",
+        "sub",
         "tool-btn",
+        "unverified",
         "v"
       ]
     },
     {
       "path": "ui/src/pages/Profile.test.jsx",
-      "lines": 371,
+      "lines": 385,
       "exports": [],
       "css_classes": []
     },
     {
       "path": "ui/src/pages/Saved.jsx",
-      "lines": 63,
+      "lines": 64,
       "exports": [
         "Saved"
       ],
@@ -580,10 +621,10 @@
     }
   ],
   "totals": {
-    "routes": 8,
+    "routes": 9,
     "api_methods": 24,
-    "design_tokens": 35,
+    "design_tokens": 54,
     "jsx_files": 25,
-    "jsx_lines": 4449
+    "jsx_lines": 4646
   }
 }

@@ -58,33 +58,43 @@ async function renderProfile() {
 beforeEach(() => localStorage.clear());
 
 describe("Profile", () => {
-  it("renders the tab bar as a tablist with a selected tab", async () => {
-    // IxTabs renders its `role="tablist"` div inside its shadow root (compiled source:
-    // tabs.js), so finding the tablist itself needs a shadow-piercing query. Its IxTabItem
-    // children are slotted, i.e. still light-DOM children of <ix-tabs>, and each one carries
-    // `role="tab"`/`aria-selected` as a Host attribute (tab-item.js) rather than inside its own
-    // shadow root — those stay plain screen queries.
+  it("offers every section of the report from one navigation landmark", async () => {
+    // The tab bar is gone: the report is one scrolling page and the rail is a map of it. What
+    // the old tablist assertion protected — that there is a single, marked, complete way to
+    // reach each part of a run — is what this asserts of its replacement, so a rail that
+    // silently loses a destination still fails here.
     const { container } = await renderProfile();
-    expect(await findShadowRole(container, "tablist")).toBeTruthy();
-    const tabs = await screen.findAllByRole("tab");
-    expect(tabs.length).toBeGreaterThan(1);
-    expect(tabs.filter((t) => t.getAttribute("aria-selected") === "true")).toHaveLength(1);
+    const rail = await screen.findByRole("navigation", { name: /profile sections/i });
+    for (const label of ["Profile", "Scoring & Fit", "Market & Risk", "Evidence"]) {
+      expect(within(rail).getByRole("button", { name: label })).toBeTruthy();
+    }
+    // Every group heading is a real button, so the rail is operable by keyboard and not a set of
+    // styled divs — the failure mode the hand-rolled tab bar had before it became IxTabs.
+    expect(container.querySelector(".sec-nav")).toBeTruthy();
   });
 
-  it("keeps the tab bar reachable while scrolling a long report", async () => {
+  it("anchors every rail destination to something actually on the page", async () => {
+    // A rail entry that scrolls nowhere is worse than no entry, and `present` (Profile.jsx) is
+    // what is supposed to prevent one. RUN has no trend and no red flags, so those anchors must
+    // be absent from BOTH the rail and the document — not listed and dead.
     const { container } = await renderProfile();
-    // The affordance, not the computed position — see the note above. The class lives on the
-    // <ix-tabs> host itself (light DOM), not inside its shadow root.
-    await screen.findAllByRole("tab");
-    expect(container.querySelector("ix-tabs.sticky-header")).toBeTruthy();
+    const rail = await screen.findByRole("navigation", { name: /profile sections/i });
+    expect(within(rail).queryByRole("button", { name: "Recent signals" })).toBeNull();
+    expect(container.querySelector("#sub-signals")).toBeNull();
+    // …while the ones it does list resolve to a real anchor element.
+    fireEvent.click(within(rail).getByRole("button", { name: "Key metrics" }));
+    expect(container.querySelector("#sub-metrics")).toBeTruthy();
   });
 
   it("renders the header's pillar as an IxPill carrying its own colour, not a bare class name (MIG-01)", async () => {
     // RUN's routing.pillar is "Connect". Before MIG-01 this was a `<span class="pill Connect">`
     // whose colour came only from a stylesheet rule keyed on that class; the delivery mechanism
     // itself is the thing under test, so this must fail if the pillar reverts to a plain span.
-    await renderProfile();
-    const pill = await screen.findByText("Connect");
+    const { container } = await renderProfile();
+    // Scoped to the header: the routing rationale renders the same pillar further down the page
+    // now that everything is on one screen, so an unscoped text query matches twice.
+    await screen.findAllByText("Connect");
+    const pill = within(container.querySelector(".ph-header-slot")).getByText("Connect");
     expect(pill.closest(".ph-header-slot")).toBeTruthy();
     expect(pill.tagName.toLowerCase()).toBe("ix-pill");
     // variant="custom" is what makes background/pillColor apply at all (components.md) — without
@@ -216,8 +226,12 @@ const SCORED_RUN = {
   },
 };
 
+// Scoring & Fit used to be behind a tab click. The report is one scrolling page now, so the
+// panel is already mounted and there is nothing to open — kept as a named no-op so each test
+// below still reads as "get to the scoring panel, then assert", and so the wait for the run to
+// have loaded stays where it was.
 async function openScoringTab() {
-  fireEvent.click(await screen.findByRole("tab", { name: /scoring & fit/i }));
+  await screen.findAllByText(/score breakdown/i);
 }
 
 // IxBlind's header <button> (aria-expanded, aria-labelledby the shadow title node) renders inside

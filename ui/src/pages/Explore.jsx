@@ -365,7 +365,7 @@ export default function Explore() {
 
   return (
     <div>
-      <div className="crumb">Explore &gt; Companies</div>
+      <div className="crumb">Databases &gt; Companies</div>
       {/* MIG-13: IxContentHeader replaces the hand-rolled page head, matching Profile's own use
           (MIG-18). headerSubtitle is plain text (components.md), so it carries the result count;
           the saved-view chip — not a title/subtitle concept — goes in the default slot instead. */}
@@ -397,7 +397,13 @@ export default function Explore() {
             onChange={() => setSelected(allSelected ? new Set() : new Set(rows.map((r) => r.id)))} />
           Select all
         </label>
-        <button ref={drawerTriggerRef} className="tool-btn" onClick={() => setDrawer(true)}>⚙ Customise columns</button>
+        {/* stopPropagation: IxPane's closeOnClickOutside registers its own window click listener
+            synchronously as the pane mounts, which happens inside this same click's dispatch —
+            without this, the browser delivers the very click that opens the drawer to that
+            listener too (the pane isn't in this event's composedPath() yet, so it reads as
+            "outside"), and the drawer closes itself in the same tick it opened. */}
+        <button ref={drawerTriggerRef} className="tool-btn"
+          onClick={(e) => { e.stopPropagation(); setDrawer(true); }}>⚙ Customise columns</button>
         {/* MIG-16: IxToggleButton's own `pressed` reflects aria-pressed automatically
             (toggle-button.js), which is the correct semantics for a two-state toggle — the
             hand-rolled ".active" class carried no such signal to assistive tech at all.

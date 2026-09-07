@@ -1,7 +1,7 @@
 .sticky-header th {
   position: sticky;
   top: 0;
-  background: var(--bg, white);
+  background: var(--surface-2);
   z-index: 2;
 }
 
