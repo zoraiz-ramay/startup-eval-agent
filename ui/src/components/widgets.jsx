@@ -1,13 +1,40 @@
 import React from "react";
+import { IxKeyValue, IxPill, IxSpinner } from "@siemens/ix-react";
 import { DIMENSIONS, DIMENSION_LABELS } from "../scoring/index.js";
 
+// MIG-01: the four pillar colours themselves are unchanged (see tokens.css) — only the delivery
+// mechanism moves, from a `.pill.<Pillar>` CSS class to IxPill's `variant="custom"` background/
+// pillColor props, which is the only way to hand it a colour from JS rather than a class name.
+const PILLAR_PILL_STYLE = {
+  Connect: { background: "var(--pillar-connect-bg)", pillColor: "var(--pillar-connect)" },
+  Collaborate: { background: "var(--pillar-collaborate-bg)", pillColor: "var(--pillar-collaborate)" },
+  Empower: { background: "var(--pillar-empower-bg)", pillColor: "var(--pillar-empower)" },
+  Pass: { background: "var(--pillar-pass-bg)", pillColor: "var(--pillar-pass)" },
+};
+
+export function PillarPill({ pillar, ghost = false, children, ...rest }) {
+  const style = PILLAR_PILL_STYLE[pillar];
+  // Absence renders the bare pillar name rather than a mis-coloured pill for an unknown value.
+  if (!style) return <span {...rest}>{children ?? pillar}</span>;
+  return (
+    <IxPill variant="custom" background={style.background} pillColor={style.pillColor} outline={ghost} {...rest}>
+      {children ?? pillar}
+    </IxPill>
+  );
+}
+
+// MIG-29: both the primary pillar and each `secondary` pillar carried a `.pill.<Pillar>` class
+// (the secondary span's class list was `pill ghost <Pillar>`, which the CSS selector matches
+// regardless of the extra `ghost` class) — so both go through PillarPill now, and PillarPill's own
+// `ghost` prop (an outline treatment, see the component above) is what the secondary pillars use
+// in place of the old bespoke `.pill.ghost` rule.
 export function PillarPills({ routing }) {
   if (!routing) return null;
   return (
     <span>
-      <span className={`pill ${routing.pillar}`}>{routing.pillar}</span>{" "}
+      <PillarPill pillar={routing.pillar} />{" "}
       {(routing.secondary || []).map((s) => (
-        <span key={s} className={`pill ghost ${s}`}>+ {s}</span>
+        <span key={s}>+ <PillarPill pillar={s} ghost /></span>
       ))}{" "}
       {routing.sfs_relevant && (
         <span className="pill sfs" title={routing.sfs_rationale || ""}>💶 SFS financing</span>
@@ -16,12 +43,26 @@ export function PillarPills({ routing }) {
   );
 }
 
+// MIG-02: not IxProgressIndicator — its role="progressbar" (verified: no ARIA override in
+// components.md) means task completion, and a score of 62 is not 62% done toward anything.
+// role="meter" is the correct native ARIA pattern for a fixed-range measurement, so this stays a
+// custom widget rather than moving to IxKpi, whose prop table (label/value/unit/state) has no
+// notion of a range or a visual fill and would drop the 0-100 scale the bar-track exists to show.
 export function ScoreBar({ label, value }) {
   const v = Math.max(0, Math.min(100, Number(value) || 0));
   return (
     <div>
       <div className="bar-label"><span>{label}</span><span>{v.toFixed(0)}</span></div>
-      <div className="bar-track"><div className="bar-fill" style={{ width: `${v}%` }} /></div>
+      <div
+        className="bar-track"
+        role="meter"
+        aria-valuenow={v}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label={label}
+      >
+        <div className="bar-fill" style={{ width: `${v}%` }} />
+      </div>
     </div>
   );
 }
@@ -75,12 +116,15 @@ export function Radar({ dimensions, overlay = null, overlayLabel = "", size = 26
   );
 }
 
+// MIG-20: IxKeyValue's `value` prop only takes a string (components.md), but Spec's callers pass
+// arbitrary JSX — links, chips, muted placeholders. Its compiled source (key-value.js) renders
+// the `custom-value` slot whenever `value` is left undefined, which is the only way to hand it a
+// React node rather than text, so `value` itself is never set here.
 export function Spec({ k, children }) {
   return (
-    <div className="spec">
-      <div className="k">{k}</div>
-      <div className="v">{children || <span className="muted">—</span>}</div>
-    </div>
+    <IxKeyValue label={k}>
+      <div slot="custom-value">{children || <span className="muted">—</span>}</div>
+    </IxKeyValue>
   );
 }
 
@@ -118,11 +162,16 @@ export function ExtLink({ href, children }) {
 export function Loading({ text }) {
   // role="status" + aria-live="polite" so a screen reader announces that work started and
   // finished. Evaluations run for tens of seconds; without this the page is silent the whole
-  // time and a non-sighted reviewer cannot tell a slow run from a broken one. The spinner is
-  // decorative and hidden, or it gets read out as meaningless content alongside the message.
+  // time and a non-sighted reviewer cannot tell a slow run from a broken one. IxSpinner claims
+  // role="status"/aria-busy="true" on its own host unconditionally (ix/spinner.js) regardless of
+  // what's passed in, so leaving it unhidden would give this region two competing status
+  // announcers. aria-hidden="true" is preserved through that (only role/aria-busy get
+  // overwritten), which removes the whole element from the accessibility tree per spec — so the
+  // spinner stays purely decorative and the outer <p> is the one and only thing a screen reader
+  // hears.
   return (
     <p className="muted" role="status" aria-live="polite">
-      <span className="spinner" aria-hidden="true" /> {text}
+      <IxSpinner size="xx-small" aria-hidden="true" /> {text}
     </p>
   );
 }

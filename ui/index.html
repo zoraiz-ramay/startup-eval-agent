@@ -1,9 +1,11 @@
 <!doctype html>
 <!-- Siemens iX theme. The workspace is a light data canvas, so the schema is pinned to light
-     rather than "system": the dark schema would invert the canvas and destroy the Tracxn
-     reading experience this UI is built around. The dark product chrome is applied deliberately
-     through --chrome-* tokens, not by switching the whole app to a dark schema. -->
-<html lang="en" data-ix-theme="classic" data-ix-color-schema="light">
+     rather than "system": the dark schema would invert the canvas, which the current dense-table
+     workspace isn't designed for. The dark product chrome is applied deliberately through
+     --chrome-* tokens, not by switching the whole app to a dark schema — this dark-chrome-over-
+     light-canvas seam has no first-class iX construct and is flagged for a Phase 3 IA decision
+     (see CLAUDE.md's Design contract and docs/ix/current-state-inventory.md §4). -->
+<html lang="en" data-ix-theme="classic" data-ix-color-schema="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />

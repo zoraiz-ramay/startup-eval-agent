@@ -44,7 +44,7 @@ function StillRunning({ what }) {
 export default function Profile() {
   const { id } = useParams();
   const nav = useNavigate();
-  const [params, setParams] = useSearchParams();
+  const [params] = useSearchParams();
   const { watchlist, toggleWatch, setDockCtx, setDockOpen } = useApp();
   const [res, setRes] = useState(null);
   const [error, setError] = useState("");
@@ -117,6 +117,9 @@ export default function Profile() {
     return () => setDockCtx(null);
   }, [res]);                    // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Re-observed whenever the run changes, because the anchors are conditional on what it found.
+  const active = useScrollSpy([res]);
+
   const p = res?.profile || {};
   const tags = useMemo(() => {
     const t = [];
@@ -132,7 +135,7 @@ export default function Profile() {
         <div className="big">△</div>
         <h4>Could not load this startup</h4>
         <p>{error}</p>
-        <button className="btn secondary" onClick={() => nav("/explore")}>Back to Explore</button>
+        <button className="btn secondary" onClick={() => nav("/explore")}>Back to Databases</button>
       </div>
     );
   }

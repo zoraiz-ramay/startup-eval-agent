@@ -1,4 +1,7 @@
-import { expect, RUN_FIXTURE, RUNS_FIXTURE, stabilise, stubEvaluation, stubIdentity, stubRoutableRun, stubRuns, test } from "./fixtures.js";
+import {
+  expect, RUN_FIXTURE, RUNS_FIXTURE, stabilise, stubAdminOverview, stubChallenges, stubEvaluation,
+  stubIdentity, stubRoutableRun, stubRuns, stubStatus, test,
+} from "./fixtures.js";
 
 /**
  * The user journeys from contract/feature-inventory.md. Each test names its contract ID so a
@@ -8,16 +11,47 @@ import { expect, RUN_FIXTURE, RUNS_FIXTURE, stabilise, stubEvaluation, stubIdent
 test.describe("shell", () => {
   test("SHELL-01: icon rail exposes the primary destinations", async ({ page }) => {
     await page.goto("/");
+    // At the 'sm' breakpoint (mobile), IxApplicationHeader collapses ix-menu's content behind
+    // its own auto-generated "Expand" toggle (real iX responsive behaviour, see AUTH-02) — open
+    // it if the nav doesn't show up on its own within a beat, so this check holds at every
+    // viewport width. isVisible() is a one-shot, non-polling check, so it can't be used to
+    // decide whether to click — it can catch the toggle mid-hydration and skip the click.
     const nav = page.getByRole("navigation", { name: /primary/i });
-    // The visible labels are the product's wording, not the route names: /saved is "Views" and
-    // /alerts is "Tracking". Asserting the route names instead would pass only by accident.
-    for (const label of ["Home", "Explore", "Views", "Tracking", "Settings"]) {
-      await expect(nav.getByRole("link", { name: new RegExp(label, "i") })).toBeVisible();
+    try {
+      await expect(nav).toBeVisible({ timeout: 3000 });
+    } catch {
+      await page.getByRole("button", { name: "Expand" }).click();
     }
-    // Ask AI is a button, not a link: it toggles the assistant dock in place rather than
-    // navigating, and it is the only control for it now that the command bar's duplicate is
-    // gone. Asserting the role is what would catch it silently becoming a link again.
-    await expect(nav.getByRole("button", { name: /ask ai/i })).toBeVisible();
+    await expect(nav).toBeVisible();
+    // Not scoped through the nav locator: IxMenu projects its IxMenuItem children into a
+    // shadow-internal menubar via a default <slot>, and Playwright's chained getByRole() does not
+    // flatten across that slot boundary (the same testability limit as PROF-04's tablist scoping
+    // — not a real containment gap, since these names are unique page-wide).
+    // exact: true — "Views" as a substring regex also matches the secondary "Saved views"
+    // menuitem, a genuine ambiguity once IxMenuCategory's own items share the flattened
+    // menubar accessibility tree with the primary rail's.
+    //
+    // Every routed item now carries an href (App.jsx's Rail), so the underlying tag is a real
+    // <a>, restoring middle-click/ctrl-click/"copy link address"/crawlability. That does NOT
+    // surface as role="link", though: ix-menu-item's getEffectiveRole() deliberately forces
+    // role="menuitem" for anything hosted inside a menu context, href or not — the WAI-ARIA
+    // menubar pattern keeps items as menuitems for a screen reader regardless of the backing
+    // element (verified against the compiled source and empirically: an item with href="/"
+    // resolves to <a role="menuitem" href="/">, and getByRole("link", ...) finds nothing). So
+    // the role assertion stays "menuitem" — asserting "link" here would be asserting something
+    // that is false, not restoring a lost check — and the real, restored semantics are verified
+    // at the DOM level instead, via the href attribute Playwright's role query can't see.
+    for (const label of ["Home", "Explore", "Views", "Tracking", "Settings"]) {
+      await expect(page.getByRole("menuitem", { name: label, exact: true })).toBeVisible();
+    }
+    const routedHrefs = { Home: "/", Explore: "/explore", Views: "/saved", Tracking: "/alerts", Settings: "/settings" };
+    for (const [label, href] of Object.entries(routedHrefs)) {
+      await expect(page.locator(`ix-menu-item:has-text("${label}") a`).first()).toHaveAttribute("href", href);
+    }
+    // Ask AI toggles the assistant dock rather than navigating anywhere, so it stays a <button>
+    // with no href — there is nothing for it to link to.
+    await expect(page.getByRole("menuitem", { name: /ask ai/i })).toBeVisible();
+    await expect(page.locator('ix-menu-item:has-text("Ask AI") a')).toHaveCount(0);
   });
 
   test("SHELL-02/04: Ctrl+K focuses the command bar and Enter opens a profile", async ({ page }) => {
@@ -133,7 +167,11 @@ test.describe("profile", () => {
     await page.getByRole("button", { name: /^scoring & fit$/i }).click();
     await page.getByRole("button", { name: /what-if weights/i }).click();
 
-    const headerPill = page.locator(".ph-title .pill").first();
+    // MIG-01 moved the header pillar off a `.pill`-classed span onto `IxPill` — the label is
+    // still slotted (light DOM) content, so a plain locator + toHaveText still works.
+    // MIG-18 moved the pillar pill off `.ph-title` (retired along with the old logo-chip header
+    // block) onto IxContentHeader's `header` slot, `.ph-header-slot` (Profile.jsx).
+    const headerPill = page.locator(".ph-header-slot ix-pill").first();
     await expect(page.getByText(/still/i).first()).toBeVisible();
 
     // One edit. Ecosystem to 52% of the weighting drops Collaborate's card 67.3 -> 46.4, under
@@ -149,7 +187,7 @@ test.describe("profile", () => {
     // The decision itself is untouched — that is the whole contract of a what-if.
     await expect(headerPill).toHaveText("Collaborate");
     await page.reload();
-    await expect(page.locator(".ph-title .pill").first()).toHaveText("Collaborate");
+    await expect(page.locator(".ph-header-slot ix-pill").first()).toHaveText("Collaborate");
   });
 
   test("PROF-12: headcount trend shows its one-line empty state by default (X-03)", async ({ page }) => {
@@ -208,7 +246,10 @@ test.describe("accessibility", () => {
     };
     await page.route("**/api/my/searches", (route) => route.fulfill({ json: runs }));
     await page.goto("/explore");
-    await expect(page.locator(".pill.Pass").first()).toBeVisible();
+    // MIG-01 moved Explore's pillar chip off `.pill.Pass` onto `IxPill`; the coloured surface
+    // is its shadow-DOM `.container` div, not the host, so locate the host by its slotted text
+    // and pierce the shadow root for the painted element.
+    await expect(page.locator("ix-pill", { hasText: "Pass" }).first()).toBeVisible();
 
     // Reads the values the browser actually painted — not the source tokens — so the assertion
     // survives a theme swap and can't be satisfied by a literal sitting unused in a comment.
@@ -220,12 +261,14 @@ test.describe("accessibility", () => {
       }
       // Composite the ancestor chain's backgrounds (outermost first) over white, then the
       // element's own (possibly translucent) text colour over that — the same compositing the
-      // browser itself does, since getComputedStyle never pre-blends alpha for you.
+      // browser itself does, since getComputedStyle never pre-blends alpha for you. Crosses the
+      // shadow boundary via getRootNode().host, since IxPill's colour lives on a shadow-DOM node.
       function effectiveBg(el) {
         const layers = [];
-        for (let node = el; node; node = node.parentElement) {
+        for (let node = el; node; ) {
           const c = parseColor(getComputedStyle(node).backgroundColor);
           if (c.a > 0) layers.push(c);
+          node = node.parentElement || node.getRootNode().host || null;
         }
         layers.reverse();
         return layers.reduce(
@@ -246,10 +289,12 @@ test.describe("accessibility", () => {
 
       const out = {};
       for (const pillar of ["Connect", "Collaborate", "Empower", "Pass"]) {
-        const el = document.querySelector(`.pill.${pillar}`);
-        if (!el) continue;
-        const bg = effectiveBg(el);
-        const textColor = parseColor(getComputedStyle(el).color);
+        const host = [...document.querySelectorAll("ix-pill")].find((n) => n.textContent.trim() === pillar);
+        if (!host || !host.shadowRoot) continue;
+        const container = host.shadowRoot.querySelector(".container");
+        if (!container) continue;
+        const bg = effectiveBg(container);
+        const textColor = parseColor(getComputedStyle(container).color);
         const text = {
           r: textColor.a * textColor.r + (1 - textColor.a) * bg.r,
           g: textColor.a * textColor.g + (1 - textColor.a) * bg.g,
@@ -267,11 +312,11 @@ test.describe("accessibility", () => {
 });
 
 /**
- * Visual regression — the enforceable form of "the Tracxn layout is preserved".
+ * Visual regression — the enforceable form of "the shell layout is preserved".
  * Baselines are human-owned; agents must not regenerate them.
  */
 test.describe("layout", () => {
-  test("X-05/X-06: Tracxn shell holds its shape", async ({ page }, testInfo) => {
+  test("X-05/X-06: app shell holds its shape", async ({ page }, testInfo) => {
     await stubIdentity(page);
     await stubRuns(page);
     await page.goto("/explore");
@@ -291,12 +336,104 @@ test.describe("layout", () => {
 
   test("X-05: no horizontal body scroll at any width", async ({ page }) => {
     await stubRuns(page);
-    await page.goto("/explore");
+    await stubChallenges(page);
+    // Two distinct failure modes, and the old assertion caught only the first:
+    //   (a) the document itself scrolls sideways — documentElement grows past the viewport;
+    //   (b) content is wider than the viewport but an overflow:hidden ancestor (ix-content)
+    //       clips it. The document never grows, so (a) stays false while real content is cut
+    //       off the right edge and unreachable — which is exactly what Home's panels did at
+    //       390px. Checking only (a), and only on /explore, is why that shipped green.
+    // (b) is asserted on the main content region's own scrollWidth rather than by scanning for
+    // wide descendants: Explore's data grid is *legitimately* wider than the viewport and scrolls
+    // inside its own overflow:auto container (the intended "scroll inside its own container"
+    // behaviour), so a descendant scan would false-positive on it. A scrollable child does not
+    // inflate its parent's scrollWidth, so main.content.scrollWidth grows only when non-scrollable
+    // content (a panel, a card list) overflows the region — the actual defect.
+    for (const route of ["/", "/explore"]) {
+      await page.goto(route);
+      await stabilise(page);
+      const report = await page.evaluate(() => {
+        const de = document.documentElement;
+        const region = document.querySelector("main.content");
+        return {
+          docOverflow: de.scrollWidth > de.clientWidth + 1,
+          regionOverflow: region ? region.scrollWidth > region.clientWidth + 1 : false,
+        };
+      });
+      expect(report.docOverflow, `${route}: the page scrolls horizontally — wide content must scroll inside its own container, not the document`).toBe(false);
+      expect(report.regionOverflow, `${route}: content is wider than the viewport and clipped by an overflow:hidden ancestor — it must fit or scroll inside its own container`).toBe(false);
+    }
+  });
+
+  test("X-05: the Scoring & Fit section holds its shape", async ({ page }, testInfo) => {
+    await stubIdentity(page);
+    await stubEvaluation(page);
+    await page.goto("/startup/1");
     await stabilise(page);
-    const overflows = await page.evaluate(() =>
-      document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
-    expect(overflows, "body scrolls horizontally — wide content must scroll inside its own container")
-      .toBe(false);
+    await page.getByRole("navigation", { name: /profile sections/i })
+      .getByRole("button", { name: "Scoring & Fit" }).click();
+    await expect(page.locator("#sub-score")).toBeInViewport();
+    await expect(page).toHaveScreenshot(`scoring-fit-${testInfo.project.name}.png`, { fullPage: false });
+  });
+
+  test("X-05: the Evidence section holds its shape", async ({ page }, testInfo) => {
+    await stubIdentity(page);
+    await stubEvaluation(page);
+    await page.goto("/startup/1");
+    await stabilise(page);
+    await page.getByRole("navigation", { name: /profile sections/i })
+      .getByRole("button", { name: "Evidence" }).click();
+    await expect(page.locator("#sub-facts")).toBeInViewport();
+    await expect(page).toHaveScreenshot(`evidence-${testInfo.project.name}.png`, { fullPage: false });
+  });
+
+  test("X-05: Home layout holds its shape", async ({ page }, testInfo) => {
+    await stubIdentity(page);
+    await stubRuns(page);
+    await stubChallenges(page);
+    // Tracked companies is watchlist ∩ loaded runs — names must match RUNS_FIXTURE exactly.
+    // Seeded via addInitScript so it's present before Home's usePersistent initializer reads it.
+    await page.addInitScript(() => {
+      localStorage.setItem("se.watchlist.v2", JSON.stringify(["Phena", "Meili Robots", "Hypertrain"]));
+    });
+    // Overrides the shared empty stub from fixtures.js (registered earlier, so this later
+    // registration wins) for this spec only — other specs still see an empty saved-views list.
+    await page.route("**/api/my/views", (route) =>
+      route.fulfill({
+        json: {
+          views: [
+            { name: "Connect shortlist", columns: ["final_score", "siemens_fit", "hq", "stage"], filters: {} },
+            { name: "High fit, funded", columns: ["final_score", "funding", "founded_year"], filters: {} },
+            { name: "Evidence review queue", columns: ["evidence", "trend", "pillar"], filters: {} },
+          ],
+        },
+      }),
+    );
+    await page.goto("/");
+    await stabilise(page);
+    await expect(page).toHaveScreenshot(`home-${testInfo.project.name}.png`, { fullPage: false });
+  });
+
+  // Settings and Admin are desktop-only baselines — both are narrow-panel or admin-gated
+  // back-office surfaces with no responsive risk beyond what Explore/Profile/Evidence already
+  // exercise at all four widths (see contract/ui-backlog.md MIG-21).
+  test("X-05: Settings layout holds its shape (desktop only)", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop", "Settings is a narrow single-column panel — desktop baseline only.");
+    await stubIdentity(page);
+    await stubStatus(page);
+    await page.goto("/settings");
+    await stabilise(page);
+    await expect(page).toHaveScreenshot(`settings-${testInfo.project.name}.png`, { fullPage: false });
+  });
+
+  test("X-05: Admin layout holds its shape (desktop only)", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop", "Admin is an internal, admin-gated back-office view — desktop baseline only.");
+    await stubIdentity(page, { admin: true });
+    await stubAdminOverview(page);
+    await page.goto("/admin");
+    await stabilise(page);
+    await expect(page.getByRole("heading", { name: "Admin", exact: true })).toBeVisible();
+    await expect(page).toHaveScreenshot(`admin-${testInfo.project.name}.png`, { fullPage: false });
   });
 
   test("X-05: the section rail does not widen the profile's content", async ({ page }) => {

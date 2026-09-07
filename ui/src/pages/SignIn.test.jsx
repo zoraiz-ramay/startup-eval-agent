@@ -4,6 +4,14 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import SignIn from "./SignIn.jsx";
+import { findShadowRole } from "../test/shadow.js";
+
+// IxButton (button.js) has `encapsulation: "shadow"`, so its real <button> is not a light-DOM
+// descendant and screen.getByRole can't see it — same reasoning as Admin.test.jsx's grant button.
+// findShadowRole (not getShadowRole): Stencil hydrates the shadow root a tick after mount, so an
+// immediate synchronous query can run before the shadow DOM exists yet.
+const signInButton = (container) =>
+  findShadowRole(container, "button", { name: /sign in with siemens/i });
 
 /**
  * Sign-in failures under Conditional Access are the one place this app talks to someone
@@ -18,9 +26,9 @@ describe("SignIn", () => {
   beforeEach(() => setQuery(""));
   afterEach(() => setQuery(""));
 
-  it("offers sign-in with no error by default", () => {
-    render(<SignIn />);
-    expect(screen.getByRole("button", { name: /sign in with siemens/i })).toBeInTheDocument();
+  it("offers sign-in with no error by default", async () => {
+    const { container } = render(<SignIn />);
+    expect(await signInButton(container)).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
@@ -66,13 +74,13 @@ describe("SignIn", () => {
 
   it("sends the current location through so sign-in returns you where you were", async () => {
     window.history.replaceState({}, "", "/explore?q=siemens");
-    render(<SignIn />);
+    const { container } = render(<SignIn />);
     // jsdom refuses real navigation; capture the assignment instead.
     const assigned = [];
     delete window.location;
     window.location = { pathname: "/explore", search: "?q=siemens",
       set href(v) { assigned.push(v); } };
-    await userEvent.click(screen.getByRole("button", { name: /sign in with siemens/i }));
+    await userEvent.click(await signInButton(container));
     expect(assigned[0]).toBe(`/api/auth/login?next=${encodeURIComponent("/explore?q=siemens")}`);
   });
 });

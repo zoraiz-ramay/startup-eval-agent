@@ -1,4 +1,5 @@
 import React from "react";
+import { IxCard, IxCardContent, IxButton } from "@siemens/ix-react";
 import ErrorBox from "../components/ErrorBox.jsx";
 
 /**
@@ -73,27 +74,33 @@ export default function SignIn() {
 
   return (
     <div className="signin">
-      <div className="panel signin-card">
-        <h1 className="signin-title">ScoutGrid</h1>
-        <p className="muted signin-lede">
-          Startup evaluation for Siemens partnership decisions. Sign in with your Siemens
-          account to continue.
-        </p>
+      {/* IxCard is a styling wrapper only, not a swap for ErrorBox — MIG-03 (ErrorBox ->
+          IxMessageBar) is gated, unconfirmed safe, and out of scope here. ErrorBox keeps its
+          own role="alert" markup unchanged; IxCard just gives the whole card the same surface
+          treatment the rest of the migration uses. */}
+      <IxCard className="signin-card">
+        <IxCardContent>
+          <h1 className="signin-title">ScoutGrid</h1>
+          <p className="muted signin-lede">
+            Startup evaluation for Siemens partnership decisions. Sign in with your Siemens
+            account to continue.
+          </p>
 
-        {failure && <ErrorBox message={failure.title} hint={failure.body} />}
+          {failure && <ErrorBox message={failure.title} hint={failure.body} />}
 
-        <button className="btn" onClick={signIn}>Sign in with Siemens</button>
+          <IxButton onClick={signIn}>Sign in with Siemens</IxButton>
 
-        <p className="muted signin-foot">
-          Requires a Siemens-managed device on the corporate network or VPN.
-          {correlationId && (
-            <>
-              <br />
-              Reference for IT: <code>{correlationId}</code>
-            </>
-          )}
-        </p>
-      </div>
+          <p className="muted signin-foot">
+            Requires a Siemens-managed device on the corporate network or VPN.
+            {correlationId && (
+              <>
+                <br />
+                Reference for IT: <code>{correlationId}</code>
+              </>
+            )}
+          </p>
+        </IxCardContent>
+      </IxCard>
     </div>
   );
 }

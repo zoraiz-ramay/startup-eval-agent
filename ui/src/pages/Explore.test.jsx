@@ -5,6 +5,10 @@ import { describe, expect, it, vi } from "vitest";
 import Explore from "./Explore.jsx";
 import { AppProvider } from "../state.jsx";
 import { api } from "../api.js";
+// WeightSliders (shared with Profile's what-if panel, MIG-22) now renders each dimension as an
+// IxSlider -- its native input[role=slider] lives in a shadow root, so finding it needs the same
+// shadow-piercing helper Profile.test.jsx uses, and it only listens for the native `input` event.
+import { findShadowRole, findShadowText } from "../test/shadow.js";
 
 /**
  * EXP-02 / EXP-03 / EXP-08 — the column drawer.
@@ -68,15 +72,18 @@ describe("Explore column drawer", () => {
     expect(screen.getAllByRole("checkbox", { name: /^(remove|add) /i }).length).toBeGreaterThan(0);
   });
 
-  it("X-04: the click-outside backdrop is hidden from assistive tech rather than a fake unlabelled button", async () => {
+  it("X-04: clicking outside the pane closes it, with no unlabelled backdrop element to click", async () => {
     const user = userEvent.setup();
     const { container } = renderExplore();
     await user.click(await screen.findByRole("button", { name: /customise columns/i }));
+    expect(screen.getByRole("complementary", { name: /customise columns/i })).toBeInTheDocument();
 
-    // The mask has no accessible name and duplicates a close that Escape already provides — it
-    // must not be exposed to the accessibility tree as an actionable, unlabelled element.
-    const mask = container.querySelector(".drawer-mask");
-    expect(mask).toHaveAttribute("aria-hidden", "true");
+    // MIG-14: IxPane's closeOnClickOutside replaces the old bare `.drawer-mask` div outright —
+    // there is no backdrop element left for an unlabelled-control problem to attach to at all,
+    // rather than one that is merely hidden from the accessibility tree.
+    expect(container.querySelector(".drawer-mask")).toBeNull();
+    await user.click(document.body);
+    expect(screen.queryByRole("complementary", { name: /customise columns/i })).toBeNull();
   });
 
   it("X-04: opening the drawer moves focus into it, and closing it with Escape returns focus to the trigger", async () => {
@@ -95,6 +102,14 @@ describe("Explore column drawer", () => {
     // Closing must not drop focus into <body> — it belongs back on the control that opened it.
     expect(trigger).toHaveFocus();
   });
+
+  // UI-14 (pre-existing focus-trap gap): pane.js's onExpandedChange does call the library's own
+  // addFocusTrap(hostElement, { trapFocusInShadowDom: 'both' }) while floating+expanded, which
+  // reads as a real Tab-cycling implementation in the compiled source. Tried as a test here —
+  // `user.tab()` repeatedly from inside the open pane — and empirically it does NOT hold in this
+  // jsdom/Testing-Library environment: focus lands on document.body rather than staying inside
+  // the pane or wrapping to another of its own controls. Left out of the committed suite because
+  // an assertion that fails is not something to ship green by loosening it; UI-14 stays open.
 });
 
 /**
@@ -136,7 +151,7 @@ describe("Explore saved views", () => {
     api.views.mockResolvedValueOnce({
       views: [{ name: "Munich", columns: [HQ], filters: { q: "munich", pillar: "Pass" } }],
     });
-    renderWithNav();
+    const { container } = renderWithNav();
     await screen.findByRole("button", { name: /customise columns/i });
 
     await user.click(screen.getByRole("link", { name: /open munich/i }));
@@ -144,7 +159,12 @@ describe("Explore saved views", () => {
     // The chip proves the view was recognised even when its columns match the defaults.
     expect(await screen.findByText(/View: Munich/)).toBeInTheDocument();
     // Filters were stored by saveView from the day it shipped and no reader ever applied them.
-    expect(screen.getByLabelText(/filter results/i)).toHaveValue("munich");
+    // IxCategoryFilter (MIG-12) renders each active filter as its own ix-filter-chip inside its
+    // shadow root, rather than the input holding the text as a value.
+    expect(await findShadowText(container, "munich")).toBeInTheDocument();
+    expect(await findShadowText(container, /pillar = pass/i)).toBeInTheDocument();
+    // (getFilterChipLabel renders "Pillar = Pass" for the pillar category chip — components.md's
+    // FILTER_CATEGORIES label paired with logical-filter-operator.js's "=" for LogicalFilterOperator.EQUAL.)
   });
 
   it("saving a view sends it to the server and opens it", async () => {
@@ -199,8 +219,8 @@ describe("Explore portfolio weighting", () => {
 
   it("leaves the grid on the engine's numbers until a weight is actually moved", async () => {
     const user = userEvent.setup();
-    render1();
-    await user.click(await screen.findByRole("button", { name: /weighting/i }));
+    const { container } = render1();
+    await user.click(await findShadowRole(container, "button", { name: /weighting/i }));
 
     expect(screen.getByText(/move a slider to see what changes/i)).toBeInTheDocument();
     // No "(engine NN)" annotation yet: nothing has been re-weighted, so there is nothing to
@@ -210,11 +230,11 @@ describe("Explore portfolio weighting", () => {
 
   it("re-scores the table but keeps the engine's stored score on screen", async () => {
     const user = userEvent.setup();
-    render1();
-    await user.click(await screen.findByRole("button", { name: /weighting/i }));
+    const { container } = render1();
+    await user.click(await findShadowRole(container, "button", { name: /weighting/i }));
 
-    const slider = screen.getByLabelText("Product");
-    fireEvent.change(slider, { target: { value: "80" } });
+    const slider = await findShadowRole(container, "slider", { name: "Product" });
+    fireEvent.input(slider, { target: { value: "80" } });
 
     // The re-weighted figure is shown WITH the stored one, never instead of it — this row's
     // engine score is 40 and must remain visible and labelled as the engine's.
@@ -224,9 +244,9 @@ describe("Explore portfolio weighting", () => {
 
   it("resets back to the engine weighting", async () => {
     const user = userEvent.setup();
-    render1();
-    await user.click(await screen.findByRole("button", { name: /weighting/i }));
-    fireEvent.change(screen.getByLabelText("Product"), { target: { value: "80" } });
+    const { container } = render1();
+    await user.click(await findShadowRole(container, "button", { name: /weighting/i }));
+    fireEvent.input(await findShadowRole(container, "slider", { name: "Product" }), { target: { value: "80" } });
     await screen.findByText(/\(engine 40\)/);
 
     await user.click(screen.getByRole("button", { name: /reset to engine weights/i }));

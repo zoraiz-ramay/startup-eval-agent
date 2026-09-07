@@ -8,6 +8,10 @@ import { ExtLink, Loading, Radar } from "./widgets.jsx";
  * Replaces tests/test_accessible_loading.py, which regex-matched `aria-live` in the JSX source.
  * That assertion passed while the attribute sat in a comment and failed the moment the file was
  * reformatted; it never once proved a screen reader would hear anything.
+ *
+ * MIG-02: the decorative spinner is now IxSpinner rather than a hand-rolled `<span>`, so the
+ * queries below target the rendered `ix-spinner` element rather than a `.spinner` class — the
+ * component under test is the accessible contract, not the markup that happens to deliver it.
  */
 describe("Loading", () => {
   it("exposes the message as a live status region", () => {
@@ -19,9 +23,34 @@ describe("Loading", () => {
 
   it("hides the decorative spinner from assistive tech", () => {
     const { container } = render(<Loading text="Working…" />);
-    expect(container.querySelector(".spinner")).toHaveAttribute("aria-hidden", "true");
+    expect(container.querySelector("ix-spinner")).toHaveAttribute("aria-hidden", "true");
     // The accessible name must be the message alone, with no spinner noise in it.
     expect(screen.getByRole("status").textContent.trim()).toBe("Working…");
+  });
+});
+
+/**
+ * MIG-02 — a score is a fixed-range measurement, not task progress, so it renders with
+ * role="meter" (not IxProgressIndicator's role="progressbar", which means completion).
+ */
+describe("ScoreBar", () => {
+  it("exposes its value and range through role=meter, not progressbar", () => {
+    render(<ScoreBar label="traction" value={62} />);
+    const meter = screen.getByRole("meter", { name: "traction" });
+    expect(meter).toHaveAttribute("aria-valuenow", "62");
+    expect(meter).toHaveAttribute("aria-valuemin", "0");
+    expect(meter).toHaveAttribute("aria-valuemax", "100");
+    expect(screen.queryByRole("progressbar")).toBeNull();
+  });
+
+  it("clamps an out-of-range value to the 0-100 scale instead of drawing past it", () => {
+    render(<ScoreBar label="siemens fit" value={140} />);
+    expect(screen.getByRole("meter")).toHaveAttribute("aria-valuenow", "100");
+  });
+
+  it("shows the rounded value as visible text alongside the meter", () => {
+    render(<ScoreBar label="market" value={47.6} />);
+    expect(screen.getByText("48")).toBeInTheDocument();
   });
 });
 

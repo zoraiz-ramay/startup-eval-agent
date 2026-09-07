@@ -1,6 +1,8 @@
 import React, { useMemo } from "react";
+import { IxBlind } from "@siemens/ix-react";
 import { DEFAULT_WEIGHTS, DIMENSIONS, DIMENSION_LABELS, reweight } from "../scoring/index.js";
 import { ROUTES, breakevenWeight, whatIfRouting } from "../scoring/routing.js";
+import { PillarPill } from "./widgets.jsx";
 import WeightSliders, { useWeighting } from "./WeightSliders.jsx";
 
 const pp = (x) => `${Math.round(x * 100)}%`;
@@ -58,17 +60,19 @@ export default function WhatIfWeights({ score, fit, routing, open, setOpen }) {
   }, [score, fit, active, wRouting]);
 
   return (
-    <div className="panel">
-      <button
-        type="button"
-        className="tool-btn"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-        style={{ width: "100%", textAlign: "left" }}
-      >
-        {open ? "▾" : "▸"} What-if weights (local only){modified && " · modified"}
-      </button>
-
+    // MIG-22: the collapsible wrapper is IxBlind (label/sublabel/collapsed/onCollapsedChange —
+    // verified against components.md). The content itself stays gated on React's own `open`
+    // state rather than solely on `collapsed`: ix-blind's compiled source (blind.js) drops its
+    // default slot's <slot> element while collapsed, which stops the *projection* of the
+    // children, but the children remain real light-DOM nodes underneath — a hidden `role="status"`
+    // live region would still be found by a query that doesn't check visibility, which is exactly
+    // the "leaves the stored score alone" assertion this panel exists to satisfy.
+    <IxBlind
+      label="What-if weights (local only)"
+      sublabel={modified ? "modified" : undefined}
+      collapsed={!open}
+      onCollapsedChange={(e) => setOpen(!e.detail)}
+    >
       {open && (
         <div style={{ marginTop: 10 }}>
           <p className="muted" style={{ marginTop: 0, fontSize: 12 }}>
@@ -131,20 +135,20 @@ export default function WhatIfWeights({ score, fit, routing, open, setOpen }) {
                   <p style={{ margin: "0 0 8px" }}>
                     {wRouting.invariant ? (
                       <>
-                        <span className={`pill ${baseline}`}>{baseline}</span>{" "}
+                        <PillarPill pillar={baseline} />{" "}
                         <span className="muted">— your weighting cannot change this.</span>
                       </>
                     ) : pillarChanged ? (
                       <>
-                        <span className={`pill ${baseline}`}>{baseline}</span>{" "}
+                        <PillarPill pillar={baseline} />{" "}
                         <span className="muted">→</span>{" "}
-                        <span className={`pill ${wRouting.pillar} ghost`}>{wRouting.pillar}</span>{" "}
+                        <PillarPill pillar={wRouting.pillar} ghost />{" "}
                         <span className="badge">not the evaluation result</span>
                       </>
                     ) : (
                       <>
                         <span className="muted">Still </span>
-                        <span className={`pill ${baseline}`}>{baseline}</span>{" "}
+                        <PillarPill pillar={baseline} />{" "}
                         <span className="muted">under your weighting.</span>
                       </>
                     )}
@@ -241,6 +245,6 @@ export default function WhatIfWeights({ score, fit, routing, open, setOpen }) {
           )}
         </div>
       )}
-    </div>
+    </IxBlind>
   );
 }

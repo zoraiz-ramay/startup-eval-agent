@@ -1,11 +1,20 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { IxCategoryFilter, IxContentHeader, IxKpi, IxPane, IxToggleButton } from "@siemens/ix-react";
+import { iconScale, iconTableRows } from "@siemens/ix-icons/icons";
 import { api } from "../api.js";
 import { useApp } from "../state.jsx";
 import ErrorBox from "../components/ErrorBox.jsx";
+import { PillarPill } from "../components/widgets.jsx";
 import WeightSliders, { useWeighting } from "../components/WeightSliders.jsx";
 import { DEFAULT_WEIGHTS, reweight } from "../scoring/index.js";
 import { whatIfRouting } from "../scoring/routing.js";
+import "./Explore.css";
+
+// MIG-12: the one category this filter row ever offered is the pillar, so it maps onto
+// IxCategoryFilter's single-category-hash shape (components.md) with one entry. Free text still
+// goes in as a token — IxCategoryFilter's own input, not a second control next to it.
+const FILTER_CATEGORIES = { pillar: { label: "Pillar", options: ["Connect", "Collaborate", "Empower", "Pass"] } };
 
 /* Column registry — every explorer column in one place.
  *
@@ -46,14 +55,14 @@ const COLUMNS = {
     label: "Route",
     render: (r, w) => (
       <span>
-        <span className={`pill ${r.pillar}`}>{r.pillar}</span>{" "}
+        <PillarPill pillar={r.pillar} />{" "}
         {w?.moved && (
           <>
             <span className="muted">→</span>{" "}
-            <span className={`pill ghost ${w.pillar}`}>{w.pillar}</span>{" "}
+            <PillarPill pillar={w.pillar} ghost />{" "}
           </>
         )}
-        {(r.secondary || []).map((s) => <span key={s} className={`pill ghost ${s}`}>+{s}</span>)}
+        {(r.secondary || []).map((s) => <PillarPill key={s} pillar={s} ghost>+{s}</PillarPill>)}
       </span>
     ),
   },
@@ -88,9 +97,10 @@ const SORTABLE = new Set(["final_score", "siemens_fit", "founded_year", "created
 function ColumnDrawer({ open, onClose, cols, setCols, onSaveView }) {
   const [viewName, setViewName] = useState("");
   const asideRef = useRef(null);
-  // Escape closes the drawer. It overlays the table behind a mask, so without a keyboard exit a
-  // keyboard-only user is trapped: the mask is a div and cannot be activated with a key.
-  // Registered before the early return below — hooks must run on every render.
+  // MIG-14: IxPane's own Escape handler (pane.js's registerEscapeListener) is attached to the
+  // host element itself, and only fires while focus is inside it — kept here too, on window,
+  // as a second path that doesn't depend on where focus happens to be. Both call the same
+  // onClose, which is idempotent, so there is no double-close to guard against.
   useEffect(() => {
     if (!open) return undefined;
     const onKey = (e) => {
@@ -99,10 +109,11 @@ function ColumnDrawer({ open, onClose, cols, setCols, onSaveView }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
-  // Opening the drawer doesn't move the trigger button out of the DOM, so without this a
-  // keyboard/screen-reader user who activates it hears nothing change — their focus stays put
-  // while a whole panel appears behind them. tabIndex=-1 makes the panel a valid focus target
-  // without adding it to the normal Tab order (it isn't a control itself).
+  // IxPane moves focus into itself on its own (pane.js's focusFirstSlottedElement), but only
+  // after its open animation's completion callback fires — real in a browser, not guaranteed in
+  // a test environment that doesn't run animation frames the same way. Doing it here too, plain
+  // and synchronous, means the "focus lands inside" contract holds regardless of the pane's own
+  // animation timing.
   useEffect(() => {
     if (open) asideRef.current?.focus();
   }, [open]);
@@ -116,15 +127,28 @@ function ColumnDrawer({ open, onClose, cols, setCols, onSaveView }) {
   };
   const inactive = Object.keys(COLUMNS).filter((k) => !cols.includes(k));
   return (
-    <>
-      {/* Click-outside-to-close is a mouse convenience, not a control: closing is already fully
-          keyboard-reachable via Escape (below) and doesn't need a second, redundant path. Giving
-          this div role="button"+tabIndex would add a tab stop that a screen reader announces as
-          an actionable "button" with no real label — worse than leaving it out of the
-          accessibility tree entirely, which aria-hidden does. */}
-      <div className="drawer-mask" aria-hidden="true" onClick={onClose} />
-      <aside ref={asideRef} tabIndex={-1} className="drawer" aria-label="Customise columns">
-        <h2>Customise columns</h2>
+    // variant="floating" + composition="right" is the same overlay shape AssistantDock (MIG-11)
+    // already uses; .explore-drawer-pane forces position:fixed the same way .assistant-pane
+    // does, since IxPane defaults every composition to position:relative (verified against
+    // pane.css). closeOnClickOutside replaces the old bare `.drawer-mask` div outright — X-04's
+    // complaint was a mouse-only control invisible to assistive tech, and there is now no
+    // backdrop element at all for that problem to attach to; a plain window click listener
+    // (pane.js's onExpandedChange, gated on event.composedPath()) closes it instead.
+    <IxPane
+      className="explore-drawer-pane"
+      variant="floating"
+      composition="right"
+      size="320px"
+      expanded
+      closeOnClickOutside
+      heading="Customise columns"
+      ariaLabelCollapseCloseButton="Close customise columns"
+      onExpandedChanged={(e) => { if (!e.detail.expanded) onClose(); }}
+    >
+      {/* IxPane's <aside> carries no aria-labelledby/aria-label wired to `heading` (verified
+          against the compiled source, same gap AssistantDock's own comment documents) — the
+          "Customise columns" landmark name has to come from a light-DOM wrapper we slot in. */}
+      <div ref={asideRef} tabIndex={-1} role="complementary" aria-label="Customise columns">
         <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>Reorder, remove, or add columns.</p>
         {cols.map((k, i) => (
           <div key={k} className="drow">
@@ -156,8 +180,8 @@ function ColumnDrawer({ open, onClose, cols, setCols, onSaveView }) {
             Save view
           </button>
         </div>
-      </aside>
-    </>
+      </div>
+    </IxPane>
   );
 }
 
@@ -189,6 +213,14 @@ export default function Explore() {
   const dense = params.get("density") !== "comfortable";
   const viewName = params.get("view") || "";
   const activeView = savedViews.find((v) => v.name === viewName) || null;
+  // category-filter.js's `@Watch('filterState')` re-syncs the component's internal chips whenever
+  // this prop changes (not just on first load), so deriving it fresh from the URL params on every
+  // render — rather than tracking it as separate component state — keeps a saved view, a
+  // browser back/forward, or a manually edited URL in sync with what's on screen.
+  const filterState = useMemo(() => ({
+    tokens: q ? [q] : [],
+    categories: pillar ? [{ id: "pillar", value: pillar, operator: "Equal" }] : [],
+  }), [q, pillar]);
 
   const setParam = (k, v) => {
     const next = new URLSearchParams(params);
@@ -354,10 +386,11 @@ export default function Explore() {
 
   return (
     <div>
-      <div className="crumb">Explore &gt; Companies</div>
-      <div className="page-head">
-        <h1 className="page-title">Companies Covered</h1>
-        <span className="page-meta">{rows.length} results</span>
+      <div className="crumb">Databases &gt; Companies</div>
+      {/* MIG-13: IxContentHeader replaces the hand-rolled page head, matching Profile's own use
+          (MIG-18). headerSubtitle is plain text (components.md), so it carries the result count;
+          the saved-view chip — not a title/subtitle concept — goes in the default slot instead. */}
+      <IxContentHeader headerTitle="Companies Covered" headerSubtitle={`${rows.length} results`}>
         {/* Without this a view whose columns happen to match the defaults opens invisibly,
             which is indistinguishable from it not opening at all. */}
         {activeView && (
@@ -366,14 +399,14 @@ export default function Explore() {
             <button onClick={clearView} aria-label={`Close the view ${activeView.name}`}>✕</button>
           </span>
         )}
-      </div>
+      </IxContentHeader>
 
       {stats && (
         <div className="stats-strip">
-          <div className="stat"><span className="v">{stats.total}</span><span className="k">Companies</span></div>
-          <div className="stat"><span className="v">{stats.avg}</span><span className="k">Avg Fit Score</span></div>
-          <div className="stat"><span className="v">{stats.aligned}</span><span className="k">Siemens-aligned</span></div>
-          <div className="stat"><span className="v">{stats.sfs}</span><span className="k">SFS relevant</span></div>
+          <IxKpi label="Companies" value={stats.total} />
+          <IxKpi label="Avg Fit Score" value={stats.avg} />
+          <IxKpi label="Siemens-aligned" value={stats.aligned} />
+          <IxKpi label="SFS relevant" value={stats.sfs} />
         </div>
       )}
 
@@ -385,15 +418,30 @@ export default function Explore() {
             onChange={() => setSelected(allSelected ? new Set() : new Set(rows.map((r) => r.id)))} />
           Select all
         </label>
-        <button ref={drawerTriggerRef} className="tool-btn" onClick={() => setDrawer(true)}>⚙ Customise columns</button>
-        <button className={"tool-btn" + (dense ? " active" : "")}
-          onClick={() => setParam("density", dense ? "comfortable" : "")}>
-          ☰ {dense ? "Compact" : "Comfortable"}
-        </button>
-        <button className={"tool-btn" + (weightingOn ? " active" : "")}
-          aria-expanded={weightingOn} onClick={() => setWeightingOn((v) => !v)}>
-          ⚖ Weighting: {weightingOn && modified ? "mine" : "engine"}
-        </button>
+        {/* stopPropagation: IxPane's closeOnClickOutside registers its own window click listener
+            synchronously as the pane mounts, which happens inside this same click's dispatch —
+            without this, the browser delivers the very click that opens the drawer to that
+            listener too (the pane isn't in this event's composedPath() yet, so it reads as
+            "outside"), and the drawer closes itself in the same tick it opened. */}
+        <button ref={drawerTriggerRef} className="tool-btn"
+          onClick={(e) => { e.stopPropagation(); setDrawer(true); }}>⚙ Customise columns</button>
+        {/* MIG-16: IxToggleButton's own `pressed` reflects aria-pressed automatically
+            (toggle-button.js), which is the correct semantics for a two-state toggle — the
+            hand-rolled ".active" class carried no such signal to assistive tech at all.
+            aria-label is explicit rather than left to default: toggle-button.js always sets one
+            (inherited, or else a fallback derived from the icon name alone, e.g. "Scale"), which
+            would silently replace the slotted label text as the accessible name otherwise. */}
+        <IxToggleButton variant="secondary" icon={iconTableRows} pressed={dense}
+          aria-label={dense ? "Compact density" : "Comfortable density"}
+          onPressedChange={(e) => setParam("density", e.detail ? "" : "comfortable")}>
+          {dense ? "Compact" : "Comfortable"}
+        </IxToggleButton>
+        <IxToggleButton variant="secondary" icon={iconScale} pressed={weightingOn}
+          aria-expanded={weightingOn}
+          aria-label={`Weighting: ${weightingOn && modified ? "mine" : "engine"}`}
+          onPressedChange={(e) => setWeightingOn(e.detail)}>
+          Weighting: {weightingOn && modified ? "mine" : "engine"}
+        </IxToggleButton>
         <span className="spacer" />
         {selected.size > 0 && <span className="muted" style={{ fontSize: 12 }}>{selected.size} selected</span>}
         <button className="tool-btn" onClick={exportCsv}>⤓ Export</button>
@@ -425,24 +473,28 @@ export default function Explore() {
       )}
 
       <div className="filter-row">
-        <input className="input" style={{ maxWidth: 240, padding: "4px 9px" }}
-          placeholder="Filter results…" value={q}
-          onChange={(e) => setParam("q", e.target.value)} aria-label="Filter results" />
-        {["Connect", "Collaborate", "Empower", "Pass"].map((p) => (
-          <button key={p}
-            className={"tool-btn" + (pillar === p ? " active" : "")}
-            style={{ padding: "3px 10px", fontSize: 11.5 }}
-            onClick={() => setParam("pillar", pillar === p ? "" : p)}>
-            {p}
-          </button>
-        ))}
-        {(q || pillar) && (
-          <>
-            {q && <span className="fchip">“{q}”<button onClick={() => setParam("q", "")} aria-label="Clear text filter">✕</button></span>}
-            {pillar && <span className="fchip">{pillar}<button onClick={() => setParam("pillar", "")} aria-label="Clear pillar filter">✕</button></span>}
-            <button className="clear-link" onClick={() => setParams({}, { replace: true })}>Clear all</button>
-          </>
-        )}
+        <IxCategoryFilter
+          categories={FILTER_CATEGORIES}
+          filterState={filterState}
+          uniqueCategories
+          staticOperator="Equal"
+          placeholder="Filter results…"
+          ariaLabelFilterInput="Filter results"
+          ariaLabelResetButton="Clear all filters"
+          ariaLabelOperatorButton="Filter operator"
+          onFilterChanged={(e) => {
+            const fs = e.detail;
+            const pillarToken = fs.categories.filter((c) => c.id === "pillar").pop();
+            setParams((prev) => {
+              const next = new URLSearchParams(prev);
+              const text = fs.tokens.join(" ");
+              if (text) next.set("q", text); else next.delete("q");
+              if (pillarToken) next.set("pillar", pillarToken.value); else next.delete("pillar");
+              return next;
+            }, { replace: true });
+          }}
+          onFilterCleared={() => setParams({}, { replace: true })}
+        />
       </div>
 
       <div className="grid-shell">

@@ -83,7 +83,9 @@ Legend: **L** = Vitest component test · **E** = Playwright E2E · **V** = visua
 | X-03 | Every data view has a distinct loading, empty and error state | L, V |
 | X-04 | Keyboard: all interactive controls reachable by Tab, visible focus ring | L, E |
 | X-05 | Layout holds at 1920 / 1440 / 1024 / 390 px with no horizontal body scroll | V |
-| X-06 | Tracxn information architecture intact: icon rail + top command bar + dense data canvas | V |
+| X-06 | iX application frame intact: IxApplication + IxApplicationHeader + IxApplicationMenu +
+  IxContent (component names and composition are a Phase 3 decision — this replacement wording is
+  provisional, not settled; verify final names against docs/ix/components.md before locking it in) | V |
 
 ---
 

@@ -3,10 +3,10 @@ import { defineConfig, devices } from "@playwright/test";
 /**
  * E2E journeys + visual regression.
  *
- * The visual baselines are the enforceable form of "the Tracxn layout still works". Everything
- * else in the gate checks behaviour; this is the only layer that can tell you the icon rail moved,
- * the data canvas lost its density, or a panel now overflows at 390px. The previous agent system
- * had no equivalent, which is why its UI reviewer could only offer opinions about source code.
+ * The visual baselines are the enforceable form of "the layout still works". Everything else in
+ * the gate checks behaviour; this is the only layer that can tell you the shell moved, the data
+ * canvas lost its density, or a panel now overflows at 390px. The previous agent system had no
+ * equivalent, which is why its UI reviewer could only offer opinions about source code.
  *
  * Baselines live in ui/e2e/__screenshots__ and are treated as human-owned: agents must never run
  * --update-snapshots. See contract/feature-inventory.md.

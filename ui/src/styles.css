@@ -9,39 +9,165 @@ a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 3px; }
 
-/* ---------------- top bar ---------------- */
-.topbar {
-  position: fixed; inset: 0 0 auto 0; z-index: 80; height: var(--topbar-h);
-  display: flex; align-items: center; gap: 16px; padding: 0 16px;
-  background: var(--chrome-800); color: var(--chrome-text);
-  border-bottom: 1px solid var(--chrome-border);
+/* ---------------- shell ambience (dark schema) ----------------
+   The palette alone reads flat; these three effects are most of the reference screenshot's
+   character. All are token-driven (color-mix over var(--accent), no colour literal), so the
+   ix_lint no-raw-colour rule is satisfied and they follow the accent if it ever changes. Scoped
+   to the dark schema because the light canvas wants none of this glow.
+   - Sidebar (IxMenu): a teal fade down its top edge.
+   - Main content: two large, faint corner glows.
+   - Active nav item: a short, glowing teal left bar. */
+[data-ix-color-schema="dark"] ix-menu {
+  background-image: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent) 7%, transparent),
+    transparent 240px
+  );
 }
-.brand { display: flex; align-items: baseline; gap: 7px; white-space: nowrap; }
-.brand .name { font-weight: 800; font-size: 15px; letter-spacing: .2px; }
-.brand .name b { color: #9db7f5; font-weight: 800; }
-.brand .sub { font-size: 10.5px; color: var(--chrome-muted); }
-.cmdbar { flex: 1; max-width: 640px; position: relative; }
+[data-ix-color-schema="dark"] main.content {
+  background-image:
+    radial-gradient(1100px 620px at 92% -10%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 60%),
+    radial-gradient(820px 560px at -8% -4%, color-mix(in srgb, var(--accent) 6%, transparent), transparent 55%);
+  background-repeat: no-repeat;
+}
+[data-ix-color-schema="dark"] ix-menu-item[active] {
+  position: relative;
+}
+[data-ix-color-schema="dark"] ix-menu-item[active]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 21%;
+  width: 3px;
+  height: 58%;
+  border-radius: 0 2px 2px 0;
+  background: var(--accent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 55%, transparent);
+  z-index: 1;
+}
+
+/* The application header (MobileHeader) exists only to launch the collapsed menu on a phone.
+   iX hides the rail behind a hamburger at the sm breakpoint, and that hamburger lives in the
+   header; at every wider breakpoint the rail is always visible, so the header would just be the
+   empty top bar the reference design drops. Show it only when ix-application is at breakpoint-sm. */
+ix-application:not(.breakpoint-sm) ix-application-header[slot="application-header"] { display: none; }
+
+/* ---------------- rail brand (top) + account (bottom) ----------------
+   The app identity and the account both live in the rail now (moved out of the application
+   header). Slotted into ix-menu's own top and bottom regions; the text collapses with the rail
+   so a 56px icon rail shows only the monogram / initials disc, and the full label appears when
+   the menu is expanded (ix-menu carries an `expanded` class on its host). */
+.menu-brand,
+.menu-account {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  box-sizing: border-box;
+  text-decoration: none;
+  color: var(--text-1);
+}
+.menu-brand { padding: 16px 13px 12px; }
+.menu-brand:hover { text-decoration: none; }
+.brand-mark,
+.acct-avatar {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  background: var(--accent);
+  color: var(--theme-color-primary--contrast);
+  font-weight: 800;
+  font-size: 12px;
+}
+.brand-mark { border-radius: 6px; }
+.acct-avatar { border-radius: 50%; font-weight: 700; }
+.brand-text { font-weight: 700; font-size: 15px; color: var(--text-1); white-space: nowrap; }
+
+.menu-account {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 12px 13px;
+  text-align: left;
+  font: inherit;
+}
+.menu-account:hover { background: var(--surface-2); }
+.acct-name {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Collapsed rail: hide the labels and centre the marks so they fit the 56px width. */
+ix-menu:not(.expanded) .menu-brand,
+ix-menu:not(.expanded) .menu-account { justify-content: center; padding-left: 0; padding-right: 0; gap: 0; }
+ix-menu:not(.expanded) .brand-text,
+ix-menu:not(.expanded) .acct-name { display: none; }
+
+/* ---------------- top bar ----------------
+   MIG-07: the brand/logo row and right-action wrapper are gone — IxApplicationHeader
+   (App.jsx's TopBar) owns that layout internally now. The command bar stays app-owned (it has
+   no home in IxApplicationHeader's slots until MIG-10), rendered as its own row below the
+   header — .cmdbar-row is that row's only styling. */
+.cmdbar-row {
+  padding: 8px 16px; background: var(--surface); border-bottom: 1px solid var(--border);
+}
+.cmdbar { max-width: 640px; position: relative; }
 .cmdbar input {
-  width: 100%; height: 34px; background: var(--chrome-700); color: var(--chrome-text);
-  border: 1px solid var(--chrome-border); border-radius: var(--radius);
+  width: 100%; height: 34px; background: var(--surface-2); color: var(--text-1);
+  border: 1px solid var(--border); border-radius: var(--radius);
   padding: 0 64px 0 32px; font-size: 13px; outline: none;
 }
-.cmdbar input::placeholder { color: var(--chrome-muted); }
-.cmdbar input:focus { border-color: #5c74c9; }
+.cmdbar input::placeholder { color: var(--text-2); }
+.cmdbar input:focus { border-color: var(--accent); }
 .cmdbar .lens {
   position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
-  color: var(--chrome-muted); display: flex; pointer-events: none;
+  color: var(--text-2); display: flex; pointer-events: none;
 }
 .cmdbar .kbd {
-  position: absolute; right: 8px; top: 7px; font-size: 10.5px; color: var(--chrome-muted);
-  border: 1px solid var(--chrome-border); border-radius: 4px; padding: 2px 6px;
+  position: absolute; right: 8px; top: 7px; font-size: 10.5px; color: var(--text-2);
+  border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px;
 }
-/* margin-left:auto, not flex-grow on .cmdbar: the command bar is capped at 640px, so
-   without this the leftover width sits to the RIGHT of the actions and the buttons float
-   in the middle of a wide screen. */
-.top-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+/* ---------------- search landing ("/") ----------------
+   The whole route is one control, so it is centred in the content area rather than laid out from
+   the top-left like every data page. The field is deliberately larger than .cmdbar's 34px row:
+   there it is chrome above a page, here it IS the page. Sat slightly above true centre (the top
+   padding is smaller than the bottom margin's share) because a block pinned to the exact middle
+   reads as low. */
+.search-hero {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-height: 58vh; padding: 24px 16px; text-align: center;
+}
+.search-hero-title { font-size: 34px; font-weight: 800; margin: 0 0 18px; letter-spacing: -.4px; }
+.search-hero-field { position: relative; width: 100%; max-width: 560px; }
+.search-hero-field input {
+  width: 100%; height: 48px; background: var(--surface-2); color: var(--text-1);
+  border: 1px solid var(--border); border-radius: 999px;
+  padding: 0 74px 0 42px; font-size: 15px; outline: none;
+}
+.search-hero-field input::placeholder { color: var(--text-2); }
+.search-hero-field input:focus { border-color: var(--accent); }
+.search-hero-field .lens {
+  position: absolute; left: 16px; top: 50%; transform: translateY(-50%);
+  color: var(--text-2); display: flex; pointer-events: none;
+}
+.search-hero-field .kbd {
+  position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+  font-size: 10.5px; color: var(--text-2);
+  border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px;
+}
+@media (max-width: 560px) {
+  .search-hero-title { font-size: 26px; }
+  .search-hero-field .kbd { display: none; }
+  .search-hero-field input { padding-right: 20px; }
+}
+
 .icon-btn {
-  background: none; border: none; color: var(--chrome-muted); cursor: pointer;
+  background: none; border: none; color: var(--text-2); cursor: pointer;
   font-size: 15px; padding: 7px 9px; border-radius: var(--radius); line-height: 1;
   display: inline-flex; align-items: center; gap: 6px;
 }
@@ -65,7 +191,7 @@ a:hover { text-decoration: underline; }
 .ix-i { display: inline-flex; align-items: center; justify-content: center; flex: none; }
 .ix-i svg { width: 100%; height: 100%; display: block; }
 .ix-i svg, .ix-i svg * { fill: currentColor; }
-.icon-btn:hover { background: var(--chrome-700); color: var(--chrome-text); }
+.icon-btn:hover { background: var(--surface-2); color: var(--text-1); }
 .icon-btn.ai { color: #c4b2f2; border: 1px solid #4b3d80; }
 .icon-btn.ai:hover { background: #322a55; }
 .avatar-btn {
@@ -73,54 +199,36 @@ a:hover { text-decoration: underline; }
   border: none; font-weight: 700; font-size: 12px; cursor: pointer;
 }
 
-/* ---------------- icon rail ---------------- */
-.rail {
-  position: fixed; top: var(--topbar-h); bottom: 0; left: 0; width: var(--rail-w); z-index: 70;
-  background: var(--chrome-900); display: flex; flex-direction: column; padding-top: 6px;
-}
-/* Also worn by a <button> (the assistant toggle), which brings its own background, border
-   and font — hence the resets, so it sits flush with the <a> items beside it. */
-.rail-item {
-  display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 10px 0;
-  color: var(--chrome-muted); border-left: 3px solid transparent; cursor: pointer;
-  background: none; border-top: 0; border-right: 0; border-bottom: 0; width: 100%;
-  font-family: inherit;
-}
-.rail-item:hover { color: var(--chrome-text); background: var(--chrome-800); text-decoration: none; }
-.rail-item.active { color: #fff; background: var(--chrome-800); border-left-color: #9db7f5; }
-.rail-item .ri { font-size: 17px; line-height: 1; }
-.rail-item .rl { font-size: 9.5px; font-weight: 600; letter-spacing: .2px; }
+/* MIG-08: the icon rail's own CSS (.rail/.rail-item) is gone — IxMenu (App.jsx's Rail) owns
+   that chrome now, styled by iX itself rather than this stylesheet. */
 
 /* ---------------- secondary nav ---------------- */
-.sidenav {
-  position: fixed; top: var(--topbar-h); bottom: 0; left: var(--rail-w); width: var(--sidenav-w);
-  z-index: 60; background: var(--surface); border-right: 1px solid var(--border);
-  overflow-y: auto; padding: 12px 10px;
+/* MIG-09: the old standalone <nav class="sidenav"> of <NavLink class="snav-item"> is gone —
+   "Quick access" and "Saved views" are now IxMenuCategory items nested inside the SAME IxMenu
+   as the rail (App.jsx's Rail), not a second menu instance. IxMenuCategory has no breakpoint
+   prop (verified against the compiled source — menu-category.js's only visibility state is its
+   own expand/collapse accordion, not viewport-driven), so the below-1180px hide still has to be
+   a CSS rule; it now targets the categories' own class instead of a wrapper <nav>. */
+@media (max-width: 1180px) {
+  .menu-secondary { display: none; }
 }
-.sidenav h4 {
-  margin: 12px 8px 4px; font-size: 10.5px; font-weight: 700; letter-spacing: .7px;
-  text-transform: uppercase; color: var(--text-3);
-}
-.snav-item {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  padding: 6px 9px; border-radius: var(--radius); color: var(--text-1);
-  font-size: 13px; font-weight: 500; cursor: pointer;
-}
-.snav-item:hover { background: var(--surface-2); text-decoration: none; }
-.snav-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-.snav-item .count { font-size: 11px; color: var(--text-3); }
 
 /* ---------------- content ---------------- */
+/* MIG-06: the fixed-offset margin this used to force (topbar-h/rail-w/sidenav-w) assumed the
+   old hand-rolled fixed-position shell. IxContent (App.jsx's Shell) now owns page layout, so
+   this only keeps the page's own padding — the offset math is gone, not relocated. */
 .content {
-  margin: var(--topbar-h) 0 0 calc(var(--rail-w) + var(--sidenav-w));
-  padding: 16px 20px 90px; min-height: calc(100vh - var(--topbar-h));
+  padding: 16px 20px 90px;
 }
-.content.no-sidenav { margin-left: var(--rail-w); }
-.content.with-dock { margin-right: 340px; }
-@media (max-width: 1180px) {
-  .sidenav { display: none; }
-  .content { margin-left: var(--rail-w); }
-  .content.with-dock { margin-right: 0; }
+
+/* The assistant dock (AssistantDock.jsx) is a `position: fixed` overlay pinned to the right
+   edge. Without reserving space it sits ON TOP of the page, clipping the right of Explore's
+   grid and Home's panels (the reflow defect Batch A shipped unverified). The dock only
+   auto-opens above 1180px (state.jsx's DOCK_AUTO_OPEN_QUERY), so the reserved margin is scoped
+   to the same breakpoint — below it the dock is a tap-away overlay and squeezing a phone-width
+   canvas by 360px would be worse than a temporary overlay. */
+@media (min-width: 1181px) {
+  .content.with-dock { margin-right: 360px; }
 }
 
 .crumb { color: var(--text-3); font-size: var(--fs-meta); margin-bottom: 2px; }
@@ -160,7 +268,7 @@ a:hover { text-decoration: underline; }
 }
 .fchip {
   display: inline-flex; align-items: center; gap: 5px; background: var(--accent-soft);
-  color: var(--accent); border: 1px solid #c6d5f2; border-radius: 999px;
+  color: var(--accent); border: 1px solid var(--accent); border-radius: 999px;
   padding: 2px 10px; font-size: var(--fs-meta); font-weight: 600;
 }
 .fchip button { background: none; border: none; color: inherit; cursor: pointer; font-size: 12px; padding: 0; }
@@ -181,15 +289,15 @@ a:hover { text-decoration: underline; }
 .dtable td { border-bottom: 1px solid var(--border); padding: 7px 10px; white-space: nowrap; }
 .dtable.dense td { padding: 4px 10px; }
 .dtable tbody tr { cursor: pointer; }
-.dtable tbody tr:hover td { background: #f2f6fd; }
+.dtable tbody tr:hover td { background: var(--surface-2); }
 .dtable tbody tr.selected td { background: var(--accent-soft); }
 .dtable .sticky-col { position: sticky; left: 0; z-index: 2; background: var(--surface); }
 .dtable th.sticky-col { z-index: 4; background: var(--surface-2); }
-.dtable tbody tr:hover .sticky-col { background: #f2f6fd; }
+.dtable tbody tr:hover .sticky-col { background: var(--surface-2); }
 .dtable tbody tr.selected .sticky-col { background: var(--accent-soft); }
 .co-cell { display: flex; align-items: center; gap: 8px; min-width: 170px; }
 .logo-chip {
-  width: 22px; height: 22px; border-radius: 5px; background: var(--chrome-800); color: #fff;
+  width: 22px; height: 22px; border-radius: 5px; background: var(--accent); color: #fff;
   display: inline-flex; align-items: center; justify-content: center;
   font-size: 10.5px; font-weight: 700; flex-shrink: 0;
 }
@@ -198,18 +306,28 @@ a:hover { text-decoration: underline; }
 .kebab { background: none; border: none; cursor: pointer; color: var(--text-3); font-size: 14px; padding: 2px 6px; border-radius: 4px; }
 .kebab:hover { background: var(--surface-2); color: var(--text-1); }
 .num { font-variant-numeric: tabular-nums; font-weight: 700; }
+/* Recent-evaluations row: name, score and pillar are one headline line with the score pushed to
+   the right edge, the summary underneath. A long company name truncates rather than wrapping,
+   because a wrapped name would drag the score onto a second line — the defect this replaced. */
+.run-cell { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.run-row { display: flex; align-items: center; gap: 8px; width: 100%; }
+.run-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.run-row .num { flex: none; margin-left: auto; }
+.run-row ix-pill { flex: none; }
+.run-desc { font-size: 12px; margin-top: 2px; }
 .desc-clip { max-width: 300px; overflow: hidden; text-overflow: ellipsis; color: var(--text-2); }
 
 /* ---------------- pills / badges ---------------- */
+/* MIG-01/MIG-29: every pillar pill (Connect/Collaborate/Empower/Pass) across Profile.jsx,
+   Explore.jsx, Home.jsx, Alerts.jsx, widgets.jsx and WhatIfWeights.jsx now renders through
+   `IxPill` (see components/widgets.jsx's `PillarPill`, tokens.css's --pillar-*-bg). The
+   `.pill.<Pillar>` rules are gone; `.pill`/`.pill.sfs`/`.pill.ghost` stay for the SFS-financing
+   badge, which is a non-pillar variant. */
 .pill {
   display: inline-block; padding: 1px 9px; border-radius: 999px;
   font-weight: 700; font-size: 11px; border: 1px solid transparent;
 }
-.pill.Connect { background: var(--success-soft); color: var(--pillar-connect); border-color: #bfe3cd; }
-.pill.Collaborate { background: #e7f4f8; color: var(--pillar-collaborate); border-color: #bcdfe9; }
-.pill.Empower { background: var(--accent-soft); color: var(--pillar-empower); border-color: #c6d5f2; }
-.pill.Pass { background: #f0f2f5; color: var(--pillar-pass); border-color: #d9dee5; }
-.pill.sfs { background: var(--warning-soft); color: var(--warning); border-color: #ecd9ac; }
+.pill.sfs { background: var(--warning-soft); color: var(--warning); border-color: var(--warning); }
 .pill.ghost { opacity: .8; }
 .badge {
   display: inline-block; border: 1px solid var(--border-2); background: var(--surface-2);
@@ -220,6 +338,9 @@ a:hover { text-decoration: underline; }
 .badge.danger { border-color: var(--danger); background: var(--danger-soft); color: var(--danger); }
 .chip { display: inline-block; background: var(--surface-2); border: 1px solid var(--border);
   padding: 2px 9px; border-radius: 999px; font-size: 12px; margin: 2px 4px 2px 0; }
+/* A value the engine could not evidence. Warning-coloured, not neutral: a reviewer scanning the
+   tiles has to be able to see at a glance that this one is not backed by anything. */
+.chip.unverified { color: var(--warning); border-color: var(--warning); background: var(--warning-soft); }
 .chip.action { cursor: pointer; }
 .chip.action:hover { border-color: var(--accent); color: var(--accent); }
 .status-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; }
@@ -240,6 +361,9 @@ a:hover { text-decoration: underline; }
 .metric .k { font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; color: var(--text-3); font-weight: 700; }
 .metric .v { font-size: 17px; font-weight: 800; margin-top: 2px; }
 .metric .s { font-size: var(--fs-meta); color: var(--text-2); }
+/* "Munich, Germany" is a phrase, not a figure — at the tile's 17px it either overflows or forces
+   every tile in the row taller. Smaller and allowed to wrap onto a second line. */
+.metric .v.loc { font-size: 13.5px; line-height: 1.3; }
 
 /* ---------------- forms ---------------- */
 .input, .textarea, select.input {
@@ -247,13 +371,13 @@ a:hover { text-decoration: underline; }
   border: 1px solid var(--border-2); border-radius: var(--radius);
   padding: 7px 10px; font-size: var(--fs-body); outline: none;
 }
-.input:focus, .textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(36,87,197,.12); }
+.input:focus, .textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .textarea { resize: vertical; min-height: 66px; font-family: inherit; }
 .btn {
   background: var(--accent); color: #fff; font-weight: 600; border: 1px solid var(--accent);
   cursor: pointer; padding: 7px 16px; border-radius: var(--radius); font-size: 13px;
 }
-.btn:hover { background: #1e4aa8; }
+.btn:hover { background: var(--accent-hover); }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
 .btn.secondary { background: var(--surface); color: var(--accent); }
 .btn.secondary:hover { background: var(--accent-soft); }
@@ -262,13 +386,71 @@ a:hover { text-decoration: underline; }
 .btn.ai:hover { background: #5b3fae; }
 
 /* ---------------- profile workspace ---------------- */
+/* No longer sticky. The header now carries the full description rather than a clipped one-liner,
+   so pinning it would hold a growing block of text against the top of a page whose whole point is
+   that you scroll it. The section rail is what stays in view instead. */
 .profile-head {
-  position: sticky; top: var(--topbar-h); z-index: 40; background: var(--surface);
+  background: var(--surface);
   border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 12px 16px 0; margin-bottom: 12px;
+  padding: 12px 16px 14px; margin-bottom: 12px;
+}
+/* The description, out of iX's truncating subtitle slot. max-width because a measure of ~90
+   characters is the readable limit and the content area is far wider than that. */
+.ph-summary {
+  color: var(--text-1); font-size: var(--fs-body); line-height: 1.55;
+  margin: 6px 0 10px; max-width: 78ch;
+}
+/* Each figure is a label + value pair rather than three phrases run together. The separator is a
+   rule between items, not punctuation, so the eye can count them. */
+.ph-meta > span { display: inline-flex; align-items: baseline; gap: 6px; }
+.ph-meta > span + span { border-left: 1px solid var(--border); padding-left: 14px; }
+.ph-meta .k { text-transform: uppercase; letter-spacing: .4px; font-size: 10.5px; font-weight: 700; color: var(--text-3); }
+.ph-meta strong { color: var(--text-1); font-size: 14px; }
+
+/* ---------------- profile section rail ----------------
+   The rail is sticky and the page scrolls past it. `align-self: start` is what lets a sticky
+   element work inside a grid track — a stretched track item is as tall as the column and has
+   nothing to stick within. */
+.profile-body { display: grid; grid-template-columns: 216px minmax(0, 1fr); gap: 12px; align-items: start; }
+.profile-sections { min-width: 0; }
+.sec-nav {
+  position: sticky; top: 0; align-self: start;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 6px; max-height: calc(100vh - 90px); overflow-y: auto;
+}
+.sec-nav .sec-head {
+  display: flex; align-items: center; gap: 6px; width: 100%; text-align: left;
+  background: none; border: none; cursor: pointer; border-radius: 4px;
+  padding: 7px 8px; font-size: 11.5px; font-weight: 700; letter-spacing: .6px;
+  text-transform: uppercase; color: var(--text-3);
+}
+.sec-nav .sec-head:hover { color: var(--text-1); background: var(--surface-2); }
+.sec-nav .sec-group.open .sec-head { color: var(--accent); background: var(--accent-soft); }
+.sec-nav .caret { font-size: 9px; }
+.sec-nav ul { list-style: none; margin: 0 0 4px; padding: 0 0 0 14px; border-left: 1px solid var(--border); margin-left: 13px; }
+.sec-nav .sec-item {
+  display: block; width: 100%; text-align: left; background: none; border: none; cursor: pointer;
+  padding: 5px 8px; font-size: 12.5px; color: var(--text-2); border-radius: 4px;
+}
+.sec-nav .sec-item:hover { color: var(--text-1); background: var(--surface-2); }
+.sec-nav .sec-item.active { color: var(--text-1); font-weight: 700; background: var(--surface-2); }
+/* scroll-margin, not padding: it offsets where scrollIntoView() lands so a jumped-to card is not
+   flush against the top edge of the scroll container. */
+.sub { scroll-margin-top: 12px; }
+.sec-title {
+  font-size: 11.5px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase;
+  color: var(--text-3); margin: 20px 0 8px; padding-top: 8px; border-top: 1px solid var(--border);
+}
+@media (max-width: 900px) {
+  /* Below this a 216px column costs more width than it earns, so the rail stops being a column
+     and becomes a block above the report. Not hidden: it is the only map of a page that is now
+     several screens long, and a narrow viewport needs that more than a wide one, not less.
+     Un-sticky here because pinning it would eat a third of a short viewport. */
+  .profile-body { grid-template-columns: minmax(0, 1fr); }
+  .sec-nav { position: static; max-height: none; margin-bottom: 4px; }
 }
 .ph-row { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
-.ph-logo { width: 40px; height: 40px; border-radius: 8px; background: var(--chrome-800); color: #fff;
+.ph-logo { width: 40px; height: 40px; border-radius: 8px; background: var(--accent); color: #fff;
   display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 16px; }
 .ph-title { font-size: 19px; font-weight: 800; margin: 0; }
 .ph-desc { color: var(--text-2); margin: 2px 0 4px; font-size: var(--fs-body); max-width: 760px; }
@@ -295,29 +477,26 @@ a:hover { text-decoration: underline; }
 .score-big { font-size: 38px; font-weight: 800; line-height: 1; }
 
 /* ---------------- drawer (column customisation) ---------------- */
-.drawer-mask { position: fixed; inset: 0; background: rgba(20,26,43,.28); z-index: 90; }
-.drawer {
-  position: fixed; top: 0; right: 0; bottom: 0; width: 320px; z-index: 95;
-  background: var(--surface); border-left: 1px solid var(--border-2);
-  padding: 16px; overflow-y: auto; box-shadow: -8px 0 24px rgba(16,24,40,.10);
-}
-.drawer h2 { font-size: 15px; margin: 0 0 4px; }
+/* MIG-14: the drawer's own chrome (mask, panel positioning/surface/shadow) moved onto IxPane
+   (Explore.jsx's ColumnDrawer, Explore.css's .explore-drawer-pane) — .drawer-mask/.drawer are
+   gone. .drow/.mv stay: they style the column rows inside the pane's content, not the chrome. */
 .drow { display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-bottom: 1px solid var(--border); font-size: 13px; }
 .drow .mv { margin-left: auto; display: flex; gap: 2px; }
 .mv button { background: none; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; font-size: 11px; padding: 1px 6px; color: var(--text-2); }
 .mv button:hover { border-color: var(--accent); color: var(--accent); }
 
 /* ---------------- AI dock ---------------- */
-.dock {
-  position: fixed; top: var(--topbar-h); right: 0; bottom: 0; width: 332px; z-index: 65;
-  background: var(--surface); border-left: 1px solid var(--border-2);
-  display: flex; flex-direction: column;
+/* MIG-11: IxPane (components/AssistantDock.jsx) owns the title bar (heading/icon/close button)
+   and the outer chrome now — .dock-head is gone, "on {company}" moves to the pane's own
+   `header` slot as .ctx. IxPane itself defaults every composition to `position: relative` (in
+   flow, verified against the compiled source's pane.css), which is not what an overlay panel
+   needs; .assistant-pane is the override that keeps the old fixed-position, non-reflowing
+   behavior since IxPane has no "floating over everything" prop of its own. */
+.assistant-pane {
+  position: fixed; top: var(--topbar-h); right: 0; bottom: 0; width: 360px; z-index: 65;
 }
-.dock-head {
-  padding: 10px 14px; border-bottom: 1px solid var(--border); display: flex;
-  align-items: center; gap: 8px; font-weight: 700; font-size: 13px;
-}
-.dock-head .ctx { font-weight: 500; color: var(--text-3); font-size: 11px; margin-left: auto; max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctx { font-weight: 500; color: var(--text-3); font-size: 11px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock { display: flex; flex-direction: column; height: 100%; }
 .dock-body { flex: 1; overflow-y: auto; padding: 12px 14px; }
 .dock-msg { margin-bottom: 10px; font-size: 13px; }
 .dock-msg.user { color: var(--text-1); font-weight: 600; }
@@ -325,14 +504,14 @@ a:hover { text-decoration: underline; }
 .dock-msg .src { font-size: 10.5px; color: var(--ai); font-weight: 700; margin-bottom: 3px; }
 .dock-suggest { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .dock-suggest button {
-  text-align: left; background: var(--ai-soft); color: var(--ai); border: 1px solid #ddd2f4;
+  text-align: left; background: var(--ai-soft); color: var(--ai); border: 1px solid var(--ai);
   border-radius: var(--radius); padding: 6px 10px; font-size: 12px; cursor: pointer;
 }
 .dock-suggest button:hover { border-color: var(--ai); }
 .dock-input { border-top: 1px solid var(--border); padding: 10px 12px; display: flex; gap: 6px; }
 
 /* ---------------- states ---------------- */
-.skel { background: linear-gradient(90deg, var(--surface-2) 25%, #eef1f6 50%, var(--surface-2) 75%);
+.skel { background: linear-gradient(90deg, var(--surface-2) 25%, var(--border) 50%, var(--surface-2) 75%);
   background-size: 200% 100%; animation: shim 1.2s infinite; border-radius: 4px; }
 @keyframes shim { to { background-position: -200% 0; } }
 .skel-row { height: 30px; margin: 6px 0; }
@@ -342,7 +521,7 @@ a:hover { text-decoration: underline; }
 }
 .empty .big { font-size: 26px; margin-bottom: 6px; }
 .empty h4 { margin: 0 0 4px; color: var(--text-1); font-size: 15px; }
-.error-box { border: 1px solid #eec4c1; background: var(--danger-soft); color: var(--danger);
+.error-box { border: 1px solid var(--danger); background: var(--danger-soft); color: var(--danger);
   border-radius: var(--radius); padding: 9px 13px; margin: 8px 0; font-size: var(--fs-body); }
 /* Text for screen readers only. The criteria checklist encodes met/unmet/unknown in colour and a
    glyph, and neither survives being read aloud — WCAG 1.4.1 requires the state to be available

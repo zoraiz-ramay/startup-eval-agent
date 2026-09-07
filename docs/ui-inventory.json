@@ -4,6 +4,10 @@
   "routes": [
     {
       "path": "/",
+      "component": "SearchHome"
+    },
+    {
+      "path": "/workspace",
       "component": "Home"
     },
     {
@@ -171,18 +175,13 @@
   ],
   "design_tokens": [
     "--accent",
+    "--accent-hover",
     "--accent-soft",
     "--ai",
     "--ai-soft",
     "--border",
     "--border-2",
     "--canvas",
-    "--chrome-700",
-    "--chrome-800",
-    "--chrome-900",
-    "--chrome-border",
-    "--chrome-muted",
-    "--chrome-text",
     "--danger",
     "--danger-soft",
     "--fs-body",
@@ -191,8 +190,11 @@
     "--fs-table",
     "--fs-title",
     "--pillar-collaborate",
+    "--pillar-collaborate-bg",
     "--pillar-connect",
+    "--pillar-connect-bg",
     "--pillar-empower",
+    "--pillar-empower-bg",
     "--pillar-pass",
     "--profile-sticky-h",
     "--radius",
@@ -206,6 +208,24 @@
     "--text-1",
     "--text-2",
     "--text-3",
+    "--theme-color-1",
+    "--theme-color-1--active",
+    "--theme-color-1--hover",
+    "--theme-color-2",
+    "--theme-color-2--hover",
+    "--theme-color-3",
+    "--theme-color-4",
+    "--theme-color-alarm",
+    "--theme-color-primary",
+    "--theme-color-primary--active",
+    "--theme-color-primary--contrast",
+    "--theme-color-primary--hover",
+    "--theme-color-soft-text",
+    "--theme-color-std-text",
+    "--theme-color-success",
+    "--theme-color-warning",
+    "--theme-color-weak-text",
+    "--theme-nav-item-primary--background--selected",
     "--topbar-h",
     "--warning",
     "--warning-soft"
@@ -213,79 +233,58 @@
   "files": [
     {
       "path": "ui/src/App.jsx",
-      "lines": 276,
+      "lines": 375,
       "exports": [
         "App"
       ],
       "css_classes": [
-        "avatar-btn",
+        "acct-avatar",
+        "acct-name",
         "badge",
-        "brand",
+        "brand-mark",
+        "brand-text",
         "cmdbar",
-        "count",
-        "dot",
-        "icon-btn",
+        "cmdbar-row",
         "kbd",
         "lens",
-        "name",
-        "rail",
-        "ri",
-        "rl",
-        "sidenav",
+        "menu-account",
+        "menu-brand",
+        "menu-secondary",
+        "search-hero",
+        "search-hero-field",
+        "search-hero-title",
         "signin",
-        "snav-item",
         "stub-banner",
         "sub",
         "suggest",
         "suggest-item",
-        "suggest-list",
-        "top-actions",
-        "topbar"
+        "suggest-list"
       ]
     },
     {
       "path": "ui/src/App.test.jsx",
-      "lines": 128,
+      "lines": 141,
       "exports": [],
       "css_classes": []
     },
     {
       "path": "ui/src/components/AssistantDock.jsx",
-      "lines": 93,
+      "lines": 114,
       "exports": [
         "AssistantDock"
       ],
       "css_classes": [
         "ai",
+        "assistant-pane",
         "btn",
         "ctx",
         "dock",
         "dock-body",
-        "dock-head",
         "dock-input",
         "dock-suggest",
-        "icon-btn",
         "input",
         "muted",
-        "spinner",
         "src"
-      ]
-    },
-    {
-      "path": "ui/src/components/ClaimEvidenceMatrix.jsx",
-      "lines": 130,
-      "exports": [
-        "ClaimEvidenceMatrix"
-      ],
-      "css_classes": [
-        "badge",
-        "cem",
-        "cem-error",
-        "cem-head",
-        "cem-scroll",
-        "cem-state",
-        "cem-table",
-        "sub"
       ]
     },
     {
@@ -303,16 +302,6 @@
       "lines": 33,
       "exports": [],
       "css_classes": []
-    },
-    {
-      "path": "ui/src/components/FitScoreHistogram.jsx",
-      "lines": 118,
-      "exports": [
-        "FitScoreHistogram"
-      ],
-      "css_classes": [
-        "muted"
-      ]
     },
     {
       "path": "ui/src/components/Icon.jsx",
@@ -373,21 +362,16 @@
     },
     {
       "path": "ui/src/components/WeightSliders.jsx",
-      "lines": 74,
+      "lines": 77,
       "exports": [
         "WeightSliders",
         "useWeighting"
       ],
-      "css_classes": [
-        "k",
-        "spec",
-        "v",
-        "wslider"
-      ]
+      "css_classes": []
     },
     {
       "path": "ui/src/components/WhatIfWeights.jsx",
-      "lines": 247,
+      "lines": 251,
       "exports": [
         "WhatIfWeights"
       ],
@@ -396,10 +380,8 @@
         "btn",
         "k",
         "muted",
-        "panel",
         "secondary",
         "spec",
-        "tool-btn",
         "v"
       ]
     },
@@ -409,6 +391,7 @@
       "exports": [
         "ExtLink",
         "Loading",
+        "PillarPill",
         "PillarPills",
         "Radar",
         "ScoreBar",
@@ -419,13 +402,9 @@
         "bar-fill",
         "bar-label",
         "bar-track",
-        "k",
         "muted",
         "pill",
-        "sfs",
-        "spec",
-        "spinner",
-        "v"
+        "sfs"
       ]
     },
     {
@@ -452,19 +431,14 @@
         "crumb",
         "dense",
         "dtable",
-        "empty",
         "grid2",
-        "input",
-        "k",
         "muted",
         "page-head",
         "page-meta",
         "page-title",
         "panel",
         "secondary",
-        "stat",
-        "stats-strip",
-        "v"
+        "stats-strip"
       ]
     },
     {
@@ -475,16 +449,13 @@
     },
     {
       "path": "ui/src/pages/Alerts.jsx",
-      "lines": 74,
+      "lines": 83,
       "exports": [
         "Alerts"
       ],
       "css_classes": [
-        "big",
-        "btn",
         "crumb",
         "dtable",
-        "empty",
         "muted",
         "num",
         "on",
@@ -492,7 +463,6 @@
         "page-meta",
         "page-title",
         "panel",
-        "secondary",
         "star-btn",
         "tool-btn"
       ]
@@ -512,40 +482,6 @@
       ]
     },
     {
-      "path": "ui/src/pages/Challenges.jsx",
-      "lines": 3,
-      "exports": [],
-      "css_classes": []
-    },
-    {
-      "path": "ui/src/pages/Dashboard.jsx",
-      "lines": 3,
-      "exports": [],
-      "css_classes": []
-    },
-    {
-      "path": "ui/src/pages/Evaluate.jsx",
-      "lines": 3,
-      "exports": [],
-      "css_classes": []
-    },
-    {
-      "path": "ui/src/pages/EvidenceTab.jsx",
-      "lines": 139,
-      "exports": [
-        "EvidenceTab"
-      ],
-      "css_classes": [
-        "badge",
-        "empty",
-        "evidence-tab",
-        "evidence-table",
-        "filter-container",
-        "loading",
-        "source-quality-legend"
-      ]
-    },
-    {
       "path": "ui/src/pages/Explore.jsx",
       "lines": 523,
       "exports": [
@@ -555,27 +491,21 @@
         "badge",
         "big",
         "btn",
-        "clear-link",
         "co-cell",
         "crumb",
         "desc-clip",
-        "drawer",
-        "drawer-mask",
         "drow",
         "empty",
+        "explore-drawer-pane",
         "fchip",
         "filter-row",
         "grid-shell",
         "input",
-        "k",
         "kebab",
         "logo-chip",
         "muted",
         "mv",
         "num",
-        "page-head",
-        "page-meta",
-        "page-title",
         "panel",
         "pill",
         "secondary",
@@ -583,49 +513,42 @@
         "skel",
         "skel-row",
         "spacer",
-        "stat",
         "stats-strip",
         "sticky-col",
         "tool-btn",
-        "toolbar",
-        "v"
+        "toolbar"
       ]
     },
     {
       "path": "ui/src/pages/Explore.test.jsx",
-      "lines": 236,
+      "lines": 256,
       "exports": [],
       "css_classes": []
     },
     {
       "path": "ui/src/pages/Home.jsx",
-      "lines": 211,
+      "lines": 231,
       "exports": [
         "Home"
       ],
       "css_classes": [
-        "action",
         "badge",
-        "btn",
-        "chip",
+        "composer-card",
+        "composer-input",
+        "composer-row",
         "crumb",
         "grid2",
-        "input",
-        "k",
-        "list-main",
-        "list-row",
-        "logo-chip",
         "muted",
         "num",
         "page-head",
         "page-meta",
         "page-title",
         "panel",
-        "secondary",
-        "stat",
-        "stats-strip",
-        "tool-btn",
-        "v"
+        "run-cell",
+        "run-desc",
+        "run-name",
+        "run-row",
+        "stats-strip"
       ]
     },
     {
@@ -655,6 +578,7 @@
         "k",
         "list-main",
         "list-row",
+        "loc",
         "metric",
         "metric-row",
         "muted",
@@ -841,13 +765,11 @@
         "grid2",
         "muted",
         "panel",
-        "ph-actions",
-        "ph-desc",
-        "ph-logo",
+        "ph-header-slot",
         "ph-meta",
-        "ph-row",
-        "ph-title",
+        "ph-summary",
         "pill",
+        "profile-body",
         "profile-head",
         "secondary",
         "sfs",
@@ -876,56 +798,42 @@
     },
     {
       "path": "ui/src/pages/Saved.jsx",
-      "lines": 42,
+      "lines": 64,
       "exports": [
         "Saved"
       ],
       "css_classes": [
-        "big",
-        "btn",
         "crumb",
-        "danger",
-        "empty",
-        "list-main",
-        "list-row",
         "muted",
         "page-head",
         "page-meta",
         "page-title",
-        "panel",
-        "secondary"
+        "panel"
       ]
     },
     {
       "path": "ui/src/pages/Settings.jsx",
-      "lines": 65,
+      "lines": 76,
       "exports": [
         "Settings"
       ],
       "css_classes": [
-        "btn",
         "crumb",
-        "k",
         "muted",
         "page-head",
         "page-title",
         "panel",
-        "secondary",
-        "spec",
-        "status-dot",
-        "v"
+        "status-dot"
       ]
     },
     {
       "path": "ui/src/pages/SignIn.jsx",
-      "lines": 100,
+      "lines": 107,
       "exports": [
         "SignIn"
       ],
       "css_classes": [
-        "btn",
         "muted",
-        "panel",
         "signin",
         "signin-card",
         "signin-foot",
@@ -935,13 +843,7 @@
     },
     {
       "path": "ui/src/pages/SignIn.test.jsx",
-      "lines": 79,
-      "exports": [],
-      "css_classes": []
-    },
-    {
-      "path": "ui/src/pages/Solve.jsx",
-      "lines": 3,
+      "lines": 87,
       "exports": [],
       "css_classes": []
     },
@@ -958,7 +860,7 @@
     }
   ],
   "totals": {
-    "routes": 8,
+    "routes": 9,
     "api_methods": 24,
     "design_tokens": 39,
     "jsx_files": 52,

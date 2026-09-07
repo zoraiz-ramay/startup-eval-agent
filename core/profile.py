@@ -81,6 +81,11 @@ EMPTY_PROFILE = {
     "linkedin_size_band": "",
     "linkedin_size_source": "",
     "parent_group": "",       # part of a major group / corporate parent
+    "hq": "",                 # web-researched headquarters; backfills a blank DB column
+    "hq_source": "",          # URL supporting hq, when the evidence cited one
+    # "web" when hq came from a cited result, "llm" when it came from model knowledge with no
+    # source. The UI needs the distinction to label the value honestly; see _recall_hq_offline.
+    "hq_origin": "",
     "founded_year": "",       # web-researched; backfills a blank DB column (see pipeline)
     "founded_year_source": "",  # URL supporting founded_year, when the evidence cited one
     "funding": "",            # web-researched round/amount; backfills a blank DB column
@@ -182,6 +187,24 @@ def _corpus(results: dict) -> str:
     site_lines = _interleave(site_q, int(_CORPUS_CHARS * _CORPUS_SITE_SHARE))
     spent = sum(len(line) + 1 for line in site_lines)
     return "\n".join(site_lines + _interleave(web_q, _CORPUS_CHARS - spent))
+
+
+_HQ_NON_ANSWERS = {"", "unknown", "n/a", "na", "none", "not stated", "not available",
+                   "not specified", "remote", "worldwide", "global", "-", "—"}
+
+
+def _clean_hq(value) -> str:
+    """A place name, or ''.
+
+    Asked where a company is based, a model that has not found the answer will say "Unknown",
+    "Remote" or "Global" rather than nothing — and any of those rendered in the Location tile
+    reads as an established fact about the company. They are refusals, so they are dropped. The
+    length cap catches the other failure mode, a sentence of hedging in place of a city.
+    """
+    hq = " ".join(str(value or "").split()).strip(" .,;")
+    if hq.lower() in _HQ_NON_ANSWERS or len(hq) > 60:
+        return ""
+    return hq
 
 
 def _site_hint(row: pd.Series) -> str:
@@ -419,6 +442,9 @@ def _llm_extract(company: str, row: pd.Series, results: dict, llm: LLMClient) ->
         "- founders: include role AND a specific background (prior companies, roles, university/PhD) "
         "whenever the evidence mentions it; include the LinkedIn URL if present in the results.\n"
         "- employees: a number or tight range (e.g. '25' or '50-100'), not vague words.\n"
+        "- hq: the headquarters as 'City, Country' (e.g. 'Munich, Germany'), and ONLY if a "
+        "result states where the company is based. Never infer it from a top-level domain, a "
+        "language, or an investor's address.\n"
         "- founded_year: 4-digit year only (e.g. '2021'), and ONLY if a result states when the "
         "company was founded/incorporated/started. Never infer it from a copyright notice, a "
         "domain registration date, or the earliest news article.\n"
@@ -427,7 +453,7 @@ def _llm_extract(company: str, row: pd.Series, results: dict, llm: LLMClient) ->
         "public — Crunchbase renders it as 'obfuscated', or the source says undisclosed — STILL "
         "report the stage, e.g. 'Pre-Seed, amount undisclosed'. Leave empty only when the "
         "evidence names neither a stage nor an amount, and NEVER guess an amount.\n"
-        "- founded_year_source / funding_source: the source_url of the result supporting each — a "
+        "- hq_source / founded_year_source / funding_source: the source_url of the result supporting each — a "
         "real http link from the results, never a label; leave empty if the value came from the "
         "KNOWN block rather than a search result.\n"
         # The SFS judgement used to be asked for here, as one line appended to an extraction
@@ -441,6 +467,7 @@ def _llm_extract(company: str, row: pd.Series, results: dict, llm: LLMClient) ->
         ' "key_team": [{"name":"","role":"","source_url":""}],\n'
         ' "advisors": [{"name":"","role":"","affiliation":"","source_url":""}],\n'
         ' "employees": "", "parent_group": "",\n'
+        ' "hq": "", "hq_source": "",\n'
         ' "founded_year": "", "founded_year_source": "",\n'
         ' "funding": "", "funding_source": "",\n'
         ' "programs": [{"name":"","type":"incubator|accelerator|corporate_program","source_url":""}],\n'
@@ -458,6 +485,10 @@ def _llm_extract(company: str, row: pd.Series, results: dict, llm: LLMClient) ->
     prof["employees"] = str(data.get("employees") or "").strip()
     prof["parent_group"] = str(data.get("parent_group") or "").strip()
     prof["customer_segment"] = str(data.get("customer_segment") or "").strip()
+    hq = _clean_hq(data.get("hq"))
+    prof["hq"] = hq
+    prof["hq_source"] = _clean_source_url(data.get("hq_source")) if hq else ""
+    prof["hq_origin"] = "web" if hq else ""
     # Founded year is only accepted as a bare 4-digit year in a plausible range: the model
     # otherwise happily returns '2021 (est.)', 'circa 2019' or a copyright year, none of which
     # a downstream consumer can treat as a number.
@@ -611,12 +642,16 @@ def _deepen_founders(prof: dict, company: str, llm: LLMClient) -> None:
 
 
 # Headline profile fields the GlassDollar record can answer directly, and the row columns
-# that carry them. These are exactly the three _recover_headline_facts spends a focused
+# that carry them. These are exactly the fields _recover_headline_facts spends a focused
 # search wave and an extraction call on.
 _DB_SEEDABLE = (
     ("founded_year", ("founded_year",)),
     ("funding", ("funding",)),
     ("employees", ("employees_count", "employee_band")),
+    # hq joined the list when Location became a headline tile. GlassDollar answers it directly
+    # (glassdollar_api.company_to_row's "hq"), so the database still wins; the recall net and,
+    # failing that, _recall_hq_offline only ever fill a blank.
+    ("hq", ("hq",)),
 )
 
 
@@ -810,7 +845,8 @@ def _recover_headline_facts(prof: dict, company: str, row: pd.Series, llm: LLMCl
     need_year = not str(prof.get("founded_year", "")).strip()
     need_emp = not str(prof.get("employees", "")).strip()
     need_funding = not str(prof.get("funding", "")).strip()
-    if not (need_year or need_emp or need_funding) or not llm.available:
+    need_hq = not str(prof.get("hq", "")).strip()
+    if not (need_year or need_emp or need_funding or need_hq) or not llm.available:
         return
     hint = _site_hint(row)
     q = f"{company} {hint}".strip() if hint else company
@@ -838,6 +874,8 @@ def _recover_headline_facts(prof: dict, company: str, row: pd.Series, llm: LLMCl
         "from a copyright notice, a domain registration, or the date of the earliest article.\n"
         "- employees: a number or tight range exactly as stated (e.g. '25', '2-10'), not a "
         "vague word.\n"
+        "- hq: headquarters as 'City, Country', exactly as stated. Never infer it from a "
+        "top-level domain or an investor's address.\n"
         "- funding: the most recent round, stage and amount when both are evidenced (e.g. "
         "'Seed, $2.5M (2024)'). If the stage is evidenced but the amount is NOT public — "
         "Crunchbase renders it as 'obfuscated', or the source says undisclosed — STILL report "
@@ -846,7 +884,8 @@ def _recover_headline_facts(prof: dict, company: str, row: pd.Series, llm: LLMCl
         "Give the supporting source_url (a real http link from the results, not a label) for "
         "each. Leave a field empty if unsupported.\n"
         'Return ONLY JSON: {"founded_year":"","founded_year_source":"",'
-        '"employees":"","employees_source":"","funding":"","funding_source":""}',
+        '"employees":"","employees_source":"","funding":"","funding_source":"",'
+        '"hq":"","hq_source":""}',
         system="You extract structured facts strictly from supplied evidence. JSON only.",
         max_tokens=500, reasoning="none")) or {}
     if need_year:
@@ -866,6 +905,44 @@ def _recover_headline_facts(prof: dict, company: str, row: pd.Series, llm: LLMCl
         if fund and has_funding_signal(fund):
             prof["funding"] = fund
             prof["funding_source"] = _clean_source_url(data.get("funding_source"))
+    if need_hq:
+        hq = _clean_hq(data.get("hq"))
+        if hq:
+            prof["hq"] = hq
+            prof["hq_source"] = _clean_source_url(data.get("hq_source"))
+            prof["hq_origin"] = "web"
+
+
+def _recall_hq_offline(prof: dict, company: str, row: pd.Series, llm: LLMClient) -> None:
+    """Last resort for headquarters: ask the model what it already knows, with no evidence.
+
+    This is a deliberate, narrow exception to the rule that verifiable fields never come from
+    model memory (CLAUDE.md; core/data.py's web_profile_row refuses to do this). Headquarters is
+    now a headline tile on the profile, and GlassDollar leaves it blank often enough that the
+    tile was empty on runs where the company's location is not actually in doubt. The exception
+    is contained three ways: it runs ONLY after the database and both web passes have come back
+    empty, the value is stamped ``hq_origin='llm'`` so the UI labels it unverified rather than
+    web-sourced, and it carries no source_url, so provenance grades it as inferred and the
+    scorer gives it no credit. Every other verifiable field keeps the original rule.
+    """
+    if str(prof.get("hq", "")).strip() or not llm.available:
+        return
+    hint = _site_hint(row)
+    data = LLMClient.parse_json(llm.complete(
+        f"Where is the startup '{company}'"
+        + (f" (website {hint})" if hint else "")
+        + " headquartered?\n"
+        "Answer from your own knowledge. Return the city and country as 'City, Country'.\n"
+        "If you are not confident you are thinking of THIS company, or you do not know, return "
+        'an empty string — a wrong location is much worse than none.\n'
+        'Return ONLY JSON: {"hq":""}',
+        system="You answer with a place name or nothing. JSON only.",
+        max_tokens=60, reasoning="none")) or {}
+    hq = _clean_hq(data.get("hq"))
+    if hq:
+        prof["hq"] = hq
+        prof["hq_source"] = ""
+        prof["hq_origin"] = "llm"
 
 
 _DEPLOYMENTS = ("cloud", "edge", "on_prem", "hardware")

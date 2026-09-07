@@ -71,7 +71,11 @@ def backfill_profile(profile: dict, deep_profile: dict) -> dict:
             profile[col] = val
             # Not every researched field carries a source URL (headcount has no *_source key),
             # so the origin is recorded even when the URL is unknown.
-            sources[col] = {"origin": "web",
+            # `{pkey}_origin` overrides "web" where the field can arrive by more than one route:
+            # hq falls back to model knowledge when neither the database nor the web had it, and
+            # the UI must not label that "web-sourced" (profile.py's _recall_hq_offline).
+            origin = str(deep_profile.get(f"{pkey}_origin", "")).strip() or "web"
+            sources[col] = {"origin": origin,
                             "url": str(deep_profile.get(f"{pkey}_source", "")).strip()}
     return sources
 

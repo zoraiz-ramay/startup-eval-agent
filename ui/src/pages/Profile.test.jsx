@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppProvider } from "../state.jsx";
+import { findShadowRole } from "../test/shadow.js";
 
 /**
  * PROF-01 / PROF-04 — profile header and navigation.
@@ -204,21 +205,31 @@ async function openScoringTab() {
   fireEvent.click(await screen.findByRole("button", { name: /^scoring & fit$/i }));
 }
 
-async function openWhatIf() {
+// IxBlind's header <button> (aria-expanded, aria-labelledby the shadow title node) renders inside
+// its own shadow root (blind.js: encapsulation "shadow"), so opening/reading it needs the
+// shadow-piercing helper rather than a plain screen query.
+async function openWhatIf(container) {
   await openScoringTab();
-  const toggle = await screen.findByRole("button", { name: /what-if weights/i });
+  const toggle = await findShadowRole(container, "button", { name: /what-if weights/i });
   fireEvent.click(toggle);
   return toggle;
+}
+
+// Likewise IxSlider's native `<input type="range" role="slider">` lives inside its shadow root
+// (slider.js), with its accessible name set directly on that element by ix-field-wrapper from the
+// `label` prop -- so it's findable by name once shadow-pierced, same as the button above.
+function getWeightSlider(container, name) {
+  return findShadowRole(container, "slider", { name });
 }
 
 describe("what-if weights (PROF-14)", () => {
   it("stays collapsed until asked for, leaving the stored score alone", async () => {
     const { api } = await import("../api.js");
     api.run.mockResolvedValueOnce(SCORED_RUN);
-    await renderProfile();
+    const { container } = await renderProfile();
     await openScoringTab();
 
-    const toggle = await screen.findByRole("button", { name: /what-if weights/i });
+    const toggle = await findShadowRole(container, "button", { name: /what-if weights/i });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
@@ -226,14 +237,14 @@ describe("what-if weights (PROF-14)", () => {
   it("re-weighting changes the what-if figure but never the stored score", async () => {
     const { api } = await import("../api.js");
     api.run.mockResolvedValueOnce(SCORED_RUN);
-    await renderProfile();
-    await openWhatIf();
+    const { container } = await renderProfile();
+    await openWhatIf(container);
 
     const storedRow = () => screen.getByText(/engine score \(stored\)/i).closest(".spec");
     const before = (await screen.findByRole("status")).textContent;
     const storedBefore = within(storedRow()).getByText("40");
 
-    fireEvent.change(screen.getByLabelText(/^siemens fit$/i), { target: { value: "60" } });
+    fireEvent.input(await getWeightSlider(container, /^siemens fit$/i), { target: { value: "60" } });
 
     const after = (await screen.findByRole("status")).textContent;
     expect(after).not.toEqual(before);
@@ -246,11 +257,11 @@ describe("what-if weights (PROF-14)", () => {
   it("resets back to the engine's weighting in one action", async () => {
     const { api } = await import("../api.js");
     api.run.mockResolvedValueOnce(SCORED_RUN);
-    await renderProfile();
-    await openWhatIf();
+    const { container } = await renderProfile();
+    await openWhatIf(container);
 
     const original = (await screen.findByRole("status")).textContent;
-    fireEvent.change(screen.getByLabelText(/^product$/i), { target: { value: "70" } });
+    fireEvent.input(await getWeightSlider(container, /^product$/i), { target: { value: "70" } });
     expect((await screen.findByRole("status")).textContent).not.toEqual(original);
 
     fireEvent.click(screen.getByRole("button", { name: /reset to engine weights/i }));
@@ -261,8 +272,8 @@ describe("what-if weights (PROF-14)", () => {
   it("says so plainly when a run has no dimensions to re-weight", async () => {
     const { api } = await import("../api.js");
     api.run.mockResolvedValueOnce(RUN);   // dimensions: {}
-    await renderProfile();
-    await openWhatIf();
+    const { container } = await renderProfile();
+    await openWhatIf(container);
 
     expect(await screen.findByText(/no recorded dimension scores/i)).toBeInTheDocument();
     // The point of the empty state: no number at all, rather than NaN.
@@ -288,8 +299,8 @@ describe("what-if routing (PROF-15)", () => {
   it("explains every gate, including the ones that pass", async () => {
     const { api } = await import("../api.js");
     api.run.mockResolvedValueOnce(ALIGNED_RUN);
-    await renderProfile();
-    await openWhatIf();
+    const { container } = await renderProfile();
+    await openWhatIf(container);
 
     // Scoped to the what-if panel. The per-pillar sections now report the ENGINE's own gates in
     // the same vocabulary, so an unscoped query matches both and would pass while the what-if
@@ -308,8 +319,8 @@ describe("what-if routing (PROF-15)", () => {
   it("marks the clauses no weighting can move, so a blocked pillar is not read as 'nearly there'", async () => {
     const { api } = await import("../api.js");
     api.run.mockResolvedValueOnce(ALIGNED_RUN);
-    await renderProfile();
-    await openWhatIf();
+    const { container } = await renderProfile();
+    await openWhatIf(container);
     expect(screen.getAllByText(/not affected by your weighting/i).length).toBeGreaterThan(0);
   });
 
@@ -318,8 +329,8 @@ describe("what-if routing (PROF-15)", () => {
     // which no weighting touches. "Cannot" is the honest word here.
     const { api } = await import("../api.js");
     api.run.mockResolvedValueOnce({ ...SCORED_RUN, fit: { matches: [] } });
-    await renderProfile();
-    await openWhatIf();
+    const { container } = await renderProfile();
+    await openWhatIf(container);
     expect(await screen.findByText(/cannot change this/i)).toBeInTheDocument();
   });
 
@@ -327,13 +338,12 @@ describe("what-if routing (PROF-15)", () => {
     const { api } = await import("../api.js");
     api.run.mockResolvedValueOnce(ALIGNED_RUN);
     const { container } = await renderProfile();
-    await openWhatIf();
-    fireEvent.change(screen.getByLabelText(/^ecosystem$/i), { target: { value: "100" } });
+    await openWhatIf(container);
+    fireEvent.input(await getWeightSlider(container, /^ecosystem$/i), { target: { value: "100" } });
 
     // The canonical pillar lives in the profile header and must be unmoved by anything here.
-    const headerPill = container.querySelector(".ph-title .pill, .ph-head .pill") ||
-      container.querySelector(".pill");
-    expect(headerPill.textContent).toBe("Empower");
+    const header = container.querySelector(".ph-header-slot");
+    expect(within(header).getByText("Empower")).toBeInTheDocument();
   });
 
   it("keeps exactly one live region on the tab", async () => {
@@ -341,8 +351,8 @@ describe("what-if routing (PROF-15)", () => {
     // this one unqualified.
     const { api } = await import("../api.js");
     api.run.mockResolvedValueOnce(ALIGNED_RUN);
-    await renderProfile();
-    await openWhatIf();
+    const { container } = await renderProfile();
+    await openWhatIf(container);
     expect(screen.getAllByRole("status")).toHaveLength(1);
   });
 });

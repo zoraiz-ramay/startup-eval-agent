@@ -14,7 +14,18 @@ cd "$(dirname "$0")/.."
 FAST=0
 [[ "${1:-}" == "--fast" ]] && FAST=1
 
-PY=${PY:-py -3}
+# requirements.txt pins httpx explicitly so API tests can run, but never declared pytest
+# itself, so this gate's own dependency was never installable from the repo. .venv (see
+# requirements-dev.txt) fixes that; PY still wins when a caller sets it explicitly.
+if [[ -z "${PY:-}" ]]; then
+  if [[ -x ".venv/Scripts/python.exe" ]]; then
+    PY=".venv/Scripts/python.exe"
+  elif [[ -x ".venv/bin/python" ]]; then
+    PY=".venv/bin/python"
+  else
+    PY="py -3"
+  fi
+fi
 failed=()
 run() {
   local name="$1"; shift
@@ -50,8 +61,8 @@ run "ui component tests"   bash -c 'cd ui && npx vitest run --reporter=dot'
 
 if [[ $FAST -eq 0 ]]; then
   if [[ -d ui/node_modules/@playwright ]]; then
-    # E2E + visual regression. Baselines in ui/e2e/__screenshots__ are the record that the Tracxn
-    # layout survived; agents must never regenerate them.
+    # E2E + visual regression. Baselines in ui/e2e/__screenshots__ are the record that the current
+    # layout survived unintentional change; agents must never regenerate them.
     run "e2e + visual"     bash -c 'cd ui && npx playwright test'
   else
     printf '\n\033[33m── e2e + visual: SKIPPED (playwright not installed)\033[0m\n'

@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { IxKpi, IxInput, IxButton, IxEmptyState } from "@siemens/ix-react";
+import { iconLock } from "@siemens/ix-icons/icons";
 import { api } from "../api.js";
 import ErrorBox from "../components/ErrorBox.jsx";
 import { Loading } from "../components/widgets.jsx";
@@ -17,12 +19,6 @@ import { Loading } from "../components/widgets.jsx";
  */
 function pct(x) {
   return `${Math.round((x || 0) * 100)}%`;
-}
-
-function Stat({ value, label }) {
-  return (
-    <div className="stat"><span className="v">{value}</span><span className="k">{label}</span></div>
-  );
 }
 
 /**
@@ -121,25 +117,24 @@ function Administrators({ data, onChange }) {
         </table>
       )}
 
-      <form onSubmit={submit} style={{ display: "flex", gap: 6, marginTop: 10 }}>
-        {/* Visible label, not a placeholder: the placeholder disappears on focus, and this
-            field is one where getting the exact string right is the whole difficulty. */}
-        <label htmlFor="admin-grant-upn" className="muted" style={{ fontSize: 12, alignSelf: "center" }}>
-          Sign-in name
-        </label>
-        <input
-          id="admin-grant-upn"
-          className="input"
-          type="email"
-          placeholder="name@siemens.com"
-          value={upn}
-          disabled={busy}
-          onChange={(e) => setUpn(e.target.value)}
-          style={{ flex: 1, maxWidth: 320 }}
-        />
-        <button type="submit" className="btn" disabled={busy || !upn.trim()}>
+      <form onSubmit={submit} style={{ display: "flex", gap: 6, marginTop: 10, alignItems: "flex-end" }}>
+        <div style={{ flex: 1, maxWidth: 320 }}>
+          {/* IxInput's own `label` prop replaces the separate <label htmlFor> — same reasoning
+              as before (a placeholder disappears on focus, and getting this string exactly right
+              is the whole difficulty), it's just IxInput's built-in mechanism for it now. */}
+          <IxInput
+            id="admin-grant-upn"
+            label="Sign-in name"
+            type="email"
+            placeholder="name@siemens.com"
+            value={upn}
+            disabled={busy}
+            onValueChange={(e) => setUpn(e.detail ?? e.target?.value ?? "")}
+          />
+        </div>
+        <IxButton type="submit" disabled={busy || !upn.trim()}>
           {busy ? "Working…" : "Grant access"}
-        </button>
+        </IxButton>
       </form>
       <p className="muted" style={{ fontSize: 11.5, marginTop: 6, marginBottom: 0 }}>
         Use the person&apos;s full Microsoft sign-in name. It must match exactly — they can read
@@ -199,14 +194,13 @@ export default function Admin() {
       <div>
         <div className="crumb">Workspace &gt; Admin</div>
         <div className="page-head"><h1 className="page-title">Admin</h1></div>
-        <div className="empty">
-          <h4>Administrator access required</h4>
-          <p>
-            This page shows activity across every reviewer, so it is limited to
-            administrators. Ask one of them to grant your sign-in name access from this page.
-          </p>
-          <button className="btn secondary" onClick={() => nav("/")}>Back to Home</button>
-        </div>
+        <IxEmptyState
+          header="Administrator access required"
+          subHeader="This page shows activity across every reviewer, so it is limited to administrators. Ask one of them to grant your sign-in name access from this page."
+          icon={iconLock}
+          action="Back to Home"
+          onActionClick={() => nav("/")}
+        />
       </div>
     );
   }
@@ -278,7 +272,15 @@ export default function Admin() {
                   <thead><tr><th>Company</th><th>Searches</th></tr></thead>
                   <tbody>
                     {overview.top_companies.map((c) => (
-                      <tr key={c.company} onClick={() => nav(`/startup/new?name=${encodeURIComponent(c.company)}`)}>
+                      // tabIndex + onKeyDown: a plain <tr onClick> has no keyboard path (UI-12).
+                      <tr key={c.company} tabIndex={0}
+                        onClick={() => nav(`/startup/new?name=${encodeURIComponent(c.company)}`)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            nav(`/startup/new?name=${encodeURIComponent(c.company)}`);
+                          }
+                        }}>
                         <td>{c.company}</td>
                         <td>{c.searches}</td>
                       </tr>
@@ -301,7 +303,10 @@ export default function Admin() {
                   </thead>
                   <tbody>
                     {companies.map((r) => (
-                      <tr key={r.id} onClick={() => nav(`/startup/${r.id}`)}>
+                      <tr key={r.id} tabIndex={0} onClick={() => nav(`/startup/${r.id}`)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); nav(`/startup/${r.id}`); }
+                        }}>
                         <td>{r.company}</td>
                         <td>{r.pillar}</td>
                         <td>{r.final_score == null ? "—" : Math.round(r.final_score)}</td>

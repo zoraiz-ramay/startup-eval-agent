@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
+import { findShadowRole, getAllShadowRole, getShadowRole } from "./test/shadow.js";
 
 vi.mock("./api.js", () => ({
   api: {
@@ -28,7 +29,9 @@ describe("authentication gate", () => {
   it("shows the sign-in screen when nobody is signed in", async () => {
     api.me.mockResolvedValue({ authenticated: false, mode: "entra" });
     renderApp();
-    expect(await screen.findByRole("button", { name: /sign in with siemens/i })).toBeInTheDocument();
+    // IxButton (button.js) has `encapsulation: "shadow"` — MIG-28 moved SignIn's button onto
+    // it, so its real <button> needs the same shadow-piercing query as the rail below.
+    expect(await findShadowRole(document.body, "button", { name: /sign in with siemens/i })).toBeInTheDocument();
   });
 
   it("never calls the API for data while signed out", async () => {
@@ -37,7 +40,7 @@ describe("authentication gate", () => {
     // asserts the gate is in the right place, which no rendering assertion would catch.
     api.me.mockResolvedValue({ authenticated: false, mode: "entra" });
     renderApp();
-    await screen.findByRole("button", { name: /sign in with siemens/i });
+    await findShadowRole(document.body, "button", { name: /sign in with siemens/i });
     expect(api.search).not.toHaveBeenCalled();
     expect(api.myRuns).not.toHaveBeenCalled();
   });
@@ -48,7 +51,10 @@ describe("authentication gate", () => {
       user: { name: "Ada Lovelace", email: "ada@siemens.com", initials: "AL", oid: "9f" },
     });
     renderApp();
-    await waitFor(() => expect(screen.getByRole("navigation", { name: /primary/i })).toBeInTheDocument());
+    // MIG-08: the rail is now an IxMenu, whose landmark <nav aria-label> lives inside its
+    // shadow root (encapsulation: "shadow" in the compiled source) — not the light DOM
+    // Testing Library's plain `screen` queries can see, hence the shadow-piercing helper.
+    expect(await findShadowRole(document.body, "navigation", { name: /primary/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /sign in with siemens/i })).not.toBeInTheDocument();
   });
 
@@ -96,7 +102,7 @@ describe("assistant dock", () => {
     widthIs(false);
     signedIn();
     renderApp();
-    await screen.findByRole("navigation", { name: /primary/i });
+    await findShadowRole(document.body, "navigation", { name: /primary/i });
     expect(screen.queryByRole("complementary", { name: /ai assistant/i })).not.toBeInTheDocument();
   });
 
@@ -104,9 +110,13 @@ describe("assistant dock", () => {
     widthIs(true);
     signedIn();
     renderApp();
-    await screen.findByRole("navigation", { name: /primary/i });
-    // Exactly one control for the assistant, and it is the rail's.
-    const controls = screen.getAllByRole("button", { name: /ask ai|ai assistant/i });
+    await findShadowRole(document.body, "navigation", { name: /primary/i });
+    // Exactly one control for the assistant, and it is the rail's. MIG-08: the rail is now an
+    // IxMenu, whose items render with role="menuitem" (verified against the compiled source —
+    // ix-menu-item sets an internal "menuitem" role whenever it is a direct child of ix-menu),
+    // not "button" as the old hand-rolled <button class="rail-item"> did. That role-bearing
+    // markup lives in ix-menu-item's shadow root, hence the shadow-piercing helper.
+    const controls = getAllShadowRole(document.body, "menuitem", { name: /ask ai|ai assistant/i });
     expect(controls).toHaveLength(1);
     expect(controls[0]).toHaveAccessibleName(/ask ai/i);
   });
@@ -115,10 +125,13 @@ describe("assistant dock", () => {
     widthIs(true);
     signedIn();
     renderApp();
-    const toggle = await screen.findByRole("button", { name: /ask ai/i });
+    const toggle = await findShadowRole(document.body, "menuitem", { name: /ask ai/i });
     expect(toggle).toHaveAttribute("aria-expanded", "true");
 
-    await userEvent.click(screen.getByRole("button", { name: /close assistant/i }));
+    // MIG-11: the close control is now IxPane's own title-bar button (ariaLabelCollapseCloseButton
+    // ="Close assistant"), not a hand-rolled one — it lives inside ix-pane's shadow root (and, one
+    // level deeper, ix-icon-button's), so it needs the same shadow-piercing helper as the rail.
+    await userEvent.click(getShadowRole(document.body, "button", { name: /close assistant/i }));
     expect(screen.queryByRole("complementary", { name: /ai assistant/i })).not.toBeInTheDocument();
 
     await userEvent.click(toggle);
