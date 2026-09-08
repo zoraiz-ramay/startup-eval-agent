@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppProvider } from "../state.jsx";
@@ -32,6 +32,7 @@ const RUN = {
 vi.mock("../api.js", () => ({
   api: {
     run: vi.fn(async () => RUN),
+    job: vi.fn(),
     evaluate: vi.fn(async () => RUN),
     audit: vi.fn(async () => ({ overrides: [] })),
     ask: vi.fn(async () => ({ answer: "", evidence: [] })),
@@ -205,163 +206,19 @@ async function openScoringTab() {
   fireEvent.click(await screen.findByRole("button", { name: /^scoring & fit$/i }));
 }
 
-// IxBlind's header <button> (aria-expanded, aria-labelledby the shadow title node) renders inside
-// its own shadow root (blind.js: encapsulation "shadow"), so opening/reading it needs the
-// shadow-piercing helper rather than a plain screen query.
-async function openWhatIf(container) {
-  await openScoringTab();
-  const toggle = await findShadowRole(container, "button", { name: /what-if weights/i });
-  fireEvent.click(toggle);
-  return toggle;
-}
-
-// Likewise IxSlider's native `<input type="range" role="slider">` lives inside its shadow root
-// (slider.js), with its accessible name set directly on that element by ix-field-wrapper from the
-// `label` prop -- so it's findable by name once shadow-pierced, same as the button above.
-function getWeightSlider(container, name) {
-  return findShadowRole(container, "slider", { name });
-}
-
-describe("what-if weights (PROF-14)", () => {
-  it("stays collapsed until asked for, leaving the stored score alone", async () => {
+describe("Evidence-based scoring views", () => {
+  it("replaces what-if controls with three accessible partnership tabs", async () => {
     const { api } = await import("../api.js");
     api.run.mockResolvedValueOnce(SCORED_RUN);
-    const { container } = await renderProfile();
-    await openScoringTab();
-
-    const toggle = await findShadowRole(container, "button", { name: /what-if weights/i });
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
-  });
-
-  it("re-weighting changes the what-if figure but never the stored score", async () => {
-    const { api } = await import("../api.js");
-    api.run.mockResolvedValueOnce(SCORED_RUN);
-    const { container } = await renderProfile();
-    await openWhatIf(container);
-
-    const storedRow = () => screen.getByText(/engine score \(stored\)/i).closest(".spec");
-    const before = (await screen.findByRole("status")).textContent;
-    const storedBefore = within(storedRow()).getByText("40");
-
-    fireEvent.input(await getWeightSlider(container, /^siemens fit$/i), { target: { value: "60" } });
-
-    const after = (await screen.findByRole("status")).textContent;
-    expect(after).not.toEqual(before);
-    // The engine's score is unmoved, and it sits inside this panel beside the what-if — so no
-    // screenshot crop can capture the what-if without also capturing what it is being compared to.
-    expect(within(storedRow()).getByText("40")).toBe(storedBefore);
-    expect(screen.getByText(/not the evaluation result/i)).toBeInTheDocument();
-  });
-
-  it("resets back to the engine's weighting in one action", async () => {
-    const { api } = await import("../api.js");
-    api.run.mockResolvedValueOnce(SCORED_RUN);
-    const { container } = await renderProfile();
-    await openWhatIf(container);
-
-    const original = (await screen.findByRole("status")).textContent;
-    fireEvent.input(await getWeightSlider(container, /^product$/i), { target: { value: "70" } });
-    expect((await screen.findByRole("status")).textContent).not.toEqual(original);
-
-    fireEvent.click(screen.getByRole("button", { name: /reset to engine weights/i }));
-    expect((await screen.findByRole("status")).textContent).toEqual(original);
-    expect(localStorage.getItem("se.whatIfWeights.v1")).toBe("null");
-  });
-
-  it("says so plainly when a run has no dimensions to re-weight", async () => {
-    const { api } = await import("../api.js");
-    api.run.mockResolvedValueOnce(RUN);   // dimensions: {}
-    const { container } = await renderProfile();
-    await openWhatIf(container);
-
-    expect(await screen.findByText(/no recorded dimension scores/i)).toBeInTheDocument();
-    // The point of the empty state: no number at all, rather than NaN.
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    await renderProfile(); await railLoaded(); await openScoringTab();
+    expect(screen.queryByText(/what-if weights/i)).toBeNull();
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs.map((t) => t.textContent.replace("—", ""))).toEqual(["Empower", "Collaborate", "Connect"]);
+    fireEvent.click(screen.getByRole("tab", {name: /Collaborate/}));
+    expect(screen.getByRole("tabpanel", {name: /Collaborate/})).toBeVisible();
   });
 });
 
-/**
- * PROF-15 — the what-if routing derivation.
- *
- * The failure mode this guards is a reviewer reading a what-if pillar as the evaluation's verdict.
- * A wrong score is bad; a wrong pillar drives a wrong partnership call. So these assert the engine's
- * pillar stays put and stays visible as much as they assert the what-if is derived correctly.
- */
-const ALIGNED_RUN = {
-  ...SCORED_RUN,
-  fit: { aligned: true, matches: [] },
-  routing: { pillar: "Empower", secondary: [] },
-  score: { ...SCORED_RUN.score, route_scorecards: { Connect: 60, Collaborate: 58, Empower: 62 } },
-};
-
-describe("what-if routing (PROF-15)", () => {
-  it("explains every gate, including the ones that pass", async () => {
-    const { api } = await import("../api.js");
-    api.run.mockResolvedValueOnce(ALIGNED_RUN);
-    const { container } = await renderProfile();
-    await openWhatIf(container);
-
-    // Scoped to the what-if panel. The per-pillar sections now report the ENGINE's own gates in
-    // the same vocabulary, so an unscoped query matches both and would pass while the what-if
-    // rendered nothing at all.
-    const panel = (await screen.findByText(/what-if routing/i)).closest(".panel");
-    // All four rows, always — a reviewer looking at a blocked pillar needs the whole reason,
-    // and an empty state would be the least useful thing to show them.
-    expect(within(panel).getByText(/portfolio alignment/i)).toBeInTheDocument();
-    for (const route of ["Connect", "Collaborate", "Empower"]) {
-      expect(within(panel).getAllByText(route).length).toBeGreaterThan(0);
-    }
-    // Empower's row states the absence of a gate rather than inventing a threshold for symmetry.
-    expect(within(panel).getByText(/no score gate/i)).toBeInTheDocument();
-  });
-
-  it("marks the clauses no weighting can move, so a blocked pillar is not read as 'nearly there'", async () => {
-    const { api } = await import("../api.js");
-    api.run.mockResolvedValueOnce(ALIGNED_RUN);
-    const { container } = await renderProfile();
-    await openWhatIf(container);
-    expect(screen.getAllByText(/not affected by your weighting/i).length).toBeGreaterThan(0);
-  });
-
-  it("says a verdict cannot change when that is provable, rather than merely that it did not", async () => {
-    // RUN's fit has no `aligned`, so the alignment gate fails — and it reads the raw dimension,
-    // which no weighting touches. "Cannot" is the honest word here.
-    const { api } = await import("../api.js");
-    api.run.mockResolvedValueOnce({ ...SCORED_RUN, fit: { matches: [] } });
-    const { container } = await renderProfile();
-    await openWhatIf(container);
-    expect(await screen.findByText(/cannot change this/i)).toBeInTheDocument();
-  });
-
-  it("leaves the header pillar untouched while the what-if is on screen", async () => {
-    const { api } = await import("../api.js");
-    api.run.mockResolvedValueOnce(ALIGNED_RUN);
-    const { container } = await renderProfile();
-    await openWhatIf(container);
-    fireEvent.input(await getWeightSlider(container, /^ecosystem$/i), { target: { value: "100" } });
-
-    // The canonical pillar lives in the profile header and must be unmoved by anything here.
-    const header = container.querySelector(".ph-header-slot");
-    expect(within(header).getByText("Empower")).toBeInTheDocument();
-  });
-
-  it("keeps exactly one live region on the tab", async () => {
-    // Two polite regions announce in unpredictable order, and every existing assertion selects
-    // this one unqualified.
-    const { api } = await import("../api.js");
-    api.run.mockResolvedValueOnce(ALIGNED_RUN);
-    const { container } = await renderProfile();
-    await openWhatIf(container);
-    expect(screen.getAllByRole("status")).toHaveLength(1);
-  });
-});
-
-/**
- * The overview metric row answers "what is this company", so it carries funding and location.
- * Completeness and the trend verdict are not lost — the first is inside the score derivation
- * further down the tab, the second is the Market tab's headline.
- */
 const RUN_WITH_FACTS = {
   ...RUN,
   profile: { ...RUN.profile, hq: "Istanbul, Turkey", funding: "EUR 2.4M seed" },
@@ -457,21 +314,19 @@ describe("Profile — headcount trend empty states", () => {
  * than the skeleton it replaced.
  */
 async function renderStreaming(script) {
-  const { evaluateStream } = await import("../api.js");
-  let emit;
-  evaluateStream.mockImplementationOnce((name, { onPartial }) => {
-    emit = onPartial;
-    return new Promise(() => {});      // never resolves: the run is still in flight
-  });
+  const { api } = await import("../api.js");
+  const partial = {found: true, streaming: true};
+  for (const [section, data] of script) Object.assign(partial, section === "identity" || section === "profile" ? data : {[section]: data});
+  const job = {id: "progress-job", kind: "evaluate", query: "Phena", status: "running", partial};
+  sessionStorage.setItem("research-jobs:local", JSON.stringify([job]));
+  api.job.mockResolvedValue(job);
   const { default: Profile } = await import("./Profile.jsx");
-  render(
-    <MemoryRouter initialEntries={["/startup/new?name=Phena"]}>
-      <AppProvider>
-        <Routes><Route path="/startup/:id" element={<Profile />} /></Routes>
-      </AppProvider>
-    </MemoryRouter>,
-  );
-  for (const [section, data] of script) act(() => emit(section, data));
+  render(<MemoryRouter initialEntries={["/startup/new?name=Phena&job=progress-job"]}>
+    <AppProvider><Routes><Route path="/startup/:id" element={<Profile />} /></Routes></AppProvider>
+  </MemoryRouter>);
+  await waitFor(() => expect(api.job).toHaveBeenCalled());
+  if (partial.profile) await screen.findByRole("heading", {name: /Phena/});
+
 }
 
 const IDENTITY = ["identity", { company: "Phena", source: "web" }];

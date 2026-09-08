@@ -1,4 +1,6 @@
 import React from "react";
+import { useSearchParams } from "react-router-dom";
+import FitRubric from "./FitRubric.jsx";
 import { ScoreBar } from "../../../components/widgets.jsx";
 import Section from "../Section.jsx";
 import { engineGate } from "../../../scoring/routing.js";
@@ -17,7 +19,7 @@ import OverridePanel from "./OverridePanel.jsx";
  * is actually deciding between, and they now each get a section of their own instead of being
  * split across a "Route scorecards" list and a separate criteria checklist.
  */
-const PILLARS = ["Connect", "Collaborate", "Empower"];
+const PILLARS = ["Empower", "Collaborate", "Connect"];
 const PILLAR_SECTION = {
   Connect: "scoring-connect",
   Collaborate: "scoring-collaborate",
@@ -25,6 +27,9 @@ const PILLAR_SECTION = {
 };
 
 export default function ScoringTab({ res, runId }) {
+  const [params, setParams] = useSearchParams();
+  const activePillar = PILLARS.includes(params.get("pillar")) ? params.get("pillar") : "Empower";
+  const setActivePillar = (p) => setParams((old) => { const next = new URLSearchParams(old); next.set("pillar", p); return next; }, { replace: true });
   const sc = res.score || {}, fit = res.fit || {}, rt = res.routing || {};
   const assessments = rt.pillar_assessments || {};
   const recommendations = rt.route_recommendations || [];
@@ -51,14 +56,25 @@ export default function ScoringTab({ res, runId }) {
         {(rt.risks || []).map((r, i) => <div key={i} className="risk">{r}</div>)}
       </Section>
 
+      <FitRubric rubric={fit.rubric} />
       <BreakdownPanel score={sc} fit={fit} routing={rt} />
 
       {/* One section per pillar, each carrying BOTH gates. `engineGate` reads the thresholds the
           engine applied off this stored run, so a pillar that was rejected can finally explain
           itself — the engine's own `route_recommendations` only ever contains routes that already
           qualified. */}
-      {PILLARS.map((p) => (
-        <Section id={PILLAR_SECTION[p]} key={p}>
+      <Section id="scoring-routes">
+      <div className="pillar-tabs" role="tablist" aria-label="Partnership routes">
+        {PILLARS.map((p, i) => <button key={p} type="button" role="tab" id={`pillar-tab-${p}`}
+          aria-selected={activePillar === p} aria-controls={`pillar-panel-${p}`} tabIndex={activePillar === p ? 0 : -1}
+          onClick={() => setActivePillar(p)} onKeyDown={(e) => {
+            const next = e.key === "ArrowRight" ? (i + 1) % 3 : e.key === "ArrowLeft" ? (i + 2) % 3 : e.key === "Home" ? 0 : e.key === "End" ? 2 : null;
+            if (next !== null) { e.preventDefault(); setActivePillar(PILLARS[next]); document.getElementById(`pillar-tab-${PILLARS[next]}`)?.focus(); }
+          }}>{p}<span className="badge">{sc.route_scorecards?.[p] ?? "—"}</span></button>)}
+      </div>
+      {PILLARS.map((p) => <div key={p} role="tabpanel" id={`pillar-panel-${p}`} aria-labelledby={`pillar-tab-${p}`} hidden={activePillar !== p}>
+
+        <div className="panel">
           <PillarSection
             pillar={p}
             assessment={assessments[p]}
@@ -71,8 +87,9 @@ export default function ScoringTab({ res, runId }) {
               <CollaboratePanel departments={rt.departments} detail={assessments.Collaborate?.detail} />
             )}
           </PillarSection>
-        </Section>
-      ))}
+        </div>
+      </div>)}
+      </Section>
 
       <Section id="scoring-portfolio">
         <h3>Siemens portfolio fit</h3>
@@ -119,7 +136,7 @@ export default function ScoringTab({ res, runId }) {
         </Section>
       )}
 
-      {runId && (
+      {runId > 0 && (
         <Section id="scoring-review"><OverridePanel runId={runId} currentPillar={rt.pillar} /></Section>
       )}
     </>

@@ -1,4 +1,5 @@
 import React from "react";
+import { Link } from "react-router-dom";
 import { ExtLink } from "../../../components/widgets.jsx";
 
 /* Collaborate, per department — and, for now, an honest account of what is not loaded yet.
@@ -49,9 +50,8 @@ export default function CollaboratePanel({ departments, detail }) {
         <div className="info-box">
           <strong>Not yet configured.</strong> Per-department criteria — what each Siemens
           department is looking for in a startup — have not been supplied, so no department verdict
-          is shown. The domain match above is what this run can currently evidence. Adding the
-          criteria to <code>core/departments.py</code> populates this section; nothing here is
-          inferred in the meantime.
+          is shown. The domain match above is what this run can currently evidence.
+          <Link to="/departments"> Compare the demo department interests and build a shortlist →</Link>
         </div>
       ) : rows.length === 0 ? (
         <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>

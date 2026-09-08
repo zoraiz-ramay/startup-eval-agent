@@ -64,3 +64,14 @@ globalThis.IntersectionObserver ??= class {
   // Test helper: pretend something crossed the band.
   trigger() { this.cb([], this); }
 };
+
+// jsdom exposes ElementInternals but omits form-associated custom-element methods.
+// iX textarea/slider use these even outside a form. Native browser behavior is checked in E2E.
+if (globalThis.ElementInternals) {
+  ElementInternals.prototype.setFormValue ??= function () {};
+  ElementInternals.prototype.setValidity ??= function () {};
+  ElementInternals.prototype.checkValidity ??= function () { return true; };
+  ElementInternals.prototype.reportValidity ??= function () { return true; };
+}
+
+HTMLElement.prototype.scrollIntoView ??= function () {};

@@ -226,13 +226,13 @@ export default function Admin() {
             {/* Three sign-in numbers, adjacent because each is meaningless without the others:
                 how many people have ever signed in, how many times in total, and how many of
                 those people came back inside the window. Adoption is the third one. */}
-            <Stat value={overview.users.total} label="Reviewers" />
-            <Stat value={overview.sessions.total} label="Sign-ins" />
-            <Stat value={overview.users.recent} label={`Signed in (${overview.window_days}d)`} />
-            <Stat value={overview.searches.total} label="Searches" />
-            <Stat value={overview.companies.searched} label="Companies searched" />
-            <Stat value={overview.companies.evaluated} label="Companies evaluated" />
-            <Stat value={pct(overview.cache_hit_rate)} label="Served from database" />
+            <IxKpi value={overview.users.total} label="Reviewers" />
+            <IxKpi value={overview.sessions.total} label="Sign-ins" />
+            <IxKpi value={overview.users.recent} label={`Signed in (${overview.window_days}d)`} />
+            <IxKpi value={overview.searches.total} label="Searches" />
+            <IxKpi value={overview.companies.searched} label="Companies searched" />
+            <IxKpi value={overview.companies.evaluated} label="Companies evaluated" />
+            <IxKpi value={pct(overview.cache_hit_rate)} label="Served from database" />
           </div>
 
           <div className="grid2">

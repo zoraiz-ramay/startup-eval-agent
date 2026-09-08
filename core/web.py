@@ -23,6 +23,7 @@ _cache_entry = None
 # Set False for a run that must hit the network — "Re-evaluate" has to re-search, otherwise it
 # would just replay week-old results. A ContextVar rather than a parameter so the flag follows
 # the request through _ddg_many's worker threads without touching every signature in between.
+_cache_private: contextvars.ContextVar = contextvars.ContextVar("web_cache_private", default=False)
 _cache_enabled: contextvars.ContextVar = contextvars.ContextVar("web_cache_enabled", default=True)
 
 
@@ -34,6 +35,15 @@ def install_cache(getter, putter, entry_getter=None) -> None:
     """
     global _cache_get, _cache_put, _cache_entry
     _cache_get, _cache_put, _cache_entry = getter, putter, entry_getter
+
+
+def set_cache_private(private: bool):
+    """Disable shared cache reads AND writes for licensed, user-specific research."""
+    return _cache_private.set(private)
+
+
+def reset_cache_private(token):
+    _cache_private.reset(token)
 
 
 def set_cache_enabled(enabled: bool):
@@ -51,7 +61,7 @@ def _cache_key(*parts) -> str:
 
 def _cached(kind: str, key: str, meta: dict | None = None):
     """Cached payload, or None. ``meta`` receives ``cached_at`` when the backend can supply it."""
-    if not _cache_enabled.get():
+    if _cache_private.get() or not _cache_enabled.get():
         return None
     if _cache_entry is not None:
         try:
@@ -74,7 +84,7 @@ def _cached(kind: str, key: str, meta: dict | None = None):
 
 def _store(kind: str, key: str, payload) -> None:
     # Written even when reads are disabled, so a forced refresh repopulates the cache.
-    if _cache_put is None:
+    if _cache_private.get() or _cache_put is None:
         return
     try:
         _cache_put(kind, key, payload)

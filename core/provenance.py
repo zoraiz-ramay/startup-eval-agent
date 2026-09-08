@@ -18,6 +18,7 @@ _METHOD_SOURCE_TYPE = {
     # rather than taking the pitch form at its word) nor "public" — a "public" claim with no
     # URL is demoted to "inferred" below, and this is not an inference either.
     "glassdollar_api": "private",
+    "tracxn_mcp": "private",
     "pitch_pdf": "self_reported",
     "ddg_search": "public",
     "profile_research": "public",

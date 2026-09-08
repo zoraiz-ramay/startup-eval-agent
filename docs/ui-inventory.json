@@ -15,6 +15,10 @@
       "component": "Explore"
     },
     {
+      "path": "/departments",
+      "component": "Departments"
+    },
+    {
       "path": "/startup/:id",
       "component": "Profile"
     },
@@ -57,6 +61,56 @@
         "doWeb = true",
         "refresh = false"
       ]
+    },
+    {
+      "method": "startJobs",
+      "args": [
+        "body"
+      ]
+    },
+    {
+      "method": "job",
+      "args": [
+        "id"
+      ]
+    },
+    {
+      "method": "departments",
+      "args": []
+    },
+    {
+      "method": "department",
+      "args": [
+        "id"
+      ]
+    },
+    {
+      "method": "addDepartmentCompany",
+      "args": [
+        "id",
+        "company"
+      ]
+    },
+    {
+      "method": "removeDepartmentCompany",
+      "args": [
+        "id",
+        "company"
+      ]
+    },
+    {
+      "method": "tracxnStatus",
+      "args": []
+    },
+    {
+      "method": "tracxnConnect",
+      "args": [
+        "returnTo = \"workspace\""
+      ]
+    },
+    {
+      "method": "tracxnDisconnect",
+      "args": []
     },
     {
       "method": "solve",
@@ -196,6 +250,7 @@
     "--pillar-empower",
     "--pillar-empower-bg",
     "--pillar-pass",
+    "--pillar-pass-bg",
     "--profile-sticky-h",
     "--radius",
     "--rail-w",
@@ -233,7 +288,7 @@
   "files": [
     {
       "path": "ui/src/App.jsx",
-      "lines": 375,
+      "lines": 310,
       "exports": [
         "App"
       ],
@@ -249,10 +304,6 @@
         "lens",
         "menu-account",
         "menu-brand",
-        "menu-secondary",
-        "search-hero",
-        "search-hero-field",
-        "search-hero-title",
         "signin",
         "stub-banner",
         "sub",
@@ -263,7 +314,7 @@
     },
     {
       "path": "ui/src/App.test.jsx",
-      "lines": 141,
+      "lines": 142,
       "exports": [],
       "css_classes": []
     },
@@ -312,14 +363,38 @@
       "css_classes": []
     },
     {
-      "path": "ui/src/components/Loading.jsx",
-      "lines": 6,
+      "path": "ui/src/components/ProblemSolver.jsx",
+      "lines": 167,
       "exports": [
-        "Loading"
+        "ProblemSolver"
       ],
       "css_classes": [
-        "loading"
+        "badge",
+        "muted",
+        "panel",
+        "problem-brief",
+        "problem-examples",
+        "problem-eyebrow",
+        "problem-layout",
+        "problem-progress",
+        "problem-results",
+        "problem-results-head",
+        "problem-solver",
+        "problem-source-status",
+        "problem-sources",
+        "problem-submit",
+        "solution-actions",
+        "solution-card",
+        "solution-grid",
+        "solution-heading",
+        "solution-reason"
       ]
+    },
+    {
+      "path": "ui/src/components/ProblemSolver.test.jsx",
+      "lines": 47,
+      "exports": [],
+      "css_classes": []
     },
     {
       "path": "ui/src/components/ProfileSectionNav.jsx",
@@ -345,49 +420,19 @@
       "css_classes": []
     },
     {
-      "path": "ui/src/components/ResultView.jsx",
-      "lines": 3,
-      "exports": [],
-      "css_classes": []
-    },
-    {
-      "path": "ui/src/components/ScoreBar.jsx",
-      "lines": 43,
+      "path": "ui/src/components/TracxnConnection.jsx",
+      "lines": 29,
       "exports": [
-        "ScoreBar"
+        "TracxnConnection"
       ],
       "css_classes": [
-        "score-bar"
-      ]
-    },
-    {
-      "path": "ui/src/components/WeightSliders.jsx",
-      "lines": 77,
-      "exports": [
-        "WeightSliders",
-        "useWeighting"
-      ],
-      "css_classes": []
-    },
-    {
-      "path": "ui/src/components/WhatIfWeights.jsx",
-      "lines": 251,
-      "exports": [
-        "WhatIfWeights"
-      ],
-      "css_classes": [
-        "badge",
-        "btn",
-        "k",
         "muted",
-        "secondary",
-        "spec",
-        "v"
+        "tracxn-optional"
       ]
     },
     {
       "path": "ui/src/components/widgets.jsx",
-      "lines": 129,
+      "lines": 178,
       "exports": [
         "ExtLink",
         "Loading",
@@ -409,7 +454,7 @@
     },
     {
       "path": "ui/src/components/widgets.test.jsx",
-      "lines": 145,
+      "lines": 174,
       "exports": [],
       "css_classes": []
     },
@@ -421,7 +466,7 @@
     },
     {
       "path": "ui/src/pages/Admin.jsx",
-      "lines": 352,
+      "lines": 357,
       "exports": [
         "Admin"
       ],
@@ -443,7 +488,7 @@
     },
     {
       "path": "ui/src/pages/Admin.test.jsx",
-      "lines": 165,
+      "lines": 177,
       "exports": [],
       "css_classes": []
     },
@@ -482,8 +527,28 @@
       ]
     },
     {
+      "path": "ui/src/pages/Departments.jsx",
+      "lines": 58,
+      "exports": [
+        "Departments"
+      ],
+      "css_classes": [
+        "badge",
+        "btn",
+        "department-add",
+        "info-box",
+        "muted",
+        "page-title",
+        "panel",
+        "problem-source-status",
+        "solution-actions",
+        "solution-grid",
+        "tool-btn"
+      ]
+    },
+    {
       "path": "ui/src/pages/Explore.jsx",
-      "lines": 523,
+      "lines": 473,
       "exports": [
         "Explore"
       ],
@@ -506,7 +571,6 @@
         "muted",
         "mv",
         "num",
-        "panel",
         "pill",
         "secondary",
         "sfs",
@@ -521,21 +585,17 @@
     },
     {
       "path": "ui/src/pages/Explore.test.jsx",
-      "lines": 256,
+      "lines": 209,
       "exports": [],
       "css_classes": []
     },
     {
       "path": "ui/src/pages/Home.jsx",
-      "lines": 231,
+      "lines": 159,
       "exports": [
         "Home"
       ],
       "css_classes": [
-        "badge",
-        "composer-card",
-        "composer-input",
-        "composer-row",
         "crumb",
         "grid2",
         "muted",
@@ -544,12 +604,129 @@
         "page-meta",
         "page-title",
         "panel",
+        "problem-workspace-history",
         "run-cell",
         "run-desc",
         "run-name",
         "run-row",
         "stats-strip"
       ]
+    },
+    {
+      "path": "ui/src/pages/Profile.jsx",
+      "lines": 252,
+      "exports": [
+        "Profile"
+      ],
+      "css_classes": [
+        "badge",
+        "big",
+        "btn",
+        "chip",
+        "empty",
+        "grid2",
+        "muted",
+        "panel",
+        "ph-actions",
+        "ph-desc",
+        "ph-logo",
+        "ph-meta",
+        "ph-row",
+        "ph-title",
+        "pill",
+        "profile-head",
+        "secondary",
+        "sfs",
+        "skel",
+        "spinner",
+        "tool-btn"
+      ]
+    },
+    {
+      "path": "ui/src/pages/Profile.test.jsx",
+      "lines": 387,
+      "exports": [],
+      "css_classes": []
+    },
+    {
+      "path": "ui/src/pages/ProgrammeCriteria.test.jsx",
+      "lines": 284,
+      "exports": [],
+      "css_classes": []
+    },
+    {
+      "path": "ui/src/pages/Saved.jsx",
+      "lines": 64,
+      "exports": [
+        "Saved"
+      ],
+      "css_classes": [
+        "crumb",
+        "muted",
+        "page-head",
+        "page-meta",
+        "page-title",
+        "panel"
+      ]
+    },
+    {
+      "path": "ui/src/pages/SearchHome.jsx",
+      "lines": 77,
+      "exports": [
+        "SearchHome",
+        "parseStartups"
+      ],
+      "css_classes": [
+        "batch-search",
+        "batch-toggle",
+        "lens",
+        "muted",
+        "panel",
+        "problem-submit",
+        "research-item",
+        "research-list",
+        "research-session",
+        "search-hero",
+        "search-hero-field",
+        "search-hero-title",
+        "startup-home"
+      ]
+    },
+    {
+      "path": "ui/src/pages/Settings.jsx",
+      "lines": 76,
+      "exports": [
+        "Settings"
+      ],
+      "css_classes": [
+        "crumb",
+        "muted",
+        "page-head",
+        "page-title",
+        "panel",
+        "status-dot"
+      ]
+    },
+    {
+      "path": "ui/src/pages/SignIn.jsx",
+      "lines": 107,
+      "exports": [
+        "SignIn"
+      ],
+      "css_classes": [
+        "muted",
+        "signin",
+        "signin-card",
+        "signin-foot",
+        "signin-lede",
+        "signin-title"
+      ]
+    },
+    {
+      "path": "ui/src/pages/SignIn.test.jsx",
+      "lines": 87,
+      "exports": [],
+      "css_classes": []
     },
     {
       "path": "ui/src/pages/profile/EvidenceTab.jsx",
@@ -578,7 +755,6 @@
         "k",
         "list-main",
         "list-row",
-        "loc",
         "metric",
         "metric-row",
         "muted",
@@ -618,8 +794,16 @@
       ]
     },
     {
+      "path": "ui/src/pages/profile/Section.jsx",
+      "lines": 22,
+      "exports": [
+        "Section"
+      ],
+      "css_classes": []
+    },
+    {
       "path": "ui/src/pages/profile/scoring/BreakdownPanel.jsx",
-      "lines": 60,
+      "lines": 45,
       "exports": [
         "BreakdownPanel"
       ],
@@ -669,6 +853,20 @@
       ]
     },
     {
+      "path": "ui/src/pages/profile/scoring/FitRubric.jsx",
+      "lines": 20,
+      "exports": [
+        "FitRubric"
+      ],
+      "css_classes": [
+        "fit-rubric",
+        "info-box",
+        "muted",
+        "panel",
+        "rubric-criterion"
+      ]
+    },
+    {
       "path": "ui/src/pages/profile/scoring/OverridePanel.jsx",
       "lines": 74,
       "exports": [
@@ -706,7 +904,7 @@
     },
     {
       "path": "ui/src/pages/profile/scoring/ScoringTab.jsx",
-      "lines": 128,
+      "lines": 145,
       "exports": [
         "ScoringTab"
       ],
@@ -714,7 +912,9 @@
         "badge",
         "info-box",
         "muted",
+        "panel",
         "pill",
+        "pillar-tabs",
         "reason",
         "risk",
         "sfs"
@@ -737,119 +937,23 @@
       ]
     },
     {
-      "path": "ui/src/pages/profile/Section.jsx",
-      "lines": 22,
-      "exports": [
-        "Section"
-      ],
-      "css_classes": []
-    },
-    {
       "path": "ui/src/pages/profile/useScrollSpy.test.jsx",
       "lines": 175,
       "exports": [],
       "css_classes": []
     },
     {
-      "path": "ui/src/pages/Profile.jsx",
-      "lines": 254,
+      "path": "ui/src/research.jsx",
+      "lines": 49,
       "exports": [
-        "Profile"
+        "ResearchProvider",
+        "useResearch"
       ],
-      "css_classes": [
-        "badge",
-        "big",
-        "btn",
-        "chip",
-        "empty",
-        "grid2",
-        "muted",
-        "panel",
-        "ph-header-slot",
-        "ph-meta",
-        "ph-summary",
-        "pill",
-        "profile-body",
-        "profile-head",
-        "secondary",
-        "sfs",
-        "skel",
-        "spinner",
-        "tool-btn"
-      ]
-    },
-    {
-      "path": "ui/src/pages/Profile.test.jsx",
-      "lines": 522,
-      "exports": [],
-      "css_classes": []
-    },
-    {
-      "path": "ui/src/pages/ProgrammeCriteria.test.jsx",
-      "lines": 284,
-      "exports": [],
-      "css_classes": []
-    },
-    {
-      "path": "ui/src/pages/RunDetail.jsx",
-      "lines": 3,
-      "exports": [],
-      "css_classes": []
-    },
-    {
-      "path": "ui/src/pages/Saved.jsx",
-      "lines": 64,
-      "exports": [
-        "Saved"
-      ],
-      "css_classes": [
-        "crumb",
-        "muted",
-        "page-head",
-        "page-meta",
-        "page-title",
-        "panel"
-      ]
-    },
-    {
-      "path": "ui/src/pages/Settings.jsx",
-      "lines": 76,
-      "exports": [
-        "Settings"
-      ],
-      "css_classes": [
-        "crumb",
-        "muted",
-        "page-head",
-        "page-title",
-        "panel",
-        "status-dot"
-      ]
-    },
-    {
-      "path": "ui/src/pages/SignIn.jsx",
-      "lines": 107,
-      "exports": [
-        "SignIn"
-      ],
-      "css_classes": [
-        "muted",
-        "signin",
-        "signin-card",
-        "signin-foot",
-        "signin-lede",
-        "signin-title"
-      ]
-    },
-    {
-      "path": "ui/src/pages/SignIn.test.jsx",
-      "lines": 87,
-      "exports": [],
       "css_classes": []
     },
     {
       "path": "ui/src/state.jsx",
-      "lines": 157,
+      "lines": 153,
       "exports": [
         "AppProvider",
         "AuthProvider",
@@ -860,10 +964,10 @@
     }
   ],
   "totals": {
-    "routes": 9,
-    "api_methods": 24,
-    "design_tokens": 39,
-    "jsx_files": 52,
-    "jsx_lines": 6300
+    "routes": 10,
+    "api_methods": 33,
+    "design_tokens": 56,
+    "jsx_files": 46,
+    "jsx_lines": 5925
   }
 }

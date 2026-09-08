@@ -48,6 +48,9 @@ async function request(path, { method = "GET", body, timeoutMs = 30000 } = {}) {
       onUnauthorized();
       throw new ApiError(data.detail || "Your session has ended.", 401);
     }
+    if ([404, 405].includes(res.status) && path === "/api/jobs") {
+      throw new ApiError("The search service needs an update. Restart the API with the latest code, then try again.", res.status);
+    }
     if (!res.ok) throw new ApiError(data.detail || `Request failed (${res.status})`, res.status);
     return data;
   } catch (e) {
@@ -92,6 +95,9 @@ export async function evaluateStream(name, { doWeb = true, refresh = false, onPa
     // A non-streaming error response still carries a JSON detail; surface that rather than
     // re-running a minutes-long evaluation just to obtain the same message.
     const data = await res.json().catch(() => ({}));
+    if ([404, 405].includes(res.status) && path === "/api/jobs") {
+      throw new ApiError("The search service needs an update. Restart the API with the latest code, then try again.", res.status);
+    }
     if (!res.ok) throw new ApiError(data.detail || `Request failed (${res.status})`, res.status);
     return api.evaluate(name, doWeb, refresh);
   }
@@ -139,6 +145,15 @@ export const api = {
   search: (q) => request(`/api/search?q=${encodeURIComponent(q)}`),
   evaluate: (name, doWeb = true, refresh = false) =>
     request("/api/evaluate", { method: "POST", body: { name, do_web: doWeb, refresh }, timeoutMs: 240000 }),
+  startJobs: (body) => request("/api/jobs", { method: "POST", body }),
+  job: (id) => request(`/api/jobs/${encodeURIComponent(id)}`),
+  departments: () => request("/api/departments"),
+  department: (id) => request(`/api/departments/${encodeURIComponent(id)}`),
+  addDepartmentCompany: (id, company) => request(`/api/departments/${encodeURIComponent(id)}/companies`, { method: "POST", body: { company } }),
+  removeDepartmentCompany: (id, company) => request(`/api/departments/${encodeURIComponent(id)}/companies/${encodeURIComponent(company)}`, { method: "DELETE" }),
+  tracxnStatus: () => request("/api/integrations/tracxn"),
+  tracxnConnect: (returnTo = "workspace") => request(`/api/integrations/tracxn/connect?return_to=${encodeURIComponent(returnTo)}`, { method: "POST" }),
+  tracxnDisconnect: () => request("/api/integrations/tracxn", { method: "DELETE" }),
   solve: (problem) =>
     request("/api/solve", { method: "POST", body: { problem }, timeoutMs: 180000 }),
   // The reviewer's own list. `runs` is the same row shape but spans everyone, so it is

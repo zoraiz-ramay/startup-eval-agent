@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useResearch } from "../research.jsx";
 import { api, evaluateStream } from "../api.js";
 import { useApp } from "../state.jsx";
 import ErrorBox from "../components/ErrorBox.jsx";
@@ -44,22 +45,24 @@ function StillRunning({ what }) {
 export default function Profile() {
   const { id } = useParams();
   const nav = useNavigate();
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const { watchlist, toggleWatch, setDockCtx, setDockOpen } = useApp();
   const [res, setRes] = useState(null);
   const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  const research = useResearch();
+  const jobId = params.get("job");
+  const job = research.jobs.find((j) => j.id === jobId);
   const evalName = params.get("name") || "";
   const tab = params.get("tab") || DEFAULT_VIEW;
-  const runId = id === "new" ? null : Number(id);
+  const runId = id === "new" ? job?.result?.run_id || null : Number(id);
 
   const refreshData = async () => {
     if (!res || refreshing) return;
     setRefreshing(true);
     try {
-      const r = await api.evaluate(res.company, true, true);   // refresh=true bypasses cache
-      if (r.run_id) nav(`/startup/${r.run_id}`, { replace: true });
-      else setRes(r);
+      const [j] = await research.start({ names: [res.company], refresh: true });
+      nav(`/startup/new?name=${encodeURIComponent(res.company)}&job=${j.id}`, { replace: true });
     } catch (e) {
       setError(e.message);
     } finally {
@@ -81,44 +84,36 @@ export default function Profile() {
 
   useEffect(() => {
     if (runId && loadedRunId.current === runId) return;
+    let active = true;
     setRes(null); setError("");
     if (id === "new" && evalName) {
       /* Streamed, so the profile appears as soon as the engine has assembled it rather than
          when routing finishes a minute later. Each partial merges into the same object the
          non-streaming path produces, so every view below reads one shape and none of them know
          this happened. `evaluateStream` falls back to api.evaluate on any stream failure. */
-      evaluateStream(evalName, {
-        refresh: params.get("refresh") === "1",
-        onPartial: (section, data) => setRes((prev) => ({
-          ...(prev || { found: true, streaming: true }),
-          // `identity` and `profile` each arrive as a BUNDLE of top-level keys — company/source,
-          // and the three the Overview reads — so they spread. Everything else is its own key.
-          // Wrapping identity instead left res.company undefined and the page headed by a blank
-          // <h1> for the whole run.
-          ...(section === "identity" || section === "profile" ? data : { [section]: data }),
-        })),
-      })
-        .then((r) => {
-          setRes(r);
-          if (r.run_id) {
-            loadedRunId.current = r.run_id;
-            nav(`/startup/${r.run_id}`, { replace: true });
-          }
-        })
-        .catch((e) => setError(e.message));
+      if (!jobId) {
+        research.start({ names: [evalName], refresh: params.get("refresh") === "1" })
+          .then(([j]) => { if (active) nav(`/startup/new?name=${encodeURIComponent(evalName)}&job=${j.id}`, { replace: true }); })
+          .catch((e) => setError(e.message));
+      }
     } else if (runId) {
-      api.run(runId).then((r) => { loadedRunId.current = runId; setRes(r); })
+      api.run(runId).then((r) => { if (active) { loadedRunId.current = runId; setRes(r); } })
         .catch((e) => setError(e.message));
     }
-  }, [id, evalName]);           // eslint-disable-line react-hooks/exhaustive-deps
+    return () => { active = false; };
+  }, [id, evalName, jobId]);           // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!job) return;
+    if (job.status === "error") setError(job.error);
+    else if (job.result) setRes(job.result);
+    else if (job.partial) setRes(job.partial);
+  }, [job]);
 
   useEffect(() => {
     if (res) setDockCtx({ runId, company: res.company });
     return () => setDockCtx(null);
   }, [res]);                    // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Re-observed whenever the run changes, because the anchors are conditional on what it found.
-  const active = useScrollSpy([res]);
 
   const p = res?.profile || {};
   const tags = useMemo(() => {
@@ -135,7 +130,7 @@ export default function Profile() {
         <div className="big">△</div>
         <h4>Could not load this startup</h4>
         <p>{error}</p>
-        <button className="btn secondary" onClick={() => nav("/explore")}>Back to Databases</button>
+        <button className="btn secondary" onClick={() => nav("/explore")}>Back to Companies</button>
       </div>
     );
   }
@@ -193,6 +188,7 @@ export default function Profile() {
                   assembled from the web rather than the curated GlassDollar record is a caveat on
                   every figure below it, and dropping the caveat with the chrome would have been a
                   quiet loss of meaning. */}
+              {res.source === "tracxn" && <span className="badge">Tracxn · your account · private for 30 days</span>}
               {res.source === "web" && <span className="badge">web-sourced — verify figures</span>}
             </div>
             {tags.length > 0 && (
@@ -219,8 +215,7 @@ export default function Profile() {
               onClick={() => toggleWatch(res.company)}>
               {watchlist.includes(res.company) ? "★ Watching" : "☆ Watch"}
             </button>
-            <button className="tool-btn" onClick={() => setDockOpen(true)}>✦ Assistant</button>
-            <button className="tool-btn" onClick={() => nav("/explore")}>← Explore</button>
+            <button className="tool-btn" onClick={() => nav("/explore")}>← Companies</button>
           </div>
         </div>
       </div>

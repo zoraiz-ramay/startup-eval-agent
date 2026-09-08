@@ -184,7 +184,8 @@ def score_startup(row: pd.Series, enrichment: dict, verification: dict, fit: dic
     # A challenge match can now only pull fit UP, and only insofar as it beats the tool match.
     ch = fit.get("challenge_match", {}) or {}
     ch_score = float(ch.get("score", 0) or 0) if ch.get("library_size") else 0.0
-    dims["siemens_fit"] = min(100.0, tool_fit + 0.3 * max(0.0, ch_score - tool_fit))
+    dims["siemens_fit"] = (fit["rubric"]["score"] if fit.get("rubric", {}).get("version") == "siemens-fit-v1"
+                            else min(100.0, tool_fit + 0.3 * max(0.0, ch_score - tool_fit)))
     # product: how far the solution has actually got. The pitch form's three Stage checkboxes
     # first; failing those, the free-text stage description, which is the only stage answer a
     # web-sourced company has and which used to score every one of them 40.

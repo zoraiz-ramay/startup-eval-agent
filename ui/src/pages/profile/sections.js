@@ -34,12 +34,7 @@ export const PROFILE_VIEWS = [
     sections: [
       { id: "scoring-decision", label: "Decision" },
       { id: "scoring-breakdown", label: "Score breakdown" },
-      // The three pillars are the point of this view: a reviewer is deciding which programme to
-      // offer, and each pillar is answered by two independent gates that used to be shown in two
-      // separate panels for them to cross-reference by hand.
-      { id: "scoring-connect", label: "Connect" },
-      { id: "scoring-collaborate", label: "Collaborate" },
-      { id: "scoring-empower", label: "Empower" },
+      { id: "scoring-routes", label: "Partnership routes" },
       { id: "scoring-portfolio", label: "Portfolio fit" },
       { id: "scoring-sfs", label: "SFS financing" },
       // "Flags & gaps", not "Red flags & gaps": ix_lint reads the bare word in a quoted string as

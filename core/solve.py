@@ -12,6 +12,7 @@ import json
 import os
 import pathlib
 import re
+import concurrent.futures
 from datetime import datetime, timezone
 
 from .config import BASE_DIR
@@ -84,7 +85,7 @@ def _derive_keywords(problem: str, llm: LLMClient) -> list[str]:
                   "List 4-8 short search phrases (2-4 words) describing the startup capabilities "
                   "or product categories that could solve it. Include close synonyms.\n"
                   'Return ONLY JSON: {"keywords": ["..."]}')
-        data = LLMClient.parse_json(llm.complete(prompt, max_tokens=300))
+        data = LLMClient.parse_json(llm.complete(prompt, max_tokens=300, reasoning="none"))
         if data and isinstance(data.get("keywords"), list):
             terms = [str(k).strip() for k in data["keywords"] if str(k).strip()]
             if terms:
@@ -129,20 +130,35 @@ def _glassdollar_candidates(keywords: list[str], limit_per_kw: int = 5) -> list[
     hits are opportunistic — a miss is normal and web candidates fill the gap."""
     from . import glassdollar_api
     out, seen = [], set()
-    for kw in keywords[:5]:
+    # Small parallel batch; one timeout attempt per search prevents retry cascades.
+    client = glassdollar_api.GlassDollarClient(timeout=8, max_attempts=1)
+    def search(kw):
         try:
-            for c in glassdollar_api.search_companies(kw, limit=limit_per_kw):
-                name = str(c.get("name", "")).strip()
-                if not name or name.lower() in seen:
-                    continue
-                seen.add(name.lower())
-                out.append({"name": name, "source": "glassdollar",
-                            "glassdollar_id": c.get("id", ""),
-                            "description": str(c.get("description") or c.get("short_description") or "")[:400],
-                            "website": str(c.get("website") or c.get("domain") or "")})
-        except Exception:
-            break                        # no key / API down -> rely on web candidates
+            return client.search_companies(kw, limit=limit_per_kw)
+        except glassdollar_api.GlassDollarError:
+            return []
+    try:
+        # Authenticate once before fan-out: creating a client per keyword races the
+        # heavily rate-limited token endpoint on a cold cache.
+        client._valid_token()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+            batches = list(pool.map(search, keywords[:3]))
+    except glassdollar_api.GlassDollarError:
+        return []
+    finally:
+        client._session.close()
+    for batch in batches:
+        for c in batch:
+            name = str(c.get("name", "")).strip()
+            if not name or name.casefold() in seen:
+                continue
+            seen.add(name.casefold())
+            out.append({"name": name, "source": "glassdollar",
+                        "glassdollar_id": c.get("id", ""),
+                        "description": str(c.get("description") or c.get("short_description") or "")[:1200],
+                        "website": str(c.get("website") or c.get("domain") or "")})
     return out
+
 
 
 def _web_candidates(keywords: list[str], llm: LLMClient) -> list[dict]:
@@ -159,12 +175,12 @@ def _web_candidates(keywords: list[str], llm: LLMClient) -> list[dict]:
                   "based only on the results, and the most likely website URL from the results.\n\n"
                   f"RESULTS:\n{text}\n\n"
                   'Return ONLY JSON: {"companies": [{"name":"","description":"","website":""}]}')
-        data = LLMClient.parse_json(llm.complete(prompt, max_tokens=900))
+        data = LLMClient.parse_json(llm.complete(prompt, max_tokens=900, reasoning="none"))
         if data and isinstance(data.get("companies"), list):
             return [{"name": str(c.get("name", "")).strip(), "source": "web",
                      "description": str(c.get("description", ""))[:400],
                      "website": str(c.get("website", ""))}
-                    for c in data["companies"] if str(c.get("name", "")).strip()][:15]
+                    for c in data["companies"] if isinstance(c, dict) and str(c.get("name", "")).strip()][:15]
     # offline: treat non-social result domains as candidate companies
     out, seen = [], set()
     for h in hits:
@@ -196,19 +212,23 @@ def _rank(problem: str, candidates: list[dict], llm: LLMClient) -> list[dict]:
                   'Return ONLY JSON: {"ranked": [{"index": 0, "relevance": 0, "rationale": ""}]}')
         data = LLMClient.parse_json(llm.complete(prompt, max_tokens=1000))
         if data and isinstance(data.get("ranked"), list):
-            out = []
+            out, used = [], set()
             for r in data["ranked"]:
                 try:
-                    c = dict(candidates[int(r["index"])])
-                except Exception:
+                    index = int(r["index"])
+                    if index < 0 or index >= len(candidates) or index in used:
+                        continue
+                    relevance = max(0, min(100, int(r.get("relevance", 0))))
+                    c = dict(candidates[index])
+                except (KeyError, ValueError, TypeError):
                     continue
-                c["relevance"] = max(0, min(100, int(r.get("relevance", 0))))
+                used.add(index)
+                c["relevance"] = relevance
                 c["rationale"] = str(r.get("rationale", ""))[:300]
                 if c["relevance"] >= 30:
                     out.append(c)
             out.sort(key=lambda x: x["relevance"], reverse=True)
-            if out:
-                return out
+            return out
     # offline: keyword overlap between the problem and each candidate description
     pkw = _keywords(problem)
     out = []
@@ -225,31 +245,88 @@ def _rank(problem: str, candidates: list[dict], llm: LLMClient) -> list[dict]:
 
 
 # ----------------------------------------------------------------- entry point
-def solve_problem(problem: str, llm: LLMClient = None, do_web: bool = True,
-                  use_glassdollar: bool = True, local_df=None) -> dict:
-    """Return {'problem', 'keywords', 'candidates': [{name, source, description, website,
-    relevance, rationale, glassdollar_id?}], 'method'}. Never raises.
+def _fill_candidate_gaps(candidates: list[dict]) -> None:
+    """One web wave for missing descriptions. Use snippets verbatim with their URLs.
 
-    Problem mode is the ONLY place the local applications Excel is searched (pass local_df);
-    the GlassDollar API and the web fill in the rest."""
+    A missing company website stays unknown: a search-result URL may be a news article.
+    Full evaluation can establish that identity with its existing grounding checks.
+    """
+    gaps = [c for c in candidates if not c.get("description")][:5]
+    if not gaps:
+        return
+    hits = _ddg_many({str(i): f'{c["name"]} company products solutions'
+                      for i, c in enumerate(gaps)}, max_results=3)
+    for i, c in enumerate(gaps):
+        for h in hits.get(str(i), []) or []:
+            body, url = str(h.get("body") or ""), str(h.get("href") or "")
+            if c["name"].casefold() in body.casefold() and url.startswith(("https://", "http://")):
+                c["description"] = body[:1200]
+                c.setdefault("field_sources", {})["description"] = {"provider": "web", "url": url}
+                break
+
+
+def solve_problem(problem: str, llm: LLMClient = None, do_web: bool = True,
+                  use_glassdollar: bool = True, local_df=None, tracxn=None) -> dict:
+    """Tracxn -> GlassDollar fallback -> web gaps, plus matching internal applications.
+
+    Tracxn is a request-scoped client for the signed-in user, never a global credential.
+    LLMs extract/rank supplied evidence; unknown company facts stay unknown.
+    """
     problem = str(problem or "").strip()
     if not problem:
-        return {"problem": "", "keywords": [], "candidates": [], "method": "none"}
-    llm = llm or LLMClient()
-    keywords = _derive_keywords(problem, llm)
+        return {"problem": "", "keywords": [], "candidates": [], "method": "none", "sources": []}
+    llm = llm or LLMClient(model=os.getenv("SCOUTING_LLM_MODEL", ""))
+    sources = []
+    candidates = []
+    if tracxn is not None:
+        try:
+            candidates = tracxn.search(problem)
+            sources.append({"provider": "tracxn", "status": "used" if candidates else "empty"})
+        except Exception:
+            sources.append({"provider": "tracxn", "status": "unavailable"})
+    else:
+        sources.append({"provider": "tracxn", "status": "not_connected"})
+    # Keywords are unnecessary for a complete Tracxn result unless local applications exist.
+    need_keywords = not candidates or local_df is not None
+    keywords = _derive_keywords(problem, llm) if need_keywords else []
     save_challenge(problem, keywords)
-
-    candidates: list[dict] = []
-    candidates.extend(_application_candidates(keywords, local_df))   # local xlsx first
-    seen = {c["name"].lower() for c in candidates}
-    if use_glassdollar:
-        candidates.extend(c for c in _glassdollar_candidates(keywords)
-                          if c["name"].lower() not in seen)
-        seen = {c["name"].lower() for c in candidates}
+    if not candidates and use_glassdollar:
+        candidates = _glassdollar_candidates(keywords)
+        sources.append({"provider": "glassdollar", "status": "used" if candidates else "empty_or_unavailable"})
+    else:
+        sources.append({"provider": "glassdollar", "status": "skipped" if candidates else "not_configured"})
+    candidates = _application_candidates(keywords, local_df) + candidates
+    # Source priority is retained and lower-priority duplicate records only fill blanks.
+    unique = {}
+    for c in candidates:
+        key = c["name"].casefold()
+        if key not in unique:
+            unique[key] = c
+            c["field_sources"] = {k: {"provider": c["source"]} for k in ("description", "website") if c.get(k)}
+        else:
+            for field in ("description", "website"):
+                if not unique[key].get(field) and c.get(field):
+                    unique[key][field] = c[field]
+                    unique[key]["field_sources"][field] = {"provider": c["source"]}
+    candidates = list(unique.values())[:20]
     if do_web:
-        candidates.extend(c for c in _web_candidates(keywords, llm)
-                          if c["name"].lower() not in seen)
-
+        _fill_candidate_gaps(candidates)
     ranked = _rank(problem, candidates, llm)
-    return {"problem": problem, "keywords": keywords, "candidates": ranked[:10],
+    if do_web and len(ranked) < 5:
+        if not keywords:
+            keywords = _derive_keywords(problem, llm)
+        web_candidates = _web_candidates(keywords[:3], llm)
+        additions = [c for c in web_candidates if c["name"].casefold() not in unique]
+        ranked += _rank(problem, additions, llm)
+        ranked.sort(key=lambda c: c["relevance"], reverse=True)
+        sources.append({"provider": "web", "status": "used" if web_candidates else "empty"})
+    else:
+        filled = any(v.get("provider") == "web" for c in candidates for v in c.get("field_sources", {}).values())
+        sources.append({"provider": "web", "status": "used" if filled else "skipped" if do_web else "disabled"})
+    # Raw vendor payloads can be large and are not part of the browser contract.
+    for c in ranked:
+        c.pop("provider_record", None)
+    priority = {"applications": 0, "tracxn": 1, "glassdollar": 2, "web": 3}
+    ranked.sort(key=lambda c: (priority.get(c["source"], 4), -c["relevance"]))
+    return {"problem": problem, "keywords": keywords, "candidates": ranked[:10], "sources": sources,
             "method": "llm" if llm.available else "offline_keyword"}

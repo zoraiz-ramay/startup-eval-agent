@@ -140,20 +140,20 @@ describe("Admin — administrators", () => {
 describe("Admin — sign-in metrics", () => {
   // "Reviewers" is both a stat label and the heading of the table below it, so the lookup is
   // pinned to the label element rather than to the text.
-  const tile = (label) => screen.getByText(label, { selector: ".stat .k" }).closest(".stat");
+  const tile = (label) => [...document.querySelectorAll("ix-kpi")].find((el) => el.label === label);
 
   it("separates how many people from how many sign-ins", async () => {
     renderAdmin();
-    await screen.findByText("Reviewers", { selector: ".stat .k" });
+    await waitFor(() => expect(tile("Reviewers")).toBeTruthy());
 
-    expect(within(tile("Reviewers")).getByText("2")).toBeInTheDocument();
-    expect(within(tile("Sign-ins")).getByText("5")).toBeInTheDocument();
+    expect(await findShadowText(tile("Reviewers"), "2")).toBeInTheDocument();
+    expect(await findShadowText(tile("Sign-ins"), "5")).toBeInTheDocument();
   });
 
   it("reports unique sign-ins for the window, labelled with its length", async () => {
     renderAdmin();
-    await screen.findByText("Signed in (30d)", { selector: ".stat .k" });
-    expect(within(tile("Signed in (30d)")).getByText("1")).toBeInTheDocument();
+    await waitFor(() => expect(tile("Signed in (30d)")).toBeTruthy());
+    expect(await findShadowText(tile("Signed in (30d)"), "1")).toBeInTheDocument();
   });
 
   it("lists a reviewer who signed in but never searched", async () => {

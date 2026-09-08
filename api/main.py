@@ -71,7 +71,7 @@ except Exception:
     pass
 
 # Give the engine its result cache. Injected rather than imported by core/ so nothing in core/
-# depends on api/ and the engine still runs (uncached) from tests, scripts and Streamlit.
+# depends on api/ and the engine still runs (uncached) from tests, scripts.
 try:
     core.web.install_cache(store.cache_get, store.cache_put, store.cache_get_entry)
     store.cache_purge_expired()
@@ -101,7 +101,7 @@ app = FastAPI(title="Siemens Startup Evaluation Agent API", version="0.2.0",
 _origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173").split(",") if o.strip()]
 app.add_middleware(SecurityMiddleware)
 app.add_middleware(CORSMiddleware, allow_origins=_origins, allow_credentials=True,
-                   allow_methods=["GET", "POST", "PATCH", "DELETE"],
+                   allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
                    allow_headers=["Authorization", "Content-Type", "X-CSRF-Token"])
 
 # Build and validate auth config here rather than at import of api.auth: this runs after
@@ -139,6 +139,13 @@ _log_admin_count()
 # swallow /api/auth/* and serve index.html instead.
 app.include_router(auth_router)
 app.include_router(evidence_router)
+from api.tracxn import router as tracxn_router, client_for as tracxn_client_for
+app.include_router(tracxn_router)
+from api.jobs import router as jobs_router
+from api import workspace
+app.include_router(jobs_router)
+from api.interests import router as interests_router
+app.include_router(interests_router)
 
 
 class EvaluateBody(BaseModel):
@@ -307,21 +314,27 @@ def evaluate(body: EvaluateBody, user: Principal = Depends(current_user)) -> dic
     """
     name = body.name.strip()
     principal = user.as_reviewer()
-    if not body.refresh:
-        # Any stored evaluation is served from the DB — regardless of age. Fresh external
-        # calls happen ONLY on explicit refresh (Re-evaluate / Refresh Data buttons).
-        # Freshness metadata tells the UI how old the data is.
+    cached = _evaluation_cached(name, body, user)
+    return cached if cached is not None else _run_evaluation(name, body, principal, user=user)
+
+
+def _evaluation_cached(name, body, user):
+    if body.refresh:
+        return None
+    if tracxn_client_for(user):
+        cached = workspace.private_latest(user.oid, name)
+    else:
         cached = store.latest_run_for_alias(name)
-        if cached:
-            cached["cached"] = True
-            cached["freshness"] = _freshness(cached.get("run_created_at", ""))
-            store.record_search(principal, name, company_name=str(cached.get("company", "")),
+    if cached:
+        cached["cached"] = True
+        cached["freshness"] = _freshness(cached.get("run_created_at", ""))
+        if not cached.get("private"):
+            store.record_search(user.as_reviewer(), name, company_name=str(cached.get("company", "")),
                                 run_id=cached.get("run_id"), served_from="cache")
-            return cached
-    return _run_evaluation(name, body, principal)
+    return cached
 
 
-def _run_evaluation(name: str, body: "EvaluateBody", principal, on_partial=None) -> dict:
+def _run_evaluation(name: str, body: "EvaluateBody", principal, on_partial=None, user=None) -> dict:
     """The uncached half of /api/evaluate, shared with the streaming route.
 
     Extracted rather than duplicated: the two endpoints must agree on what a fresh evaluation is,
@@ -330,11 +343,21 @@ def _run_evaluation(name: str, body: "EvaluateBody", principal, on_partial=None)
     df = None if _gd_key() else _get_local_df()
     # An explicit refresh must re-search: serving cached hits would replay the very evidence
     # the caller asked to renew.
-    res = core.evaluate(name, None, core.DEFAULT_TOOLS_CSV, do_web=body.do_web, df=df,
-                        use_web_cache=not body.refresh, on_partial=on_partial)
+    tracxn = tracxn_client_for(user, core.LLMClient()) if user else None
+    token = core.web.set_cache_private(True) if tracxn else None
+    try:
+        res = core.evaluate(name, None, core.DEFAULT_TOOLS_CSV, do_web=body.do_web, df=df,
+                            use_web_cache=not body.refresh, on_partial=on_partial, tracxn=tracxn)
+    finally:
+        if token is not None:
+            core.web.reset_cache_private(token)
     if not res.get("found"):
         raise HTTPException(status_code=404,
                             detail=f"No match for '{body.name}' in GlassDollar or on the web.")
+    if res.get("source") == "tracxn":
+        from datetime import datetime, timezone
+        res.update(cached=False, run_created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))
+        return workspace.private_save(user.oid, name, res) if body.save else res
     if body.save:
         # The typed query is filed as an alias so the next reviewer who types it the same
         # way is served from the database instead of re-running the pipeline.
@@ -374,21 +397,16 @@ def evaluate_stream(body: EvaluateBody, user: Principal = Depends(current_user))
 
     # A cache hit is not a pipeline run: it emits one `done` and nothing else, so the cached path
     # stays byte-identical to the non-streaming endpoint.
-    if not body.refresh:
-        cached = store.latest_run_for_alias(name)
-        if cached:
-            cached["cached"] = True
-            cached["freshness"] = _freshness(cached.get("run_created_at", ""))
-            store.record_search(principal, name, company_name=str(cached.get("company", "")),
-                                run_id=cached.get("run_id"), served_from="cache")
-            events.put(("done", cached))
-            events.put(None)
+    cached = _evaluation_cached(name, body, user)
+    if cached:
+        events.put(("done", cached))
+        events.put(None)
 
     def _work():
         try:
             res = _run_evaluation(name, body, principal,
                                   on_partial=lambda s, d: events.put(("partial",
-                                                                      {"section": s, "data": d})))
+                                                                      {"section": s, "data": d})), user=user)
             events.put(("done", res))
         except HTTPException as exc:
             events.put(("error", {"detail": exc.detail, "status": exc.status_code}))
@@ -426,7 +444,8 @@ def my_searches(limit: int = 200, user: Principal = Depends(current_user)) -> di
     Lists are private: there is no parameter that widens this to another principal. The
     team-wide view lives at /api/admin/searches behind require_admin.
     """
-    return {"runs": store.list_user_runs(user.oid, limit=max(1, min(limit, 500)))}
+    return {"runs": sorted(workspace.private_list(user.oid) + store.list_user_runs(user.oid, limit=max(1, min(limit, 500))),
+                           key=lambda r: r.get("created_at", ""), reverse=True)[:max(1, min(limit, 500))]}
 
 
 @app.get("/api/my/views")
@@ -450,12 +469,36 @@ def my_view_delete(name: str, user: Principal = Depends(current_user)) -> dict:
 
 
 @app.post("/api/solve")
-def solve(body: SolveBody) -> dict:
-    """Problem -> ranked solver startups. The ONLY endpoint that searches the local
-    applications Excel; GlassDollar + web fill in the rest. Records the challenge."""
-    return solve_problem(body.problem, llm=core.LLMClient(), do_web=body.do_web,
-                         use_glassdollar=bool(core.GLASSDOLLAR_API_KEY or os.getenv("GLASSDOLLAR_API_KEY", "")),
-                         local_df=_get_local_df())
+def solve(body: SolveBody, user: Principal = Depends(current_user)) -> dict:
+    import hashlib
+    import json
+    import time
+    from api.auth import sessions
+
+    problem = body.problem.strip()
+    if len(problem) < 3:
+        raise HTTPException(422, "Describe your problem in at least three characters.")
+    llm = core.LLMClient(model=os.getenv("SCOUTING_LLM_MODEL", ""))
+    tracxn = tracxn_client_for(user, llm)
+    signature = json.dumps([problem.casefold(), body.do_web, tracxn.cache_identity if tracxn else "", bool(_gd_key()),
+                            llm.model, llm.provider, llm.base_url, _LOCAL_XLSX], sort_keys=True)
+    key = f"scout:v1:{user.oid}:" + hashlib.sha256(signature.encode()).hexdigest()
+    cached = sessions().get(key)
+    if cached:
+        return {**cached, "cached": True}
+    started = time.monotonic()
+    # Private provider responses must not enter the shared SQLite-backed completion cache.
+    token = core.web.set_cache_private(True) if tracxn else None
+    try:
+        result = solve_problem(problem, llm=llm, do_web=body.do_web,
+                               use_glassdollar=bool(_gd_key()), local_df=_get_local_df(), tracxn=tracxn)
+    finally:
+        if token is not None:
+            core.web.reset_cache_private(token)
+    result.update(cached=False, elapsed_seconds=round(time.monotonic() - started, 1))
+    if result["candidates"] and not any("unavailable" in s["status"] for s in result["sources"]):
+        sessions().put(key, result, 600)
+    return result
 
 
 @app.get("/api/runs")
@@ -550,8 +593,8 @@ def companies() -> dict:
 
 
 @app.get("/api/runs/{run_id}")
-def run_detail(run_id: int) -> dict:
-    res = store.get_run(run_id)
+def run_detail(run_id: int, user: Principal = Depends(current_user)) -> dict:
+    res = workspace.private_get(user.oid, run_id) if run_id < 0 else store.get_run(run_id)
     if res is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found.")
     return res
@@ -602,12 +645,12 @@ def challenge_status(index: int, body: ChallengeStatusBody,
 
 
 @app.post("/api/ask")
-def ask(body: AskBody) -> dict:
+def ask(body: AskBody, user: Principal = Depends(current_user)) -> dict:
     """Combined AI + web answer (credit-efficient 2-LLM-call flow). Optionally grounded
     in a stored evaluation via run_id."""
     company, brief = "", ""
     if body.run_id is not None:
-        res = store.get_run(body.run_id)
+        res = workspace.private_get(user.oid, body.run_id) if body.run_id < 0 else store.get_run(body.run_id)
         if res is None:
             raise HTTPException(status_code=404, detail=f"Run {body.run_id} not found.")
         company = str(res.get("company", ""))
@@ -618,8 +661,12 @@ def ask(body: AskBody) -> dict:
                  f"HQ: {p.get('hq','—')} | Funding: {p.get('funding','—')}\n"
                  f"Final score: {sc.get('final_score','—')} | Routing: {rt.get('pillar','—')} "
                  f"(+{', '.join(rt.get('secondary', []) or [])})\nSiemens fit tools: {tools}")
-    return core.chat_smart(body.question, llm=core.LLMClient(),
-                           context_company=company, context_brief=brief)
+    token = core.web.set_cache_private(True) if body.run_id is not None and body.run_id < 0 else None
+    try:
+        return core.chat_smart(body.question, llm=core.LLMClient(), context_company=company, context_brief=brief)
+    finally:
+        if token is not None:
+            core.web.reset_cache_private(token)
 
 
 # ── PDF management (S3-backed) ────────────────────────────────────────────────

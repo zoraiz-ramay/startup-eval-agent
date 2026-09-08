@@ -36,8 +36,8 @@ def enrich(row: pd.Series, do_web: bool = True) -> dict:
     def db_fact(col, key=None, conf=0.5):
         val = str(row.get(col, "")).strip()
         if val:
-            facts.append(Fact(key=key or col, value=val, method="glassdollar_db",
-                              source_url="GlassDollar", confidence=conf, verified=False))
+            facts.append(Fact(key=key or col, value=val, method="tracxn_mcp" if row.get("tracxn_id") else "glassdollar_db",
+                              source_url="https://platform.tracxn.com/mcp" if row.get("tracxn_id") else "GlassDollar", confidence=conf, verified=False))
 
     for col, key in [("hq", "hq"), ("founded_year", "founded_year"),
                      ("employees_count", "employees"), ("funding", "funding"),

@@ -137,7 +137,7 @@ def _by_domain(name: str):
 
 def evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = True,
              df: "pd.DataFrame" = None, on_step=None, use_web_cache: bool = True,
-             on_partial=None) -> dict:
+             on_partial=None, tracxn=None) -> dict:
     """Run the full pipeline for one startup.
 
     ``use_web_cache=False`` forces every search and site fetch to hit the network. A forced
@@ -150,13 +150,13 @@ def evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = T
     """
     token = web.set_cache_enabled(use_web_cache)
     try:
-        return _evaluate(name, glassdollar_path, tools_path, do_web, df, on_step, on_partial)
+        return _evaluate(name, glassdollar_path, tools_path, do_web, df, on_step, on_partial, tracxn)
     finally:
         web.reset_cache_enabled(token)
 
 
 def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = True,
-              df: "pd.DataFrame" = None, on_step=None, on_partial=None) -> dict:
+              df: "pd.DataFrame" = None, on_step=None, on_partial=None, tracxn=None) -> dict:
     # Optional progress callback: on_step(step_label, status) where status is one of
     # "running" | "done" | "error". Reporting must never break the evaluation itself.
     def _step(label: str, status: str = "running") -> None:
@@ -178,6 +178,16 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
             pass
 
     _step("INPUT", "running")
+    provider_row = None
+    provider_status = "not_connected"
+    if tracxn is not None:
+        try:
+            provider_row = tracxn.company_row(name)
+            provider_status = "used" if provider_row is not None else "no_exact_match"
+        except Exception:
+            provider_status = "unavailable"
+    if provider_row is not None:
+        df = pd.DataFrame([provider_row])
     if df is None:
         # API mode: the database is huge, so search for just this name instead of loading all.
         from . import glassdollar_api
@@ -186,8 +196,8 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
         except glassdollar_api.GlassDollarError:
             df = pd.DataFrame()   # search unavailable -> treat as a DB miss and fall back to web
     llm = LLMClient()
-    row = find_startup(df, name)
-    source = "glassdollar"
+    row = provider_row if provider_row is not None else find_startup(df, name)
+    source = "tracxn" if provider_row is not None else "glassdollar"
     hydrated = False
     if row is None:
         # A domain is a stronger identity than a fuzzy name match at 0.82: "phena.tech"
@@ -296,6 +306,9 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
     enrichment["facts"].extend(prof_res["facts"])
     _emit("facts", [f.as_dict() for f in enrichment["facts"]])
     _step("SCORE", "running")
+    from .siemens_fit import assess_fit
+    fit["rubric"] = assess_fit(row, fit, enrichment["facts"], llm)
+    _emit("fit", fit)
     sc = score_startup(row, enrichment, verification, fit, deep_profile, trend)
     _step("SCORE", "done")
     _emit("score", sc)
@@ -316,6 +329,7 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
         "found": True,
         "source": source,
         "engine": engine,
+        "provider_status": {"tracxn": provider_status},
         "company": str(row.get("company_name", "")) or name,
         "profile": profile,
         "profile_sources": profile_sources,

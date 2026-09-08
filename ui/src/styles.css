@@ -319,7 +319,7 @@ ix-menu:not(.expanded) .acct-name { display: none; }
 
 /* ---------------- pills / badges ---------------- */
 /* MIG-01/MIG-29: every pillar pill (Connect/Collaborate/Empower/Pass) across Profile.jsx,
-   Explore.jsx, Home.jsx, Alerts.jsx, widgets.jsx and WhatIfWeights.jsx now renders through
+   Explore.jsx, Home.jsx, Alerts.jsx and widgets.jsx now renders through
    `IxPill` (see components/widgets.jsx's `PillarPill`, tokens.css's --pillar-*-bg). The
    `.pill.<Pillar>` rules are gone; `.pill`/`.pill.sfs`/`.pill.ghost` stay for the SFS-financing
    badge, which is a non-pillar variant. */
@@ -587,7 +587,7 @@ ix-menu:not(.expanded) .acct-name { display: none; }
    Anchored bottom-left rather than across the top because the top bar, rail and dock are
    all fixed and positioned off --topbar-h — a full-width strip there covered the command
    bar. The bottom of the rail is dead space, so this obstructs nothing while staying red
-   and permanently on screen. */
+   and permanently on screen.
    It is purely a label, so it must never intercept a click: on a narrow window it sits
    over real controls, and swallowing their clicks would make the app feel broken. */
 .stub-banner { position: fixed; left: 8px; bottom: 8px; z-index: 100; max-width: 260px;
@@ -698,3 +698,72 @@ ix-menu:not(.expanded) .acct-name { display: none; }
   .section-rail-group-head { justify-content: center; }
   .section-rail-group.open > .section-rail-group-head { justify-content: flex-start; }
 }
+
+/* Problem-led scouting workspace; all colours follow the active Siemens iX theme. */
+.problem-layout { display: grid; grid-template-columns: minmax(0, 2fr) minmax(240px, 1fr); gap: 24px; align-items: start; }
+.problem-brief, .solution-card { width: 100%; height: auto; }
+.problem-brief ix-card-content, .solution-card ix-card-content { display: block; padding: 24px; }
+.problem-eyebrow { color: var(--accent); font-size: 12px; letter-spacing: .08em; font-weight: 600; }
+.problem-brief h2 { margin: 12px 0; font-size: 25px; line-height: 1.3; }
+.problem-brief p { line-height: 1.6; margin-bottom: 24px; max-width: 65ch; }
+.problem-brief ix-textarea { display: block; width: 100%; }
+.problem-submit, .solution-actions, .problem-results-head { display: flex; gap: 12px; justify-content: space-between; align-items: center; flex-wrap: wrap; }
+.problem-submit { margin-top: 18px; font-size: 12px; }
+.problem-examples { border-top: 1px solid var(--border); padding-top: 20px; margin-top: 24px; font-size: 12px; }
+.problem-examples > div { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.problem-sources { margin: 0; }
+.problem-sources ol { padding-left: 24px; margin: 20px 0; }
+.problem-sources li { padding-left: 8px; margin-bottom: 24px; }
+.problem-sources li::marker { color: var(--accent); font-weight: 600; }
+.problem-sources li > span, .problem-sources li > small { display: block; font-size: 12px; line-height: 1.6; margin: 8px 0; color: var(--text-2); }
+.problem-sources > p { font-size: 12px; line-height: 1.6; }
+.problem-progress { padding: 24px; margin-top: 20px; background: var(--surface); border: 1px solid var(--border); }
+.problem-results { margin-top: 32px; }
+.problem-results-head h2 { margin: 0; }
+.problem-source-status { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0 24px; }
+.solution-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.solution-heading { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+.solution-heading h3 { margin: 0; flex: 1; }
+.solution-card p { line-height: 1.6; overflow-wrap: anywhere; }
+.solution-reason { border-left: 2px solid var(--accent); padding-left: 12px; margin: 20px 0; font-size: 13px; }
+.solution-reason p { margin: 6px 0 0; }
+.solution-actions { margin-top: 20px; font-size: 13px; }
+.problem-workspace-history { margin-top: 32px; border-top: 1px solid var(--border); padding-top: 20px; }
+.problem-workspace-history summary { cursor: pointer; font-weight: 600; color: var(--text-2); margin-bottom: 20px; }
+@media (max-width: 1000px) { .problem-layout { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 600px) {
+  .solution-grid { grid-template-columns: minmax(0, 1fr); }
+  .problem-brief ix-card-content, .solution-card ix-card-content { padding: 16px; }
+  .problem-submit { align-items: flex-start; flex-direction: column; }
+}
+
+.startup-home { max-width: 1100px; margin: 0 auto; }
+.connection-strip, .research-item, .department-add { display: flex; gap: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.connection-strip { border: 1px solid var(--border); padding: 18px; margin: 24px 0; background: var(--surface); }
+.connection-strip p, .research-item p { margin: 6px 0 0; }
+.research-list { margin-top: 16px; }
+.research-item strong { overflow-wrap: anywhere; }
+.pillar-tabs { display: flex; gap: 8px; margin: 24px 0 0; border-bottom: 1px solid var(--border); }
+.pillar-tabs button { flex: 1; padding: 14px 8px; background: var(--surface); border: 1px solid var(--border); color: var(--text-1); cursor: pointer; }
+.pillar-tabs [aria-selected="true"] { border-bottom: 3px solid var(--accent); color: var(--accent); }
+.rubric-criterion { border-top: 1px solid var(--border); padding: 16px 0; }
+.rubric-criterion summary { display: flex; justify-content: space-between; gap: 12px; cursor: pointer; }
+.rubric-criterion blockquote { border-left: 2px solid var(--accent); padding-left: 12px; margin: 12px 0; font-size: 13px; }
+
+/* Keep the landing page focused on its original, single search field. */
+.startup-home.search-hero { max-width: none; }
+.search-hero-field .batch-toggle {
+  position: absolute; right: 6px; top: 4px; width: 40px; height: 40px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-2); background: transparent; border: 0; border-radius: 50%; cursor: pointer;
+}
+.search-hero-field .batch-toggle:hover { color: var(--accent); background: var(--surface); }
+.search-hero-field .batch-toggle:focus-visible { outline: 2px solid var(--accent); }
+.search-hero-field .batch-toggle[aria-expanded="true"] .ix-i { transform: rotate(45deg); }
+.startup-home .search-hero-field input { padding-right: 52px; }
+.batch-search { width: 100%; max-width: 560px; margin-top: 16px; text-align: left; }
+.connection-compact { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+.research-session { width: 100%; max-width: 560px; margin-top: 24px; text-align: left; }
+.research-session > summary { color: var(--text-2); cursor: pointer; font-size: 13px; text-align: center; }
+
+.tracxn-optional { flex-basis: 100%; font-size: 12px; }

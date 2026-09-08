@@ -1475,7 +1475,7 @@ def research_profile(row: pd.Series, llm: LLMClient, do_web: bool = True,
         # A row carrying a glassdollar_id came from the live REST API; one without it came
         # from the shipped application export. Both are GlassDollar, but only one of them is
         # the startup writing about itself, and provenance.py grades them differently.
-        db_method = ("glassdollar_api" if str(row.get("glassdollar_id", "")).strip()
+        db_method = ("tracxn_mcp" if str(row.get("tracxn_id", "")).strip() else "glassdollar_api" if str(row.get("glassdollar_id", "")).strip()
                      not in ("", "nan") else "glassdollar_db")
         return {"profile": prof, "facts": _profile_facts(prof, seeded, db_method)}
     except Exception:

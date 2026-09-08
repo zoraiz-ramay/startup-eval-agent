@@ -84,7 +84,7 @@ vi.mock("../api.js", () => ({
 
 /** One pillar's section, by the id the rail links to. */
 function pillarSection(pillar) {
-  return document.getElementById(`scoring-${pillar.toLowerCase()}`);
+  return document.getElementById(`pillar-panel-${pillar}`);
 }
 
 async function renderScoringTab() {

@@ -1,0 +1,56 @@
+"""Private run storage and durable job snapshots in the existing Redis backend."""
+import json
+import hashlib
+import secrets
+import threading
+from contextlib import contextmanager
+from api.auth import sessions
+
+TTL = 30 * 86400
+_lock = threading.RLock()
+
+
+@contextmanager
+def locked(key):
+    backend = sessions()
+    lock = backend._client.lock("workspace-lock:" + key, timeout=30, blocking_timeout=5) if hasattr(backend, "_client") else _lock
+    with lock:
+        yield
+
+
+def private_save(oid, name, result):
+    run_id = -secrets.randbelow(2**52 - 1) - 1
+    result = json.loads(json.dumps(result, default=str))
+    result = {**result, "run_id": run_id, "private": True, "retention_days": 30}
+    sessions().put(f"private-run:{oid}:{run_id}", result, TTL)
+    sessions().put(alias_key(oid, name), {"id": run_id}, TTL)
+    with locked(oid):
+        index = sessions().get("private-runs:" + oid) or {"ids": []}
+        index["ids"] = [run_id, *index["ids"]][:100]
+        sessions().put("private-runs:" + oid, index, TTL)
+    return result
+
+
+def alias_key(oid, name):
+    return f"private-alias:{oid}:" + hashlib.sha256(name.strip().casefold().encode()).hexdigest()
+
+
+def private_latest(oid, name):
+    ref = sessions().get(alias_key(oid, name)) or {}
+    return private_get(oid, ref.get("id")) if ref else None
+
+
+def private_get(oid, run_id):
+    return sessions().get(f"private-run:{oid}:{run_id}")
+
+
+def private_list(oid):
+    out = []
+    for run_id in (sessions().get("private-runs:" + oid) or {}).get("ids", []):
+        r = private_get(oid, run_id)
+        if r:
+            out.append({"id": run_id, "company": r["company"], "summary": r.get("summary", ""),
+                "final_score": r.get("score", {}).get("final_score", 0), "pillar": r.get("routing", {}).get("pillar", ""),
+                "created_at": r.get("run_created_at", ""), "private": True,
+                "hq": r.get("profile", {}).get("hq", ""), "dimensions": r.get("score", {}).get("dimensions", {})})
+    return out

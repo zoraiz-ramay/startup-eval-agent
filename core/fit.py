@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 
 import pandas as pd
@@ -30,7 +31,7 @@ def _derive_fit_keywords(startup_text: str, llm: LLMClient) -> list[str]:
             f"STARTUP:\n{startup_text}\n\n"
             'Return ONLY JSON: {"keywords": ["...", "..."]}'
         )
-        data = LLMClient.parse_json(llm.complete(prompt, max_tokens=400))
+        data = LLMClient.parse_json(llm.complete(prompt, max_tokens=400, reasoning="none"))
         if data and isinstance(data.get("keywords"), list):
             terms = [str(k).strip() for k in data["keywords"] if str(k).strip()]
             if terms:
@@ -111,13 +112,30 @@ def match_siemens_tools(row: pd.Series, pitch_pdf: str, tools: list[dict], llm: 
                 '"relation": "complement|integration|substitute|adjacent", "rationale": "one sentence"}]}'
             )
             data = LLMClient.parse_json(llm.complete(prompt, max_tokens=900))
-            if data and "matches" in data:
-                data.setdefault("aligned", bool(data["matches"]))
-                data["method"] = "llm"
-                data["shortlist_size"] = len(shortlist)
-                data["keywords"] = terms
-                data["challenge_match"] = _challenge_match(startup_text)
-                return data
+            if isinstance(data, dict) and isinstance(data.get("matches"), list):
+                allowed = {t["product"].casefold(): t for t in shortlist}
+                clean, seen = [], set()
+                for match in data["matches"]:
+                    if not isinstance(match, dict):
+                        continue
+                    tool = allowed.get(str(match.get("tool", "")).casefold())
+                    if not tool or tool["product"] in seen or match.get("relation") not in ("complement", "integration", "substitute", "adjacent"):
+                        continue
+                    try:
+                        confidence = float(match.get("confidence", 0))
+                        if not math.isfinite(confidence):
+                            continue
+                        confidence = max(0, min(100, confidence))
+                    except (TypeError, ValueError):
+                        continue
+                    clean.append({"tool": tool["product"], "division": tool["division"],
+                                  "confidence": confidence, "relation": match["relation"],
+                                  "rationale": str(match.get("rationale", ""))[:500]})
+                    seen.add(tool["product"])
+                clean.sort(key=lambda m: m["confidence"], reverse=True)
+                return {"aligned": bool(clean) and clean[0]["confidence"] >= FIT_ALIGN_THRESHOLD,
+                        "matches": clean[:3], "method": "llm", "shortlist_size": len(shortlist),
+                        "keywords": terms, "challenge_match": _challenge_match(startup_text)}
 
     # ---- offline keyword fallback ----
     skw = _keywords(startup_text)

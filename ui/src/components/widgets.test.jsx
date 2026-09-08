@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { ExtLink, Loading, Radar } from "./widgets.jsx";
+import { ExtLink, Loading, Radar, ScoreBar } from "./widgets.jsx";
 
 /**
  * X-03 / PROF-11 — loading state is announced, not just drawn.
