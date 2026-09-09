@@ -20,6 +20,7 @@ import { findShadowRole, findShadowText } from "../test/shadow.js";
  */
 vi.mock("../api.js", () => ({
   api: {
+    departments: vi.fn(async () => ({departments:[]})),
     myRuns: vi.fn(async () => ({ runs: [] })),
     search: vi.fn(async () => ({ results: [] })),
     views: vi.fn(async () => ({ views: [] })),
@@ -170,11 +171,11 @@ describe("Explore saved views", () => {
   it("saving a view sends it to the server and opens it", async () => {
     const user = userEvent.setup();
     api.views.mockResolvedValueOnce({ views: [] });
-    renderWithNav();
+    const { container } = renderWithNav();
 
     await user.click(await screen.findByRole("button", { name: /customise columns/i }));
     await user.type(screen.getByPlaceholderText(/view name/i), "My view");
-    await user.click(screen.getByRole("button", { name: /^save view$/i }));
+    await user.click(await findShadowRole(container, "button", { name: /^save view$/i }));
 
     expect(api.saveView).toHaveBeenCalledWith("My view", expect.any(Array), expect.any(Object));
     expect(await screen.findByText(/View: My view/)).toBeInTheDocument();

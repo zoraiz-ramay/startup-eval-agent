@@ -44,7 +44,7 @@ export default function Home() {
     if (!runs?.length) return null;
     return {
       total: runs.length,
-      avg: (runs.reduce((s, r) => s + (r.final_score || 0), 0) / runs.length).toFixed(0),
+      avg: (runs.some((r) => typeof r.final_score === "number") ? (runs.reduce((s, r) => s + (r.final_score || 0), 0) / runs.filter((r) => typeof r.final_score === "number").length).toFixed(0) : "—"),
       aligned: runs.filter((r) => r.pillar !== "Pass").length,
       watched: watchlist.length,
     };
@@ -104,7 +104,7 @@ export default function Home() {
                   <div className="run-cell">
                     <div className="run-row">
                       <strong className="run-name">{r.company}</strong>
-                      <span className="num">{Number(r.final_score).toFixed(0)}</span>
+                      <span className="num">{typeof r.final_score === "number" ? r.final_score.toFixed(0) : "—"}</span>
                       <PillarPill pillar={r.pillar} />
                     </div>
                     <div className="muted run-desc">{(r.summary || "").slice(0, 90)}</div>
@@ -128,7 +128,7 @@ export default function Home() {
                   <Row key={r.id} onActivate={() => nav(`/startup/${r.id}`)}>
                     <span style={{ color: "var(--warning)" }}>★</span>{" "}
                     <strong>{r.company}</strong>{" "}
-                    <span className="num">{Number(r.final_score).toFixed(0)}</span>
+                    <span className="num">{typeof r.final_score === "number" ? r.final_score.toFixed(0) : "—"}</span>
                   </Row>
                 ))}
               </IxCardList>

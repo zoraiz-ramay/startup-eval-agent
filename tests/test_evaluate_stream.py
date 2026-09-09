@@ -147,7 +147,8 @@ def test_a_consumer_that_throws_does_not_break_the_evaluation(offline):
         raise RuntimeError("client went away")
 
     result = _run(df, tools, on_partial=_boom)
-    assert result["found"] and result["score"]["final_score"] >= 0
+    assert result["found"] and result["score"]["status"] == "unavailable"
+    assert result["score"]["final_score"] is None
 
 
 def test_no_callback_is_still_the_supported_case(offline):

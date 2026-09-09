@@ -107,7 +107,7 @@ class LLMClient:
 
     def complete(self, prompt: str, system: str = "", max_tokens: int = 1200,
                  model: str = "", temperature: float = LLM_TEMPERATURE,
-                 reasoning: str = "") -> str:
+                 reasoning: str = "", max_attempts: int | None = None) -> str:
         """Run one completion; '' on failure.
 
         ``temperature`` defaults to 0 so repeated runs agree: left unset, Gemini defaults to 1.0
@@ -152,7 +152,8 @@ class LLMClient:
             if isinstance(cached, str):
                 self.last_error = ""
                 return cached
-        for attempt in range(1, MAX_RETRIES + 1):
+        attempts = MAX_RETRIES if max_attempts is None else max(1, int(max_attempts))
+        for attempt in range(1, attempts + 1):
             try:
                 resp = self._client.chat.completions.create(
                     model=use_model,
@@ -176,8 +177,8 @@ class LLMClient:
                     extra.pop(dropped, None)
                     continue
                 self.last_error = str(e)
-                log.warning("LLM attempt %d/%d failed: %s", attempt, MAX_RETRIES, e)
-                if attempt < MAX_RETRIES:
+                log.warning("LLM attempt %d/%d failed: %s", attempt, attempts, e)
+                if attempt < attempts:
                     time.sleep(RETRY_BACKOFF * attempt)
         return ""
 

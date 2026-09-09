@@ -11,9 +11,9 @@ _lock = threading.RLock()
 
 
 @contextmanager
-def locked(key):
+def locked(key, timeout=30, blocking_timeout=5):
     backend = sessions()
-    lock = backend._client.lock("workspace-lock:" + key, timeout=30, blocking_timeout=5) if hasattr(backend, "_client") else _lock
+    lock = backend._client.lock("workspace-lock:" + key, timeout=timeout, blocking_timeout=blocking_timeout) if hasattr(backend, "_client") else _lock
     with lock:
         yield
 
@@ -52,5 +52,17 @@ def private_list(oid):
             out.append({"id": run_id, "company": r["company"], "summary": r.get("summary", ""),
                 "final_score": r.get("score", {}).get("final_score", 0), "pillar": r.get("routing", {}).get("pillar", ""),
                 "created_at": r.get("run_created_at", ""), "private": True,
+                "siemens_fit": r.get("score", {}).get("dimensions", {}).get("siemens_fit"),
+                "department_assessments": r.get("department_assessments", {}),
                 "hq": r.get("profile", {}).get("hq", ""), "dimensions": r.get("score", {}).get("dimensions", {})})
     return out
+
+
+def private_assessment(oid, run_id, score, department_fit, routing=None):
+    from api.store import merge_assessment
+    with locked(f"private-assessment:{oid}:{run_id}"):
+        result = private_get(oid, run_id)
+        if result is None: return None
+        result = merge_assessment(result, score, department_fit, routing)
+        sessions().put(f"private-run:{oid}:{run_id}", result, TTL)
+        return result

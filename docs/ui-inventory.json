@@ -15,10 +15,6 @@
       "component": "Explore"
     },
     {
-      "path": "/departments",
-      "component": "Departments"
-    },
-    {
       "path": "/startup/:id",
       "component": "Profile"
     },
@@ -63,6 +59,19 @@
       ]
     },
     {
+      "method": "decideRun",
+      "args": [
+        "id"
+      ]
+    },
+    {
+      "method": "assessRun",
+      "args": [
+        "id",
+        "department"
+      ]
+    },
+    {
       "method": "startJobs",
       "args": [
         "body"
@@ -77,26 +86,6 @@
     {
       "method": "departments",
       "args": []
-    },
-    {
-      "method": "department",
-      "args": [
-        "id"
-      ]
-    },
-    {
-      "method": "addDepartmentCompany",
-      "args": [
-        "id",
-        "company"
-      ]
-    },
-    {
-      "method": "removeDepartmentCompany",
-      "args": [
-        "id",
-        "company"
-      ]
     },
     {
       "method": "tracxnStatus",
@@ -193,15 +182,6 @@
       ]
     },
     {
-      "method": "override",
-      "args": [
-        "runId",
-        "newPillar",
-        "reason",
-        "evidenceNote = \"\""
-      ]
-    },
-    {
       "method": "audit",
       "args": [
         "runId"
@@ -288,7 +268,7 @@
   "files": [
     {
       "path": "ui/src/App.jsx",
-      "lines": 310,
+      "lines": 307,
       "exports": [
         "App"
       ],
@@ -527,28 +507,8 @@
       ]
     },
     {
-      "path": "ui/src/pages/Departments.jsx",
-      "lines": 58,
-      "exports": [
-        "Departments"
-      ],
-      "css_classes": [
-        "badge",
-        "btn",
-        "department-add",
-        "info-box",
-        "muted",
-        "page-title",
-        "panel",
-        "problem-source-status",
-        "solution-actions",
-        "solution-grid",
-        "tool-btn"
-      ]
-    },
-    {
       "path": "ui/src/pages/Explore.jsx",
-      "lines": 473,
+      "lines": 480,
       "exports": [
         "Explore"
       ],
@@ -572,6 +532,7 @@
         "mv",
         "num",
         "pill",
+        "save-view-form",
         "secondary",
         "sfs",
         "skel",
@@ -585,7 +546,7 @@
     },
     {
       "path": "ui/src/pages/Explore.test.jsx",
-      "lines": 209,
+      "lines": 210,
       "exports": [],
       "css_classes": []
     },
@@ -614,7 +575,7 @@
     },
     {
       "path": "ui/src/pages/Profile.jsx",
-      "lines": 252,
+      "lines": 261,
       "exports": [
         "Profile"
       ],
@@ -644,13 +605,13 @@
     },
     {
       "path": "ui/src/pages/Profile.test.jsx",
-      "lines": 387,
+      "lines": 406,
       "exports": [],
       "css_classes": []
     },
     {
       "path": "ui/src/pages/ProgrammeCriteria.test.jsx",
-      "lines": 284,
+      "lines": 181,
       "exports": [],
       "css_classes": []
     },
@@ -765,7 +726,7 @@
     },
     {
       "path": "ui/src/pages/profile/OverviewTab.jsx",
-      "lines": 212,
+      "lines": 223,
       "exports": [
         "OverviewTab"
       ],
@@ -779,12 +740,13 @@
         "muted",
         "reason",
         "s",
+        "unverified",
         "v"
       ]
     },
     {
       "path": "ui/src/pages/profile/ProfileLayout.jsx",
-      "lines": 61,
+      "lines": 62,
       "exports": [
         "ProfileLayout"
       ],
@@ -803,121 +765,55 @@
     },
     {
       "path": "ui/src/pages/profile/scoring/BreakdownPanel.jsx",
-      "lines": 45,
+      "lines": 32,
       "exports": [
         "BreakdownPanel"
       ],
       "css_classes": [
+        "fit-card-grid",
         "muted",
-        "panel",
-        "score-split"
-      ]
-    },
-    {
-      "path": "ui/src/pages/profile/scoring/CollaboratePanel.jsx",
-      "lines": 77,
-      "exports": [
-        "CollaboratePanel"
-      ],
-      "css_classes": [
-        "body",
-        "chip",
-        "info-box",
-        "k",
-        "label",
-        "mark",
-        "muted",
-        "spec",
-        "sr-only",
-        "v",
-        "why"
-      ]
-    },
-    {
-      "path": "ui/src/pages/profile/scoring/EmpowerPanel.jsx",
-      "lines": 83,
-      "exports": [
-        "EmpowerPanel"
-      ],
-      "css_classes": [
-        "body",
-        "info-box",
-        "k",
-        "label",
-        "mark",
-        "muted",
-        "spec",
-        "sr-only",
-        "v",
-        "why"
+        "score-card-grid",
+        "score-headline"
       ]
     },
     {
       "path": "ui/src/pages/profile/scoring/FitRubric.jsx",
-      "lines": 20,
+      "lines": 78,
       "exports": [
         "FitRubric"
       ],
       "css_classes": [
-        "fit-rubric",
-        "info-box",
-        "muted",
-        "panel",
-        "rubric-criterion"
+        "badge",
+        "department-needs",
+        "department-selector",
+        "department-summary",
+        "fit-card-grid",
+        "muted"
       ]
     },
     {
-      "path": "ui/src/pages/profile/scoring/OverridePanel.jsx",
-      "lines": 74,
+      "path": "ui/src/pages/profile/scoring/ScoreTile.jsx",
+      "lines": 6,
       "exports": [
-        "OverridePanel"
+        "ScoreTile"
       ],
       "css_classes": [
-        "badge",
-        "btn",
-        "input",
-        "muted",
-        "risk",
-        "secondary",
-        "tool-btn"
-      ]
-    },
-    {
-      "path": "ui/src/pages/profile/scoring/PillarSection.jsx",
-      "lines": 154,
-      "exports": [
-        "PillarSection"
-      ],
-      "css_classes": [
-        "badge",
-        "body",
-        "danger",
-        "label",
-        "mark",
-        "muted",
-        "num",
-        "reason",
-        "risk",
-        "sr-only",
-        "why"
+        "score-tile",
+        "score-tile-label",
+        "score-tile-value"
       ]
     },
     {
       "path": "ui/src/pages/profile/scoring/ScoringTab.jsx",
-      "lines": 145,
+      "lines": 85,
       "exports": [
         "ScoringTab"
       ],
       "css_classes": [
         "badge",
-        "info-box",
+        "decision-next-steps",
         "muted",
-        "panel",
-        "pill",
-        "pillar-tabs",
-        "reason",
-        "risk",
-        "sfs"
+        "partnership-placeholder"
       ]
     },
     {
@@ -964,10 +860,10 @@
     }
   ],
   "totals": {
-    "routes": 10,
-    "api_methods": 33,
+    "routes": 9,
+    "api_methods": 31,
     "design_tokens": 56,
-    "jsx_files": 46,
-    "jsx_lines": 5925
+    "jsx_files": 42,
+    "jsx_lines": 5412
   }
 }

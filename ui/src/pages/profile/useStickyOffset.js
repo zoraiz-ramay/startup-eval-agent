@@ -25,7 +25,8 @@ export default function useStickyOffset(selector = ".profile-head") {
     const measure = () => {
       // The header's own bottom edge in viewport coordinates while it is pinned is exactly where
       // content becomes readable, and it already includes the fixed top bar above it.
-      const height = Math.round(el.getBoundingClientRect().height + (el.offsetTop || 0));
+      const pinned = ["sticky", "fixed"].includes(getComputedStyle(el).position);
+      const height = pinned ? Math.round(el.getBoundingClientRect().height + (parseFloat(getComputedStyle(el).top) || 0)) : 0;
       setOffset((prev) => (Math.abs(prev - height) > 1 ? height : prev));
       document.documentElement.style.setProperty(CSS_VAR, `${height}px`);
     };

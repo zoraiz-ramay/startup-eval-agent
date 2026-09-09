@@ -17,7 +17,8 @@ import pandas as pd
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from core.data import _as_url                                          # noqa: E402
-from core.profile import _extract_links, _identity_forms               # noqa: E402
+from core.profile import (_extract_links, _identity_forms,             # noqa: E402
+                          _recall_links_offline)
 
 
 def _row(**kw):
@@ -141,3 +142,75 @@ def test_the_band_never_overwrites_the_cited_count():
     results = {"q": [{"title": "Bliro | LinkedIn", "body": "Company size 11-50 employees",
                       "href": "https://www.linkedin.com/company/bliro/"}]}
     assert "employees" not in _extract_links("Bliro", _row(), results)
+
+
+# ------------------------------------------------------------------- offline recall (no evidence)
+#
+# The second sanctioned exception to "no verifiable field comes from model memory", on the same
+# terms as _recall_hq_offline: last resort only, stamped `*_origin="llm"`, no source URL. A URL is
+# a claim that a page exists, so a recalled one still has to pass the identity gate above.
+
+class _FakeLLM:
+    available = True
+
+    def __init__(self, payload):
+        self.payload = payload
+        self.calls = 0
+
+    def complete(self, *a, **kw):
+        self.calls += 1
+        return self.payload
+
+    @staticmethod
+    def parse_json(text):
+        import json
+        return json.loads(text)
+
+
+def test_it_recalls_a_missing_linkedin_url_when_the_web_found_none():
+    prof = {"linkedin_url": "", "crunchbase_url": ""}
+    llm = _FakeLLM('{"linkedin_url":"https://www.linkedin.com/company/bliro/",'
+                   '"crunchbase_url":"https://www.crunchbase.com/organization/bliro"}')
+    _recall_links_offline(prof, "Bliro", _row(), llm)
+    assert prof["linkedin_url"] == "https://www.linkedin.com/company/bliro/"
+    assert prof["crunchbase_url"] == "https://www.crunchbase.com/organization/bliro"
+
+
+def test_a_recalled_url_is_stamped_unverified_and_carries_no_source():
+    prof = {"linkedin_url": "", "crunchbase_url": ""}
+    llm = _FakeLLM('{"linkedin_url":"https://www.linkedin.com/company/bliro/",'
+                   '"crunchbase_url":""}')
+    _recall_links_offline(prof, "Bliro", _row(), llm)
+    assert prof["linkedin_url_origin"] == "llm"
+    assert not prof.get("linkedin_url_source")
+
+
+def test_it_does_not_run_when_the_web_already_answered():
+    prof = {"linkedin_url": "https://www.linkedin.com/company/bliro/",
+            "crunchbase_url": "https://www.crunchbase.com/organization/bliro"}
+    llm = _FakeLLM('{"linkedin_url":"https://www.linkedin.com/company/other/"}')
+    _recall_links_offline(prof, "Bliro", _row(), llm)
+    assert llm.calls == 0
+    assert prof["linkedin_url"] == "https://www.linkedin.com/company/bliro/"
+    assert not prof.get("linkedin_url_origin")
+
+
+def test_a_recalled_near_namesake_is_refused():
+    # The whole reason recall is riskier here than for headquarters: a reviewer follows the link
+    # and reads a different company's page, with nothing on screen to warn them.
+    prof = {"linkedin_url": "", "crunchbase_url": ""}
+    llm = _FakeLLM('{"linkedin_url":"https://www.linkedin.com/company/phenna-group/",'
+                   '"crunchbase_url":""}')
+    _recall_links_offline(prof, "Phena", _row(company_name="Phena", website="",
+                                              domain="phena.tech"), llm)
+    assert not prof["linkedin_url"]
+
+
+def test_a_recalled_non_profile_url_is_refused():
+    # A homepage, a search page or a bare host is not a company profile path, and rebuilding the
+    # canonical URL from a slug is what stops one being stored as though it were.
+    prof = {"linkedin_url": "", "crunchbase_url": ""}
+    llm = _FakeLLM('{"linkedin_url":"https://www.linkedin.com/","crunchbase_url":"bliro.io"}')
+    _recall_links_offline(prof, "Bliro", _row(), llm)
+    assert not prof["linkedin_url"]
+    assert not prof["crunchbase_url"]

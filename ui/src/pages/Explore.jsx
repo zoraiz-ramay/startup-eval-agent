@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { IxCategoryFilter, IxContentHeader, IxKpi, IxPane, IxToggleButton } from "@siemens/ix-react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { IxButton, IxCategoryFilter, IxSelect, IxSelectItem, IxContentHeader, IxKpi, IxPane, IxToggleButton } from "@siemens/ix-react";
 import { iconTableRows } from "@siemens/ix-icons/icons";
 import { api } from "../api.js";
 import { useApp } from "../state.jsx";
 import ErrorBox from "../components/ErrorBox.jsx";
 import { PillarPill } from "../components/widgets.jsx";
 import "./Explore.css";
+import { departmentScore } from "../scoring/department.js";
 
 // MIG-12: the one category this filter row ever offered is the pillar, so it maps onto
 // IxCategoryFilter's single-category-hash shape (components.md) with one entry. Free text still
@@ -16,10 +17,11 @@ const FILTER_CATEGORIES = { pillar: { label: "Pillar", options: ["Connect", "Col
 /* Stored evaluation columns. */
 const COLUMNS = {
   final_score: {
-    label: "Fit Score",
-    render: (r) => <span className="num">{Number(r.final_score || 0).toFixed(0)}</span>,
+    label: "Overall score",
+    render: (r) => <span className="num">{typeof r.final_score === "number" ? r.final_score.toFixed(0) : "—"}</span>,
   },
-  siemens_fit: { label: "Siemens Fit", render: (r) => <span className="num">{r.siemens_fit !== "" ? Number(r.siemens_fit).toFixed(0) : "—"}</span> },
+  ...Object.fromEntries([['di_fit', 'DI', 'di'], ['si_fit', 'SI', 'si'], ['smo_fit', 'SMO', 'mobility']].map(([key, label, id]) => [key, {label, render: (r) => <Link onClick={(e) => e.stopPropagation()} to={`/startup/${r.id}?tab=Scoring+%26+Fit&department=${id}`}>{typeof r[key] === "number" ? r[key].toFixed(0) : "Not assessed"}</Link>}])),
+  siemens_fit: { label: "Siemens fit", render: (r) => <span className="num">{typeof r.siemens_fit === "number" ? r.siemens_fit.toFixed(0) : "—"}</span> },
   summary: { label: "Short Description", render: (r) => <span className="desc-clip" title={r.summary}>{r.summary || "—"}</span> },
   hq: { label: "Location", render: (r) => r.hq || "—" },
   founded_year: { label: "Founded", render: (r) => r.founded_year || "—" },
@@ -66,12 +68,14 @@ const COLUMNS = {
   },
   created_at: { label: "Evaluated", render: (r) => <span className="muted">{String(r.created_at).slice(0, 10)}</span> },
 };
-const DEFAULT_COLS = ["final_score", "siemens_fit", "summary", "hq", "stage", "funding",
+const DEFAULT_COLS = ["final_score", "siemens_fit", "di_fit", "si_fit", "smo_fit", "summary", "hq", "stage", "funding",
   "evidence", "pillar", "sfs", "created_at"];
-const SORTABLE = new Set(["final_score", "siemens_fit", "founded_year", "created_at", "hq", "stage"]);
+const SORTABLE = new Set(["final_score", "siemens_fit", "di_fit", "si_fit", "smo_fit", "founded_year", "created_at", "hq", "stage"]);
 
 function ColumnDrawer({ open, onClose, cols, setCols, onSaveView }) {
   const [viewName, setViewName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const asideRef = useRef(null);
   // MIG-14: IxPane's own Escape handler (pane.js's registerEscapeListener) is attached to the
   // host element itself, and only fires while focus is inside it — kept here too, on window,
@@ -125,6 +129,18 @@ function ColumnDrawer({ open, onClose, cols, setCols, onSaveView }) {
           against the compiled source, same gap AssistantDock's own comment documents) — the
           "Customise columns" landmark name has to come from a light-DOM wrapper we slot in. */}
       <div ref={asideRef} tabIndex={-1} role="complementary" aria-label="Customise columns">
+        <form className="save-view-form" onSubmit={async (e) => {
+          e.preventDefault(); if (saving || !viewName.trim()) return;
+          setSaving(true); setSaveError("");
+          try { await onSaveView(viewName.trim(), cols); setViewName(""); }
+          catch (error) { setSaveError(error.message); }
+          finally { setSaving(false); }
+        }}>
+          <label htmlFor="saved-view-name">Save these columns and filters</label>
+          <input id="saved-view-name" className="input" placeholder="View name…" maxLength={80} value={viewName} onChange={(e) => setViewName(e.target.value)} />
+          <IxButton type="submit" disabled={saving || !viewName.trim()}>{saving ? "Saving…" : "Save view"}</IxButton>
+          {saveError && <p role="alert">{saveError}</p>}
+        </form>
         <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>Reorder, remove, or add columns.</p>
         {cols.map((k, i) => (
           <div key={k} className="drow">
@@ -148,14 +164,7 @@ function ColumnDrawer({ open, onClose, cols, setCols, onSaveView }) {
         <div style={{ display: "flex", gap: 6, marginTop: 14 }}>
           <button className="btn secondary" onClick={() => setCols(DEFAULT_COLS)}>Restore defaults</button>
         </div>
-        <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
-          <input className="input" placeholder="View name…" value={viewName}
-            onChange={(e) => setViewName(e.target.value)} />
-          <button className="btn" disabled={!viewName.trim()}
-            onClick={() => { onSaveView(viewName.trim(), cols); setViewName(""); }}>
-            Save view
-          </button>
-        </div>
+
       </div>
     </IxPane>
   );
@@ -167,6 +176,8 @@ export default function Explore() {
   const { watchlist, toggleWatch, savedViews, saveView: persistView } = useApp();
 
   const [runs, setRuns] = useState(null);
+  const [departments, setDepartments] = useState([]);
+  useEffect(() => { api.departments().then((d) => setDepartments(d.departments || [])).catch(() => {}); }, []);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState(new Set());
   const [drawer, setDrawer] = useState(false);
@@ -221,12 +232,12 @@ export default function Explore() {
     if (appliedRef.current === viewName) return;
     if (!activeView) return;                 // views may still be loading from the server
     appliedRef.current = viewName;
-    setCols(activeView.columns?.length ? activeView.columns : DEFAULT_COLS);
+    setCols(activeView.columns?.length ? [...new Set(activeView.columns.flatMap((k) => k === "department_fit" ? ["di_fit", "si_fit", "smo_fit"] : [k]))].filter((k) => COLUMNS[k]) : DEFAULT_COLS);
     const f = activeView.filters || {};
     setParams((prev) => {
       const next = new URLSearchParams(prev);
       next.set("view", viewName);
-      for (const key of ["q", "pillar", "sort"]) {
+      for (const key of ["q", "pillar", "sort", "dir", "density"]) {
         if (f[key]) next.set(key, f[key]); else next.delete(key);
       }
       return next;
@@ -254,7 +265,7 @@ export default function Explore() {
     const seen = new Set();
     for (const r of runs) {                      // runs arrive newest-first
       const k = r.company.toLowerCase();
-      if (!seen.has(k)) { seen.add(k); latest.push(r); }
+      if (!seen.has(k)) { seen.add(k); latest.push({...r, di_fit:departmentScore(r, departments.find(d => d.id === "di")), si_fit:departmentScore(r, departments.find(d => d.id === "si")), smo_fit:departmentScore(r, departments.find(d => d.id === "mobility"))}); }
     }
     const f = q.trim().toLowerCase();
     const out = latest.filter((r) =>
@@ -266,13 +277,13 @@ export default function Explore() {
       return (va > vb ? 1 : va < vb ? -1 : 0) * sortDir;
     });
     return out;
-  }, [runs, q, pillar, sortKey, sortDir]);
+  }, [runs, q, pillar, sortKey, sortDir, departments]);
 
   const stats = useMemo(() => {
     if (!runs?.length) return null;
     return {
       total: runs.length,
-      avg: (runs.reduce((s, r) => s + (r.final_score || 0), 0) / runs.length).toFixed(0),
+      avg: (runs.some((r) => typeof r.final_score === "number") ? (runs.reduce((s, r) => s + (r.final_score || 0), 0) / runs.filter((r) => typeof r.final_score === "number").length).toFixed(0) : "—"),
       aligned: runs.filter((r) => r.pillar !== "Pass").length,
       sfs: runs.filter((r) => r.sfs_relevant).length,
     };
@@ -304,22 +315,18 @@ export default function Explore() {
     URL.revokeObjectURL(a.href);
   };
 
-  const saveView = (name, columns) => {
-    setDrawer(false);
-    persistView(name, columns, { q, pillar, sort: sortKey })
-      // Land on the view just saved, so "Save view" visibly produces something rather than
-      // just closing the drawer.
-      .then(() => { appliedRef.current = name; setParam("view", name); })
-      .catch((e) => setError(e.message));
+  const saveView = async (name, columns) => {
+    await persistView(name, columns, { q, pillar, sort: sortKey, dir: sortDir === 1 ? "asc" : "desc", density: dense ? "dense" : "comfortable" });
+    appliedRef.current = name; setParam("view", name); setDrawer(false);
   };
 
   return (
     <div>
-      <div className="crumb">Workspace &gt; Companies</div>
+      <div className="crumb">Workspace &gt; Database</div>
       {/* MIG-13: IxContentHeader replaces the hand-rolled page head, matching Profile's own use
           (MIG-18). headerSubtitle is plain text (components.md), so it carries the result count;
           the saved-view chip — not a title/subtitle concept — goes in the default slot instead. */}
-      <IxContentHeader headerTitle="Companies Covered" headerSubtitle={`${rows.length} results`}>
+      <IxContentHeader headerTitle="Database" headerSubtitle={`${rows.length} results`}>
         {/* Without this a view whose columns happen to match the defaults opens invisibly,
             which is indistinguishable from it not opening at all. */}
         {activeView && (

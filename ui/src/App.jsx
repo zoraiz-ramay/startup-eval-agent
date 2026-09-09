@@ -4,7 +4,7 @@ import {
   IxApplication, IxApplicationHeader, IxContent, IxMenu, IxMenuItem,
 } from "@siemens/ix-react";
 import {
-  iconAi, iconBookmark, iconBulb, iconDatabase, iconHome, iconList,
+  iconAi, iconBookmark, iconBulb, iconDatabase, iconExplore, iconHome,
   iconSearch, iconStar, iconUserManagement,
 } from "@siemens/ix-icons/icons";
 import { api } from "./api.js";
@@ -15,7 +15,6 @@ import { Loading } from "./components/widgets.jsx";
 import SignIn from "./pages/SignIn.jsx";
 import Home from "./pages/Home.jsx";
 import SearchHome from "./pages/SearchHome.jsx";
-import Departments from "./pages/Departments.jsx";
 import Explore from "./pages/Explore.jsx";
 import Profile from "./pages/Profile.jsx";
 import Saved from "./pages/Saved.jsx";
@@ -119,9 +118,8 @@ function MobileHeader() {
 const RAIL = [
   { to: "/", label: "Explore a startup", icon: iconHome, end: true },
   { to: "/workspace", label: "Solve a Problem", icon: iconBulb },
-  { to: "/explore", label: "Companies", icon: iconDatabase },
-  { to: "/saved", label: "Saved views", icon: iconList },
-  { to: "/departments", label: "Department interests", icon: iconBookmark },
+  { to: "/explore", label: "Database", icon: iconDatabase },
+  { to: "/saved", label: "Saved views", icon: iconBookmark },
   // Tracking is the watchlist — the same ★ affordance the Explore/Home rows use to add a
   // company — so iconStar names the destination directly and is distinct from the header's
   // alarm-bell (notifications) that shared the old iconEye's ambiguous "watching" meaning.
@@ -172,11 +170,11 @@ function Rail() {
           the Home item (verified against the compiled menu.js), so the app identity now lives in
           the sidebar rather than the application header. It is a real link to Home; the nav
           landmark's accessible name stays `applicationName` (asserted by the shell tests),
-          separate from this visible mark. Collapsed rail shows just the monogram; the name
+          separate from this visible mark. Collapsed rail shows just the scouting icon; the name
           appears when the menu is expanded (styles.css keys off ix-menu.expanded). */}
       <a slot="ix-menu-avatar" className="menu-brand" href="/" onClick={routeClick(nav, "/")}
         aria-label="ScoutGrid — Home">
-        <span className="brand-mark" aria-hidden="true">SG</span>
+        <span className="brand-mark" aria-hidden="true"><Icon icon={iconExplore} size={22} /></span>
         <span className="brand-text">ScoutGrid</span>
       </a>
       {items.map((n) => (
@@ -194,7 +192,7 @@ function Rail() {
           // old clickable brand — the home slot (menu.js) renders unconditionally, ahead of the
           // isHiddenFromViewport() check that hides everything else behind the mobile toggle, so
           // this is what actually keeps a click-to-home reachable without opening the menu first.
-          <IxMenuItem key={n.to} icon={n.icon} label={n.label} active={isActive(n)}
+          <IxMenuItem key={n.to} className={n.to === "/" ? "menu-first-destination" : undefined} icon={n.icon} label={n.label} active={isActive(n)}
             href={n.to} home={n.to === "/"} onClick={routeClick(nav, n.to)}
             notifications={n.to === "/alerts" && watchlist.length ? watchlist.length : undefined} />
         )
@@ -246,7 +244,6 @@ function Shell() {
                 keeps its name; only the route and the label moved. */}
             <Route path="/workspace" element={<Home />} />
             <Route path="/explore" element={<Explore />} />
-            <Route path="/departments" element={<Departments />} />
             <Route path="/startup/:id" element={<Profile />} />
             <Route path="/saved" element={<Saved />} />
             <Route path="/alerts" element={<Alerts />} />

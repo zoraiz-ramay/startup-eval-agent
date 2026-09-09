@@ -10,39 +10,21 @@ Job snapshots last 24 hours. Tracxn evaluation reports are private to their revi
 
 Tracxn OAuth can now start from either research page and returns to that page. Each new evaluation attempts an exact Tracxn name/domain match when connected, then falls back to GlassDollar and the web. Authenticated vendor response shapes still require a real MCP-enabled account for live validation. Public provider metadata was verified during implementation.
 
-## Siemens fit rubric v1
+## LLM scoring and department fit
 
-This is a proposed internal screening rubric, not an official Siemens acceptance model. Its purpose is to make the points reviewable and identify what remains unknown.
+New evaluations use `core/judgment.py` (`llm-judgment-v1`). The model judges all six dimensions and the overall score directly from collected research; no point bonuses, weights, confidence multiplier, or rule-based score fallback is applied. Numeric ranges, complete dimension coverage and evidence IDs are validated. Quotations are hydrated from the original research rather than copied by the model. Department interests are explicitly available as a separate mock evidence source. Invalid or unavailable assessments are explicitly unassessed, not zero-rated. The previous scoring implementation remains only for historical replay/tests; the evaluation pipeline no longer invokes it.
 
-| Criterion | Maximum points |
-| --- | ---: |
-| Relevant Siemens use case | 30 |
-| Adds to the Siemens portfolio | 25 |
-| Integration feasibility | 20 |
-| Demonstrated customer value | 15 |
-| Readiness to deliver | 10 |
+Scoring & Fit keeps Decision first, then an iX department selector and an explicit Assess department fit button with Digital Industries, Smart Industries and Siemens Mobility. Mock interests come from the backend department table. The selected profile drives three explanations: relevant use case, Siemens portfolio relevance and demonstrated customer value. Integration feasibility and delivery readiness are removed.
 
-An evidence-assisted LLM assigns levels 0–4 and returns a short rationale, an exact quote, a known evidence ID, and the next check. Python validates citations and computes `weight × level / 4`. Unsupported citations earn no points. Unverified evidence is capped at level 3 for strategic relevance/complementarity and level 2 for the other criteria. Substitute-only portfolio matches earn zero complementarity points. If model assessment is unavailable, conservative portfolio-based rules give only limited provisional points and show their lack of citations.
+`POST /api/runs/{id}/assessment/{department}` assesses existing research without scraping again. Access to private runs is checked against the current reviewer. Successful judgments are cached for 24 hours by reviewer, research snapshot, prompt version and department configuration. Overlapping requests for the same research share a lock so duplicate page mounts do not duplicate model calls. Prompts omit repeated inherited URLs and use concise, non-thinking structured generation to avoid assessment timeouts. Changing department never starts an LLM call. The user must press Assess department fit. Each department receives a separate holistic LLM fit score with a summary and three explanations. Successful overall scores and department assessments are persisted to the saved evaluation. The first replaced score is retained as original_score; decisions remain unchanged. Database, profile and canonical company endpoints read these same saved values. Private Tracxn results remain scoped to their owner. Database separates Overall score, Siemens fit and Department fit, with a department selector; an assessment against outdated interests is not shown as current. Saved views and CSV exports retain the department context. A new research run requires fresh department assessment.
 
-The rubric score feeds the existing `siemens_fit` dimension, and consequently the canonical score and route scorecards. Published programme requirements still gate eligibility. Empower, Collaborate, and Connect have distinct keyboard-accessible tabs showing their existing criteria, score gates, reasons, and next steps. Browser what-if weighting is removed. Old stored evaluations are not silently rewritten: use Refresh Data to apply this rubric.
-
-Rubric version and evidence coverage are returned with every new assessment. Calibration against human-labelled startup decisions is still needed before treating these numbers as investment or programme-admission predictions.
+Empower, Connect and Collaborate use Siemens iX tabs and contain only “Under development”. Portfolio fit and SFS remain. The challenge match, flags/gaps and reviewer override controls are removed. The retired override endpoint returns HTTP 410; existing audit history is retained.
 
 ## Department interests
 
 `department_profiles` and `department_shortlists` are database-backed. Initial DI, SI, and Mobility interests are explicitly labelled demo placeholders. They do not alter official programme criteria or pretend to represent approved business-unit priorities.
 
-Reviewers can add companies to shared unit shortlists and remove their own additions. Company evaluation data is resolved using the viewing reviewer's accessible private report or a public report; licensed results are never shared through the board. Companies with no evaluation are unassessed. Old reports require refresh for the new fit component.
-
-The separate interest score is `60% explicit interest-term coverage + 40% Siemens fit`. Both components, matched terms, and missing terms are shown. It does not change the canonical company score. The matching is explicit text matching, not a claim of semantic proof.
-
-Administrators can replace a demo profile through `PUT /api/departments/{id}` with `label` and `interests`; doing so clears its demo flag. Real membership restrictions and approved department criteria should be added when the real organisational data arrives. Currently these are shared internal shortlists, not permission-restricted departmental silos.
-
-## Navigation
-
-The primary menu contains Explore a startup, Solve a Problem, Companies, Saved views, Department interests, Tracking, and Ask AI. Settings is reached through the account control. Duplicate secondary saved-view links and the duplicate profile Assistant button have been removed.
-
-Programme references: [Siemens for Startups](https://www.siemens.com/en-us/company/innovation/startups/) and [Collaborate](https://www.siemens.com/en-us/company/innovation/startups/collaborate/). The weighted rubric and demo department interests are application design choices, not claims from those pages.
+The standalone Department interests page and its navigation entry have been removed. Department profiles remain backend data for Scoring & Fit and Database. Administrators can configure the profiles through `PUT /api/departments/{id}`.
 
 ## Local startup
 

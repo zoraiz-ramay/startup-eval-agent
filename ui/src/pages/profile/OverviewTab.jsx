@@ -11,6 +11,14 @@ import Section from "./Section.jsx";
    visible word, so speech-input users saying "click web" keep matching. */
 function WebSourced({ src, field }) {
   if (!src) return null;
+  /* origin "llm" means no evidence backs this value at all — it came from model knowledge after
+     the database and every web pass came back empty (core/profile.py's _recall_* passes). It must
+     never wear the "web" chip: that chip is a claim that a page was read. */
+  if (src.origin === "llm") {
+    return <span className="chip unverified"
+      title={`Unverified: recalled from model knowledge, no source found${field ? ` for ${field}` : ""}`}>
+      unverified</span>;
+  }
   const title = src.url ? `Web-sourced: ${src.url}` : "Web-sourced (no direct link captured)";
   const label = field ? `web — ${field} source` : "web";
   // The no-URL span is inert (no href to follow, nothing to activate), so it gets no role or
@@ -130,19 +138,22 @@ export default function OverviewTab({ res }) {
             {p.funding || "—"}{p.funding && <> <WebSourced src={psrc.funding} field="funding" /></>}</div></div>
         <div className="metric"><div className="k">Verified customers</div><div className="v">{sc.verified_customers ?? "—"}</div></div>
         <div className="metric"><div className="k">Location</div>
-          <div className="v" style={{ fontSize: 13 }} title={p.hq || ""}>{p.hq || "—"}</div></div>
+          <div className="v" style={{ fontSize: 13 }} title={p.hq || ""}>
+            {p.hq || "—"}{p.hq && <> <WebSourced src={psrc.hq} field="location" /></>}</div></div>
       </Section>
 
       <Section id="profile-executive-summary">
         <h3>Executive summary</h3>
         <p style={{ marginTop: 0 }}>{res.summary || <span className="muted">No summary.</span>}</p>
-        <Spec k="Headquarters">{p.hq}</Spec>
+        <Spec k="Headquarters">{p.hq}{p.hq && <> <WebSourced src={psrc.hq} field="headquarters" /></>}</Spec>
         <Spec k="Stage">{p["Development stage of your solution"]}</Spec>
         <Spec k="Business model">{p["Business model"]}</Spec>
         <Spec k="Funding">{p.funding}{p.funding && <> <WebSourced src={psrc.funding} field="funding" /></>}</Spec>
         <Spec k="Website"><ExtLink href={p.website} /></Spec>
-        <Spec k="LinkedIn"><ExtLink href={p.linkedin_url} /></Spec>
-        <Spec k="Crunchbase"><ExtLink href={p.crunchbase_url} /></Spec>
+        <Spec k="LinkedIn"><ExtLink href={p.linkedin_url} />
+          {p.linkedin_url && <> <WebSourced src={psrc.linkedin_url} field="LinkedIn URL" /></>}</Spec>
+        <Spec k="Crunchbase"><ExtLink href={p.crunchbase_url} />
+          {p.crunchbase_url && <> <WebSourced src={psrc.crunchbase_url} field="Crunchbase URL" /></>}</Spec>
         {dp.parent_group && <Spec k="Part of group">{dp.parent_group}</Spec>}
       </Section>
 

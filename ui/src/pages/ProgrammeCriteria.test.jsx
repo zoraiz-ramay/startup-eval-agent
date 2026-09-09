@@ -75,6 +75,8 @@ let RUN = BASE;
 
 vi.mock("../api.js", () => ({
   api: {
+    departments: vi.fn(async () => ({departments:[{id:"di",label:"Digital Industries",interests:["automation"],demo:true}]})),
+    assessRun: vi.fn(async () => ({score:{status:"unavailable"},department_fit:{status:"unavailable",message:"Assessment unavailable"}})),
     run: vi.fn(async () => RUN),
     evaluate: vi.fn(async () => RUN),
     audit: vi.fn(async () => ({ overrides: [] })),
@@ -105,83 +107,18 @@ beforeEach(() => {
   RUN = BASE;
 });
 
-describe("programme criteria checklist", () => {
-  it("distinguishes a blocked pillar from an unproven one, in each pillar's own section", async () => {
-    RUN = { ...BASE, routing: { pillar: "Empower", secondary: [], pillar_assessments: ASSESSMENTS } };
+describe("partnership placeholders", () => {
+  it("keeps the three partnership panels empty while under development", async () => {
+    RUN = {...BASE, routing:{pillar:"Empower", secondary:[], pillar_assessments:ASSESSMENTS}};
     await renderScoringTab();
-    await screen.findByRole("region", { name: "Scoring & Fit" });
-
-    expect(within(pillarSection("Connect")).getByText("blocked")).toBeInTheDocument();
-    expect(within(pillarSection("Collaborate")).getByText("unproven")).toBeInTheDocument();
-    expect(within(pillarSection("Empower")).getByText("eligible")).toBeInTheDocument();
-  });
-
-  it("gives every pillar a section, including the ones that were not recommended", async () => {
-    // The engine only emits a route_recommendation for a route that already qualified, so a
-    // rejected pillar used to be simply absent — the reviewer was told nothing about the pillar
-    // they were most likely asking about.
-    RUN = { ...BASE, routing: { pillar: "Empower", secondary: [], pillar_assessments: ASSESSMENTS,
-                                route_recommendations: [] } };
-    await renderScoringTab();
-    await screen.findByRole("region", { name: "Scoring & Fit" });
-    for (const pillar of ["Connect", "Collaborate", "Empower"]) {
-      expect(pillarSection(pillar)).toBeInTheDocument();
+    await screen.findByRole("region", {name:"Scoring & Fit"});
+    for (const pillar of ["Empower", "Connect", "Collaborate"]) {
+      expect(within(pillarSection(pillar)).getByText("Under development")).toBeInTheDocument();
+      expect(pillarSection(pillar).querySelector(".crit")).toBeNull();
     }
-  });
-
-  it("marks which unmet criterion is the one that ends the conversation", async () => {
-    /* Some unmet criteria are things a startup can go and acquire — a certification, API docs —
-       and some are what the company IS. Both rendered as an identical red cross, so the checklist
-       could not say which one is fatal. Connect's substitute criterion blocks; its unevidenced
-       deployment does not. */
-    RUN = { ...BASE, routing: { pillar: "Empower", secondary: [], pillar_assessments: ASSESSMENTS } };
-    await renderScoringTab();
-    await screen.findByRole("region", { name: "Scoring & Fit" });
-
-    const blocking = within(pillarSection("Connect")).getByText(/blocks this route/i);
-    expect(blocking.closest(".crit"))
-      .toHaveTextContent("Complements rather than replaces Siemens software");
-    // Connect's other failing criterion is merely unevidenced, so it must NOT carry the badge.
-    expect(within(pillarSection("Connect")).getAllByText(/blocks this route/i)).toHaveLength(1);
-  });
-
-  it("states a blocker once, not twice", async () => {
-    /* `assess_pillar` builds every blocker out of the note of the criterion that blocked. While
-       the checklist and the blocker list lived in separate panels that repetition was invisible;
-       in one section per pillar it printed the same sentence twice, a few lines apart. */
-    RUN = { ...BASE, routing: { pillar: "Empower", secondary: [], pillar_assessments: ASSESSMENTS } };
-    await renderScoringTab();
-    await screen.findByRole("region", { name: "Scoring & Fit" });
-    expect(within(pillarSection("Connect"))
-      .getAllByText(/The closest portfolio match is classified a substitute/)).toHaveLength(1);
-  });
-
-  it("says what would have to be proven, not just that it was not", async () => {
-    RUN = { ...BASE, routing: { pillar: "Empower", secondary: [], pillar_assessments: ASSESSMENTS } };
-    await renderScoringTab();
-    expect(await screen.findByText(/Nothing disqualifies it/i)).toBeInTheDocument();
-    expect(screen.getByText(/below a working prototype in a real environment/i)).toBeInTheDocument();
-  });
-
-  it("carries each criterion's state as text, not only as colour", async () => {
-    RUN = { ...BASE, routing: { pillar: "Empower", secondary: [], pillar_assessments: ASSESSMENTS } };
-    await renderScoringTab();
-    const criterion = (await screen.findByText("Falls in a named Collaborate domain"))
-      .closest(".crit");
-    // WCAG 1.4.1: the glyph is aria-hidden, so the word has to be in the accessible name.
-    expect(criterion.textContent).toMatch(/met/);
-  });
-
-  it("says a run predates the criteria rather than rendering an empty checklist", async () => {
-    // BASE has no dimensions either, so neither gate can be shown. "Nothing met" and "not assessed"
-    // are opposite readings and an empty checklist is the wrong one.
-    RUN = { ...BASE, routing: { pillar: "Empower", secondary: [] } };
-    await renderScoringTab();
-    await screen.findByRole("region", { name: "Scoring & Fit" });
-    expect(within(pillarSection("Connect")).getByText(/predates the programme criteria/i))
-      .toBeInTheDocument();
-    expect(within(pillarSection("Connect")).queryByText(/^eligible$|^unproven$|^blocked$/))
-      .toBeNull();
+    expect(screen.queryByText("Challenge-library match")).toBeNull();
+    expect(screen.queryByText("Flags & gaps")).toBeNull();
+    expect(screen.queryByText("Override routing")).toBeNull();
   });
 });
 
@@ -239,45 +176,5 @@ describe("SFS panel", () => {
       .closest(".profile-section");
     expect(within(panel).getByText("not assessed")).toBeInTheDocument();
     expect(within(panel).getByText(/Re-evaluate to assess it/i)).toBeInTheDocument();
-  });
-});
-
-describe("criteria vs. scorecard", () => {
-  it("explains a pillar that meets every criterion but is not a recommended route", async () => {
-    /* Two gates answer different questions. Phena's live run met every published Collaborate
-       criterion while its traction of 11.2 kept it off the Collaborate scorecard — and the panel
-       showing "Collaborate: eligible" next to a scorecard list without Collaborate reads as the
-       page contradicting itself unless it says which gate is the one it missed. */
-    RUN = {
-      ...BASE,
-      routing: {
-        pillar: "Empower", secondary: [],
-        pillar_assessments: {
-          // Collaborate's published criteria are all met; only the scorecard keeps it out.
-          Collaborate: { ...ASSESSMENTS.Collaborate, status: "eligible", next_steps: [] },
-          Empower: ASSESSMENTS.Empower,
-        },
-        route_recommendations: [{ route: "Empower", score: 62.6, status: "eligible",
-                                  recommendation: "Offer Siemens tools/credits." }],
-      },
-    };
-    await renderScoringTab();
-    expect(await screen.findByText(/the Collaborate scorecard gate is what it has not cleared/i))
-      .toBeInTheDocument();
-  });
-
-  it("says nothing extra when the pillar is both eligible and routed", async () => {
-    RUN = {
-      ...BASE,
-      routing: {
-        pillar: "Empower", secondary: [],
-        pillar_assessments: { Empower: ASSESSMENTS.Empower },
-        route_recommendations: [{ route: "Empower", score: 62.6, status: "eligible",
-                                  recommendation: "Offer Siemens tools/credits." }],
-      },
-    };
-    await renderScoringTab();
-    await screen.findByRole("region", { name: "Scoring & Fit" });
-    expect(screen.queryByText(/scorecard gate is what it has not cleared/i)).toBeNull();
   });
 });

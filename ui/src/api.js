@@ -145,12 +145,11 @@ export const api = {
   search: (q) => request(`/api/search?q=${encodeURIComponent(q)}`),
   evaluate: (name, doWeb = true, refresh = false) =>
     request("/api/evaluate", { method: "POST", body: { name, do_web: doWeb, refresh }, timeoutMs: 240000 }),
+  decideRun: (id) => request(`/api/runs/${encodeURIComponent(id)}/decision`, { method: "POST", timeoutMs: 180000 }),
+  assessRun: (id, department) => request(`/api/runs/${encodeURIComponent(id)}/assessment/${encodeURIComponent(department)}`, { method: "POST", timeoutMs: 180000 }),
   startJobs: (body) => request("/api/jobs", { method: "POST", body }),
   job: (id) => request(`/api/jobs/${encodeURIComponent(id)}`),
   departments: () => request("/api/departments"),
-  department: (id) => request(`/api/departments/${encodeURIComponent(id)}`),
-  addDepartmentCompany: (id, company) => request(`/api/departments/${encodeURIComponent(id)}/companies`, { method: "POST", body: { company } }),
-  removeDepartmentCompany: (id, company) => request(`/api/departments/${encodeURIComponent(id)}/companies/${encodeURIComponent(company)}`, { method: "DELETE" }),
   tracxnStatus: () => request("/api/integrations/tracxn"),
   tracxnConnect: (returnTo = "workspace") => request(`/api/integrations/tracxn/connect?return_to=${encodeURIComponent(returnTo)}`, { method: "POST" }),
   tracxnDisconnect: () => request("/api/integrations/tracxn", { method: "DELETE" }),
@@ -177,13 +176,6 @@ export const api = {
   challenges: () => request("/api/challenges"),
   ask: (question, runId = null) =>
     request("/api/ask", { method: "POST", body: { question, run_id: runId }, timeoutMs: 120000 }),
-  // No reviewer argument on either of these: the server takes it from the session, so a
-  // client cannot decide who gets credited for a routing change.
-  override: (runId, newPillar, reason, evidenceNote = "") =>
-    request(`/api/runs/${encodeURIComponent(runId)}/override`, {
-      method: "POST",
-      body: { new_pillar: newPillar, reason, evidence_note: evidenceNote },
-    }),
   audit: (runId) => request(`/api/runs/${encodeURIComponent(runId)}/audit`),
   setChallengeStatus: (index, status) =>
     request(`/api/challenges/${encodeURIComponent(index)}`, {

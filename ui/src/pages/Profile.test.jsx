@@ -31,6 +31,8 @@ const RUN = {
 
 vi.mock("../api.js", () => ({
   api: {
+    departments: vi.fn(async () => ({departments:[{id:"di",label:"Digital Industries",interests:["automation"],demo:true}]})),
+    assessRun: vi.fn(async () => ({score:{status:"unavailable"},department_fit:{status:"unavailable",message:"Assessment unavailable"}})),
     run: vi.fn(async () => RUN),
     job: vi.fn(),
     evaluate: vi.fn(async () => RUN),
@@ -132,6 +134,22 @@ describe("Profile", () => {
     expect(foundedLink).toHaveTextContent("web");
   });
 
+  it("marks a model-recalled value unverified rather than web-sourced", async () => {
+    // core/profile.py's _recall_* passes fill a field from model knowledge when the database and
+    // every web pass came back empty. Nothing evidences that value, so it must never wear the
+    // "web" chip — that chip is a claim that a page was actually read, and here none was.
+    const { api } = await import("../api.js");
+    api.run.mockResolvedValueOnce({
+      ...RUN,
+      profile: { ...RUN.profile, linkedin_url: "https://www.linkedin.com/company/phena/" },
+      profile_sources: { linkedin_url: { origin: "llm", url: "" } },
+    });
+    await renderProfile();
+    expect(await screen.findByText("unverified")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /^web — LinkedIn URL source$/i }))
+      .not.toBeInTheDocument();
+  });
+
   it("shows no provenance badge on the Employees metric when no source was recorded (UI-06)", async () => {
     // RUN.profile_sources only carries founded_year — employees_count came straight from the DB
     // (or wasn't backfilled), so asserting a web source there would claim evidence that isn't there.
@@ -212,10 +230,11 @@ describe("Evidence-based scoring views", () => {
     api.run.mockResolvedValueOnce(SCORED_RUN);
     await renderProfile(); await railLoaded(); await openScoringTab();
     expect(screen.queryByText(/what-if weights/i)).toBeNull();
-    const tabs = screen.getAllByRole("tab");
-    expect(tabs.map((t) => t.textContent.replace("—", ""))).toEqual(["Empower", "Collaborate", "Connect"]);
-    fireEvent.click(screen.getByRole("tab", {name: /Collaborate/}));
-    expect(screen.getByRole("tabpanel", {name: /Collaborate/})).toBeVisible();
+    const tabs = document.querySelectorAll("ix-tab-item");
+    expect(Array.from(tabs).map((t) => t.label)).toEqual(["Empower", "Connect", "Collaborate"]);
+    fireEvent(document.querySelector("ix-tabs"), new CustomEvent("tabChange", {detail:"Collaborate"}));
+    expect(document.getElementById("pillar-panel-Collaborate")).toBeVisible();
+
   });
 });
 

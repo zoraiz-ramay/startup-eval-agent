@@ -7,9 +7,9 @@ from api import store, workspace
 
 router = APIRouter(prefix="/api/departments", tags=["departments"])
 DEMO = [
-    ("di", "DI · Digital Industries", ["automation", "digital twin", "manufacturing", "inspection", "industrial software"]),
-    ("si", "SI · Smart Infrastructure", ["buildings", "energy", "grid", "electrification", "storage"]),
-    ("mobility", "Mobility", ["rail", "transport", "signalling", "fleet", "maintenance"]),
+    ("di", "Digital Industries", ["automation", "digital twin", "manufacturing", "inspection", "industrial software"]),
+    ("si", "Smart Industries", ["buildings", "energy", "grid", "electrification", "storage"]),
+    ("mobility", "Siemens Mobility", ["rail", "transport", "signalling", "fleet", "maintenance"]),
 ]
 
 
@@ -22,6 +22,9 @@ def _db():
       PRIMARY KEY(department_id, company));''')
     con.executemany("INSERT OR IGNORE INTO department_profiles VALUES (?,?,?,1)",
                     [(key, label, json.dumps(terms)) for key, label, terms in DEMO])
+    # Update only the mock labels; preserve configured department profiles.
+    con.executemany("UPDATE department_profiles SET label=? WHERE id=? AND is_demo=1",
+                    [(label, key) for key, label, _ in DEMO])
     con.commit()
     return con
 
@@ -43,7 +46,8 @@ def interest_score(run, profile):
     matched = [t for t in terms if t.casefold() in text]
     # Relevance is deliberately separate from the canonical score and admission criteria.
     relevance = 100 * len(matched) / len(terms) if terms else 0
-    base = run.get("fit", {}).get("rubric", {}).get("score")
+    base = run.get("score", {}).get("dimensions", {}).get("siemens_fit")
+    if base is None: base = run.get("fit", {}).get("rubric", {}).get("score")
     return {"score": round(.6 * relevance + .4 * base, 1) if base is not None else None,
         "relevance": round(relevance, 1), "siemens_fit": base, "matched": matched,
         "missing": [t for t in terms if t not in matched], "status": "assessed" if base is not None else "refresh_required",
@@ -54,7 +58,7 @@ def interest_score(run, profile):
 @router.get("")
 def profiles(user: Principal = Depends(current_user)):
     with _db() as con:
-        rows = con.execute("SELECT * FROM department_profiles ORDER BY id").fetchall()
+        rows = con.execute("SELECT * FROM department_profiles ORDER BY CASE id WHEN 'di' THEN 0 WHEN 'si' THEN 1 WHEN 'mobility' THEN 2 ELSE 3 END, id").fetchall()
     return {"departments": [{"id": r[0], "label": r[1], "interests": json.loads(r[2]), "demo": bool(r[3])} for r in rows]}
 
 

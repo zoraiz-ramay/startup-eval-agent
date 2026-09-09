@@ -38,26 +38,11 @@ def _post_override(client: TestClient, run_id: int, body: dict):
                        headers={"X-CSRF-Token": client.cookies.get("sea_csrf")})
 
 
-def test_reviewer_comes_from_the_session_not_the_request_body(client, run_id):
-    """The spoofing test: a caller naming someone else must not be believed."""
-    res = _post_override(client, run_id, {
-        "new_pillar": "Connect",
-        "reason": "attempting to blame someone else",
-        "reviewer": "Mallory",
-    })
-    assert res.status_code == 200
-
-    recorded = store.list_overrides(run_id)[-1]
-    assert recorded["reviewer"] == STUB_PRINCIPAL["name"]
-    assert recorded["reviewer"] != "Mallory"
-    assert recorded["reviewer_oid"] == STUB_PRINCIPAL["oid"]
-
-
-def test_stub_sessions_are_never_reported_as_verified(client, run_id):
-    """The bypass must be self-identifying in the data it writes, forever — not just in
-    the logs of the process that wrote it."""
-    _post_override(client, run_id, {"new_pillar": "Empower", "reason": "stub attribution"})
-    assert store.list_overrides(run_id)[-1]["verified"] is False
+def test_retired_override_endpoint_does_not_write(client, run_id):
+    before = store.list_overrides(run_id)
+    res = _post_override(client, run_id, {"new_pillar": "Connect", "reason": "retired control"})
+    assert res.status_code == 410
+    assert store.list_overrides(run_id) == before
 
 
 def test_legacy_rows_keep_their_text_and_stay_unverified(run_id):

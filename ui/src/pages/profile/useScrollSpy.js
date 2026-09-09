@@ -39,6 +39,14 @@ export function activationBand(topOffset, viewportHeight) {
   return { top, bottom: Math.max(0, viewportHeight - top - height) };
 }
 
+// iX owns a nested scroll viewport; walk through slots/shadow hosts as well as normal parents.
+export function scrollContainer(element) {
+  for (let node = element?.assignedSlot || element?.parentElement; node; node = node.assignedSlot || node.parentElement || node.getRootNode()?.host) {
+    if (/(auto|scroll)/.test(getComputedStyle(node).overflowY)) return node;
+  }
+  return null;
+}
+
 // A click scrolls smoothly through every intervening section, and the observer would faithfully
 // light each one up on the way past. Suppressing it briefly makes a click land on the section the
 // reader asked for instead of flickering through its neighbours. Cleared early once the target
@@ -54,27 +62,29 @@ export default function useScrollSpy(ids, topOffset) {
   const [presentIds, setPresentIds] = useState([]);
   // Set by a rail click; while it holds, observer updates are ignored. A ref rather than state:
   // changing it must not re-render, and the observer callback needs to read it synchronously.
+  const rootRef = useRef(null);
   const pinnedUntil = useRef(0);
   const pinnedId = useRef("");
 
-  /* Reads the registered elements' rects and decides. Called only from observer callbacks, never
-     from a scroll handler, so it runs a handful of times per scroll gesture rather than per frame.
+  /* Reads the registered elements' rects from observer callbacks and frame-throttled scrolling.
+     Scrolling covers headings crossing the reading line without an intersection threshold change.
      Reading rects here rather than trusting entry order is deliberate: IntersectionObserver
      batches entries and their order is not specified, so choosing "the first entry that
      intersects" produces different answers for the same scroll position. */
   const resolve = useCallback(() => {
+    const root = rootRef.current;
+    const viewportHeight = root?.clientHeight || window.innerHeight;
+    const line = (root?.getBoundingClientRect().top || 0) + activationBand(topOffset, viewportHeight).top;
     if (Date.now() < pinnedUntil.current) {
       // The target has arrived — release early rather than sitting out the full window.
       const el = pinnedId.current && document.getElementById(pinnedId.current);
       // Released once the target has essentially arrived. The window is generous because the
       // anchor lands the section at its scroll-margin — a little below the band line — and smooth
       // scrolling settles with a pixel or two of overshoot.
-      const line = activationBand(topOffset, window.innerHeight).top;
       if (!el || Math.abs(el.getBoundingClientRect().top - line) > CROSS_TOLERANCE_PX + 8) return;
       pinnedUntil.current = 0;
     }
 
-    const line = activationBand(topOffset, window.innerHeight).top;
     const rows = ids
       .map((id) => ({ id, el: document.getElementById(id) }))
       .filter((r) => r.el)
@@ -84,8 +94,9 @@ export default function useScrollSpy(ids, topOffset) {
     // At the bottom of the document the last section may sit permanently below the band — a short
     // "Recent signals" under a tall page can never reach it. The reader is plainly at the end, so
     // the end is what is current.
-    const doc = document.documentElement;
-    if (window.innerHeight + window.scrollY >= doc.scrollHeight - 2) {
+    const doc = root || document.documentElement;
+    const scrollTop = root ? root.scrollTop : window.scrollY;
+    if (doc.scrollHeight > viewportHeight && viewportHeight + scrollTop >= doc.scrollHeight - 2) {
       setActiveId(rows[rows.length - 1].id);
       return;
     }
@@ -116,13 +127,16 @@ export default function useScrollSpy(ids, topOffset) {
       return undefined;
     }
 
+    const root = scrollContainer(elements[0]);
+    rootRef.current = root;
     // One observer for every section, not one each: the callback recomputes from rects anyway, so
     // per-element observers would multiply callbacks without adding information.
     let observer;
     const connect = () => {
       observer?.disconnect();
-      const band = activationBand(topOffset, window.innerHeight);
+      const band = activationBand(topOffset, root?.clientHeight || window.innerHeight);
       observer = new IntersectionObserver(resolve, {
+        root,
         rootMargin: `-${Math.round(band.top)}px 0px -${Math.round(band.bottom)}px 0px`,
         threshold: [0, 1],
       });
@@ -130,11 +144,19 @@ export default function useScrollSpy(ids, topOffset) {
       resolve();
     };
 
+    let frame = 0;
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(() => { frame = 0; resolve(); });
+    };
+    const scroller = root || window;
+    scroller.addEventListener("scroll", onScroll, { passive: true });
     connect();          // also settles the initial position, before any scrolling has happened
     // A resize moves the band itself, so the observer is rebuilt rather than merely re-run.
     window.addEventListener("resize", connect, { passive: true });
     return () => {
       observer?.disconnect();
+      scroller.removeEventListener("scroll", onScroll);
+      cancelAnimationFrame(frame);
       window.removeEventListener("resize", connect);
     };
   }, [ids, topOffset, resolve]);

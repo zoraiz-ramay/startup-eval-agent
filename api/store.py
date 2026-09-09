@@ -483,7 +483,7 @@ def save_run(result: dict, aliases: Iterable[str] = ()) -> int:
             "INSERT INTO runs (company, pillar, secondary, final_score, sfs, sfs_line, engine, "
             "created_at, result_json, summary, parent_group) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (str(result.get("company", "")), str(rt.get("pillar", "")),
-             ",".join(rt.get("secondary", []) or []), float(sc.get("final_score", 0) or 0),
+             ",".join(rt.get("secondary", []) or []), float(sc["final_score"]) if sc.get("final_score") is not None else None,
              1 if rt.get("sfs_relevant") else 0, str(rt.get("sfs_line", ""))[:60],
              str(result.get("engine", "")),
              datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -498,6 +498,31 @@ def save_run(result: dict, aliases: Iterable[str] = ()) -> int:
             _record_alias(con, a, cid)
     _upload_to_s3()
     return run_id
+
+
+def merge_assessment(result, score, department_fit, routing=None):
+    result = json.loads(json.dumps(result, default=str))
+    if score.get("status") == "assessed":
+        if result.get("score") and result["score"] != score:
+            result.setdefault("original_score", result["score"])
+        result["score"] = score
+    if routing and routing.get("status") == "assessed":
+        result["routing"] = {**result.get("routing", {}), **routing}
+    if department_fit.get("status") == "assessed":
+        result.setdefault("department_assessments", {})[department_fit["department"]["id"]] = department_fit
+    return result
+
+
+def save_assessment(run_id, score, department_fit, routing=None):
+    with _conn() as con:
+        con.execute("BEGIN IMMEDIATE")
+        row = con.execute("SELECT result_json FROM runs WHERE id=?", (run_id,)).fetchone()
+        if not row: return None
+        result = merge_assessment(json.loads(row[0]), score, department_fit, routing)
+        con.execute("UPDATE runs SET result_json=?, final_score=?, pillar=?, secondary=? WHERE id=?",
+                    (json.dumps(result, default=str), result.get("score", {}).get("final_score"), result.get("routing", {}).get("pillar", ""), ",".join(result.get("routing", {}).get("secondary", []) or []), run_id))
+    _upload_to_s3()
+    return result
 
 
 def backfill_entities() -> int:
@@ -537,10 +562,16 @@ def list_companies() -> list[dict]:
                 "SELECT name, type FROM programs WHERE company_id=?", (cid,)).fetchall()
             custs = con.execute(
                 "SELECT name, status FROM reference_customers WHERE company_id=?", (cid,)).fetchall()
+            row = con.execute("SELECT result_json FROM runs WHERE id=?", (c[9],)).fetchone()
+            latest = json.loads(row[0]) if row else {}
+            latest_score = latest.get("score") or {}
             out.append({
                 "id": cid, "name": c[1], "website": c[2], "hq": c[3], "founded_year": c[4],
                 "parent_group": c[5], "employees": c[6], "funding": c[7], "stage": c[8],
                 "latest_run_id": c[9], "updated_at": c[10],
+                "final_score": latest_score.get("final_score"),
+                "siemens_fit": latest_score.get("dimensions", {}).get("siemens_fit"),
+                "department_assessments": latest.get("department_assessments", {}),
                 "founders": [{"name": p[1], "role": p[2], "background": p[3], "linkedin": p[4]}
                              for p in people if p[0] == "founder"],
                 "advisors": [{"name": p[1], "role": p[2]} for p in people if p[0] == "advisor"],
@@ -574,6 +605,7 @@ def list_runs(limit: int = 100) -> list[dict]:
             dims = sc.get("dimensions", {}) or {}
             facts = res.get("facts", []) or []
             item.update({
+                "department_assessments": res.get("department_assessments", {}),
                 "hq": str(p.get("hq", "")),
                 "funding": str(p.get("funding", "")),
                 "founded_year": str(p.get("founded_year", "")),

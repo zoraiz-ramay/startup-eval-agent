@@ -146,6 +146,8 @@ from api import workspace
 app.include_router(jobs_router)
 from api.interests import router as interests_router
 app.include_router(interests_router)
+from api.assessments import router as assessments_router
+app.include_router(assessments_router)
 
 
 class EvaluateBody(BaseModel):
@@ -616,11 +618,7 @@ def override_run(run_id: int, body: OverrideBody,
     The reviewer comes from the session, never from the body. This used to be a free-text
     field, which meant a partnership decision could be attributed to anyone who had not
     made it."""
-    rec = store.add_override(run_id, body.new_pillar, body.reason,
-                             body.evidence_note, reviewer=user.as_reviewer())
-    if rec is None:
-        raise HTTPException(status_code=404, detail=f"Run {run_id} not found.")
-    return rec
+    raise HTTPException(410, "Routing overrides have been retired.")
 
 
 @app.get("/api/runs/{run_id}/audit")

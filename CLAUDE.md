@@ -18,11 +18,20 @@ codebase enforces this in several places, and changes must not weaken them:
 - `core/data.py` — `web_profile_row` deliberately does **not** fill verifiable fields (funding,
   founded year, employees, HQ, customers) from model memory. It used to, and produced a funding
   round of "SAR 3.75 million" for makkook.ai that exists nowhere on the web.
-- The **one** sanctioned exception is `profile.py`'s `_recall_hq_offline`: headquarters, and only
-  after GlassDollar and both web passes come back empty. It was added deliberately when Location
-  became a headline tile. The value is stamped `hq_origin="llm"`, carries no source URL, files its
-  Fact under method `model_recall` (so provenance grades it `inferred`), and the UI labels it
-  **unverified** rather than web-sourced. Do not widen this to another field.
+- There are **two** sanctioned exceptions, both in `profile.py`, both last-resort passes that run
+  only after GlassDollar and every web pass have come back empty, both stamping `*_origin="llm"`,
+  carrying no source URL, and labelled **unverified** rather than web-sourced by the UI:
+  - `_recall_hq_offline` — headquarters, added when Location became a headline tile.
+  - `_recall_links_offline` — the LinkedIn and Crunchbase profile URLs, added because a company
+    outside GlassDollar routinely showed both rows blank. A URL is riskier than a place name: it
+    is a claim that a page *exists*, and a near-namesake's profile sends a reviewer to the wrong
+    company. So a recalled URL is not stored as written — it must parse as a real profile path on
+    the right host and its slug must pass the same `_identity_forms` gate `_extract_links` applies
+    to a searched result, and the canonical URL is rebuilt from that slug.
+
+  Do not widen this to a third field, and note what both have in common: they fill a field that is
+  *identifying* (where the company is, where its public profile lives), never one that is
+  *evaluative*. Nothing that feeds a score may come from model memory.
 - `core/score.py` — a self-asserted program membership scores at a discount to an independently
   corroborated one; a source URL alone is not evidence.
 

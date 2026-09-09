@@ -42,6 +42,12 @@ def route(score: dict, fit: dict, row: pd.Series, llm: LLMClient, profile: dict 
     ("would my weighting re-route this"), and why it says nothing about the criteria.
     """
     profile = profile or {}
+    if score.get("status") == "unavailable":
+        sfs = assess_sfs(row, profile, fit)
+        return {"pillar": "Unassessed", "secondary": [], "confidence": 0,
+                "reasons": ["Awaiting an evidence-grounded LLM score."], "risks": [],
+                "portfolio_stance": _portfolio_stance(fit), "sfs_relevant": bool(sfs.get("relevant")),
+                **{f"sfs_{k}": sfs.get(k) for k in ("status", "line", "lines", "blockers", "rationale")}}
     final = score["final_score"]
     aligned = fit.get("aligned", False)
     traction = score["dimensions"]["traction"]
@@ -198,7 +204,7 @@ def _route_reasons(pillar, score, fit, row, llm: LLMClient):
         reasons.append("Closest tool: " + fit["matches"][0]["tool"] + ".")
     risks = []
     if score["data_completeness"] < 0.5:
-        risks.append("Sparse/unverifiable profile — score capped.")
+        risks.append("Collected research has missing sections." if score.get("method") == "llm_judgment" else "Sparse/unverifiable profile — score capped.")
     if score["unverified_customers"]:
         risks.append("Some reference customers not yet corroborated online.")
     if not risks:

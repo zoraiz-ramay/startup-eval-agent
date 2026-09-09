@@ -16,8 +16,6 @@ from .verify import verify_facts
 from .summarize import summarize_offering
 from .fit import match_siemens_tools
 from .trend import analyze_trend
-from .score import score_startup
-from .route import route
 from .text import format_funding
 from .profile import research_profile
 
@@ -31,6 +29,7 @@ from .profile import research_profile
 # the URL was sitting in the search results the run had already fetched.
 _BACKFILL_FIELDS = (("founded_year", "founded_year"), ("funding", "funding"),
                     ("employees_count", "employees"), ("website", "website"),
+                    ("hq", "hq"),
                     ("linkedin_url", "linkedin_url"), ("crunchbase_url", "crunchbase_url"))
 
 
@@ -72,8 +71,9 @@ def backfill_profile(profile: dict, deep_profile: dict) -> dict:
             # Not every researched field carries a source URL (headcount has no *_source key),
             # so the origin is recorded even when the URL is unknown.
             # `{pkey}_origin` overrides "web" where the field can arrive by more than one route:
-            # hq falls back to model knowledge when neither the database nor the web had it, and
-            # the UI must not label that "web-sourced" (profile.py's _recall_hq_offline).
+            # hq and the two profile URLs fall back to model knowledge when neither the database
+            # nor the web had them, and the UI must not label that "web-sourced"
+            # (profile.py's _recall_hq_offline / _recall_links_offline).
             origin = str(deep_profile.get(f"{pkey}_origin", "")).strip() or "web"
             sources[col] = {"origin": origin,
                             "url": str(deep_profile.get(f"{pkey}_source", "")).strip()}
@@ -306,14 +306,21 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
     enrichment["facts"].extend(prof_res["facts"])
     _emit("facts", [f.as_dict() for f in enrichment["facts"]])
     _step("SCORE", "running")
-    from .siemens_fit import assess_fit
-    fit["rubric"] = assess_fit(row, fit, enrichment["facts"], llm)
-    _emit("fit", fit)
-    sc = score_startup(row, enrichment, verification, fit, deep_profile, trend)
+    from .judgment import score_research, decision_research
+    research = {"company": name, "application": row.to_dict(), "profile": profile,
+                         "deep_profile": deep_profile, "summary": summary, "fit": fit,
+                         "facts": [f.as_dict() for f in enrichment["facts"]],
+                         "verification": verification, "trend": trend}
+    sc = score_research(research, llm)
     _step("SCORE", "done")
     _emit("score", sc)
     _step("ROUTE", "running")
-    rt = route(sc, fit, row, llm, deep_profile, trend)
+    from .route import _portfolio_stance
+    from .programs import assess_sfs
+    sfs = assess_sfs(row, deep_profile, fit)
+    rt = {"portfolio_stance": _portfolio_stance(fit), "sfs_relevant": bool(sfs.get("relevant")),
+          **{f"sfs_{k}": sfs.get(k) for k in ("status", "line", "lines", "blockers", "rationale")},
+          **decision_research(research, llm)}
     _step("ROUTE", "done")
     _emit("routing", rt)
 

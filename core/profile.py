@@ -75,6 +75,10 @@ EMPTY_PROFILE = {
     "website": "",
     "linkedin_url": "",
     "crunchbase_url": "",
+    # "web" when the URL was read off a search result, "llm" when it came from model knowledge
+    # with nothing backing it. Same contract as hq_origin; see _recall_links_offline.
+    "linkedin_url_origin": "",
+    "crunchbase_url_origin": "",
     # What LinkedIn's own page states as the company size, when a result snippet carries it. A
     # BAND, kept apart from the cited headcount above rather than overwriting it: the two
     # disagree routinely (aggregators lag LinkedIn), and a band is not a count.
@@ -1328,6 +1332,7 @@ def _extract_links(company: str, row: pd.Series, *result_maps) -> dict:
             slug = match.group(1).rstrip(".")
             if _identity_forms(slug.replace("-", " ").replace("_", " ")) & identities:
                 out[key] = canonical.format(slug)
+                out[f"{key}_origin"] = "web"
                 break
 
     # The company's own site, for a database row whose website column is blank. Same identity
@@ -1359,6 +1364,55 @@ def _extract_links(company: str, row: pd.Series, *result_maps) -> dict:
             out["linkedin_size_source"] = out.get("linkedin_url") or _clean_source_url(hit.get("href"))
             break
     return out
+
+
+def _recall_links_offline(prof: dict, company: str, row: pd.Series, llm: LLMClient) -> None:
+    """Last resort for the LinkedIn / Crunchbase URLs: ask the model what it already knows.
+
+    The second sanctioned exception to "no verifiable field comes from model memory", added on
+    the same terms as _recall_hq_offline and contained the same three ways: it runs ONLY after
+    the database and _extract_links have both come back empty, the value is stamped
+    ``*_origin='llm'`` so the UI labels it unverified rather than web-sourced, and it carries no
+    source URL, so it is never treated as evidence.
+
+    The extra containment these two fields need, which headquarters does not: a URL is a claim
+    that a page EXISTS, and a near-namesake's profile page is worse than a blank row. So a
+    recalled URL is not taken as written — it must parse as a real profile path on the right
+    host, and its slug must satisfy the same identity test `_extract_links` applies to a
+    searched result. The canonical form is rebuilt from the slug, so the model's own string
+    never reaches the profile.
+    """
+    missing = [(key, host, slug_re, canonical) for key, host, slug_re, canonical in _LINK_SOURCES
+               if not str(prof.get(key, "")).strip()]
+    if not missing or not llm.available:
+        return
+    identities = _identity_forms(company)
+    hint = _site_hint(row)
+    if hint:
+        identities |= _identity_forms(hint.split(".")[0])
+    if not identities:
+        return
+    data = LLMClient.parse_json(llm.complete(
+        f"The startup '{company}'" + (f" (website {hint})" if hint else "") + ":\n"
+        "From your own knowledge, give its official company profile URLs.\n"
+        "Return the full URL for each, or an empty string. If you are not confident you are "
+        "thinking of THIS company, or you do not know the exact profile path, return an empty "
+        "string — a link to the wrong company is much worse than no link.\n"
+        "Never invent a path from the company name.\n"
+        'Return ONLY JSON: {"linkedin_url":"","crunchbase_url":""}',
+        system="You answer with URLs you actually know, or nothing. JSON only.",
+        max_tokens=120, reasoning="none")) or {}
+    for key, host, slug_re, canonical in missing:
+        href = str(data.get(key) or "").strip()
+        if host not in href.lower():
+            continue
+        match = slug_re.search(href)
+        if not match:
+            continue
+        slug = match.group(1).rstrip(".")
+        if _identity_forms(slug.replace("-", " ").replace("_", " ")) & identities:
+            prof[key] = canonical.format(slug)
+            prof[f"{key}_origin"] = "llm"
 
 
 def research_profile(row: pd.Series, llm: LLMClient, do_web: bool = True,
@@ -1470,6 +1524,15 @@ def research_profile(row: pd.Series, llm: LLMClient, do_web: bool = True,
         if do_web:
             try:
                 _deepen_founders(prof, company, llm)
+            except Exception:
+                pass
+        # The two model-recall exceptions, last of all: each runs only if the database and every
+        # web pass left its field blank, and each stamps *_origin='llm' so nothing downstream can
+        # mistake the value for evidence. Costs one completion apiece and only on a run that
+        # would otherwise show a blank row.
+        for recall in (_recall_hq_offline, _recall_links_offline):
+            try:
+                recall(prof, company, row, llm)
             except Exception:
                 pass
         # A row carrying a glassdollar_id came from the live REST API; one without it came

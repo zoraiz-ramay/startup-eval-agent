@@ -105,9 +105,14 @@ export default function Profile() {
 
   useEffect(() => {
     if (!job) return;
+    let active = true;
     if (job.status === "error") setError(job.error);
-    else if (job.result) setRes(job.result);
+    else if (job.result) {
+      setRes(job.result);
+      if (job.result.run_id) api.run(job.result.run_id).then((r) => { if (active) setRes(r); }).catch(() => {});
+    }
     else if (job.partial) setRes(job.partial);
+    return () => { active = false; };
   }, [job]);
 
   useEffect(() => {
@@ -179,7 +184,7 @@ export default function Profile() {
                 </span>
               ) : (
                 <>
-                  <span>Score <strong>{Number(sc.final_score || 0).toFixed(0)}</strong></span>
+                  <span>Score <strong>{typeof sc.final_score === "number" ? sc.final_score.toFixed(0) : "—"}</strong></span>
                   <span>Confidence {Math.round((rt.confidence || 0) * 100)}%</span>
                 </>
               )}
@@ -238,7 +243,11 @@ export default function Profile() {
             the same mistake `employees_history_status` exists to prevent, one level up. */}
         {tab === "Scoring & Fit"
           ? (pending("score") ? <StillRunning what="Scoring and routing" />
-            : <ScoringTab res={res} runId={runId} />)
+            : <ScoringTab res={res} runId={runId} onAssessment={(a) => setRes((old) => !old || (old.run_id && old.run_id !== runId) ? old : ({...old,
+                ...(a.routing?.status === "assessed" ? {routing:a.routing} : {}),
+                ...(a.score?.status === "assessed" ? {score:a.score} : {}),
+                ...(a.department_fit?.status === "assessed" ? {department_assessments:{...old.department_assessments,[a.department_fit.department.id]:a.department_fit}} : {}),
+              }))} />)
           : tab === "Market & Risk"
             ? (pending("trend") ? <StillRunning what="Market analysis" /> : <MarketTab res={res} />)
             : tab === "Evidence"

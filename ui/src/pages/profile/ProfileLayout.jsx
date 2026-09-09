@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef } from "react";
 import ProfileSectionNav from "../../components/ProfileSectionNav.jsx";
-import useScrollSpy from "./useScrollSpy.js";
+import useScrollSpy, { scrollContainer } from "./useScrollSpy.js";
 import useStickyOffset from "./useStickyOffset.js";
 import { PROFILE_VIEWS, viewById } from "./sections.js";
 
@@ -39,7 +39,8 @@ export default function ProfileLayout({ view, onSelectView, children }) {
     // scroll must not take the rest of this effect — and the view switch — down with it.
     if (mounted.current) {
       try {
-        window.scrollTo({ top: 0, behavior: "auto" });
+        const root = scrollContainer(document.querySelector(".profile-body-main"));
+        (root || window).scrollTo({ top: 0, behavior: "auto" });
       } catch { /* host does not support programmatic scrolling */ }
     }
     mounted.current = true;

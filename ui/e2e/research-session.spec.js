@@ -9,6 +9,8 @@ test("a batch continues across pages and restores after reload", async ({ page }
     else if (path === "/api/integrations/tracxn") body={connected:true,configured:true};
     else if (path === "/api/my/searches") body={runs:[]};
     else if (path === "/api/my/views") body={views:[]};
+    else if (path === "/api/departments") body={departments:[{id:"di",label:"Digital Industries",interests:["automation"]}]};
+    else if (path.includes("/assessment/")) body={score:{status:"unavailable"},department_fit:{status:"unavailable",message:"Unavailable"}};
     else if (path === "/api/jobs") {
       const request=route.request().postDataJSON(); submissions++;
       expect(request.names).toHaveLength(10);

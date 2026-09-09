@@ -33,16 +33,11 @@ export const PROFILE_VIEWS = [
     label: "Scoring & Fit",
     sections: [
       { id: "scoring-decision", label: "Decision" },
+      { id: "scoring-department", label: "Department fit" },
       { id: "scoring-breakdown", label: "Score breakdown" },
       { id: "scoring-routes", label: "Partnership routes" },
       { id: "scoring-portfolio", label: "Portfolio fit" },
       { id: "scoring-sfs", label: "SFS financing" },
-      // "Flags & gaps", not "Red flags & gaps": ix_lint reads the bare word in a quoted string as
-      // a raw colour literal, and its baseline only ratchets down, so there is nowhere to record
-      // the false positive. The wording still covers both halves of the section — the engine's
-      // red_flags and its missing_evidence — and the heading matches.
-      { id: "scoring-flags", label: "Flags & gaps" },
-      { id: "scoring-review", label: "Reviewer decision" },
     ],
   },
   {
