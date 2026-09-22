@@ -65,7 +65,13 @@ def _eligible(route_score=None, traction=None, target="Connect",
     fit = {"aligned": aligned, "matches": [{"tool": "Simcenter"}]}
     out = route(score, fit, pd.Series(dtype=object), _OfflineLLM(), {})
     assert gates  # guards against an empty mirror silently passing every probe
-    return [out["pillar"], *out["secondary"]] if out["pillar"] != "Pass" else []
+    # `score_eligible`, not the final pillar. The engine now applies a SECOND gate after these
+    # scorecards — Siemens' published programme criteria in core/programs.py — which reads
+    # evidence rather than weights. The browser mirror models the scorecard gates only, and
+    # deliberately so: no reviewer weighting can move an evidence criterion, so re-deriving them
+    # client-side would answer a question nobody asked. This helper therefore probes the layer the
+    # mirror actually claims to reproduce; the criteria layer is pinned in test_programs.py.
+    return out["score_eligible"]
 
 
 def test_route_weights_mirror_matches_the_engine():
@@ -114,7 +120,7 @@ def test_empower_has_no_score_gate():
     score = {"final_score": 0.0, "dimensions": dims, "route_scorecards": cards,
              "data_confidence": 0.9, "data_completeness": 0.8, "unverified_customers": 0}
     out = route(score, {"aligned": True, "matches": []}, pd.Series(dtype=object), _OfflineLLM(), {})
-    assert out["pillar"] == "Empower"
+    assert out["score_eligible"] == ["Empower"]
 
 
 @pytest.mark.parametrize("aligned,siemens_fit", [
@@ -126,17 +132,34 @@ def test_alignment_gate_bars_every_pillar(aligned, siemens_fit):
 
 
 def test_primary_is_the_highest_scoring_eligible_route_not_a_fixed_order():
-    """The UI sorts its own eligible list the same way; a fixed-order engine would disagree."""
+    """The UI sorts its own eligible list the same way; a fixed-order engine would disagree.
+
+    The probe carries enough evidence for all three pillars to come out `eligible` on Siemens'
+    published criteria. That is load-bearing, not scene-setting: the engine sorts by criteria
+    status FIRST and only then by scorecard, so a substantiated pillar outranks a higher-scoring
+    unproven one by design. Holding the status equal is what leaves the scorecard as the only
+    variable, which is the property this test exists to pin.
+    """
     dims = {k: 100.0 for k in WEIGHTS}
     base = {"final_score": 50.0, "dimensions": dims, "data_confidence": 0.9,
             "data_completeness": 0.8, "unverified_customers": 0}
-    fit = {"aligned": True, "matches": []}
-    row, llm = pd.Series(dtype=object), _OfflineLLM()
+    fit = {"aligned": True,
+           "matches": [{"tool": "Industrial Edge", "division": "DI", "relation": "complement"}]}
+    row = pd.Series({"company_name": "Acme", "employees_count": "30", "Your pitch":
+                     "machine learning analytics for industrial automation"})
+    profile = {"commercial": {
+        "deployment": "cloud", "deployment_source": "https://acme.io/docs",
+        "has_public_api": True, "api_source": "https://acme.io/api",
+        "certifications": [{"name": "ISO/IEC 27001", "source_url": "https://acme.io/security"}],
+        "pricing_public": True, "pricing_source": "https://acme.io/pricing",
+        "revenue_signal": "recurring", "revenue_source": "https://acme.io/pricing",
+        "funding_stage": "seed", "sells_hardware": False, "investors": []}}
+    llm = _OfflineLLM()
 
     collab_high = dict(base, route_scorecards={"Connect": 71.0, "Collaborate": 99.0, "Empower": 60.0})
-    assert route(collab_high, fit, row, llm, {})["pillar"] == "Collaborate"
+    assert route(collab_high, fit, row, llm, profile)["pillar"] == "Collaborate"
     connect_high = dict(base, route_scorecards={"Connect": 99.0, "Collaborate": 71.0, "Empower": 60.0})
-    assert route(connect_high, fit, row, llm, {})["pillar"] == "Connect"
+    assert route(connect_high, fit, row, llm, profile)["pillar"] == "Connect"
 
 
 def test_golden_runs_replay_through_the_real_router():

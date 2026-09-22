@@ -15,10 +15,12 @@ import os
 import sys
 
 import pandas as pd
+import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from core.config import THIN_PROFILE_CAP, WEIGHTS  # noqa: E402
+from core.config import (CONTRADICTION_FLOOR, CONTRADICTION_PENALTY,  # noqa: E402
+                         THIN_PROFILE_CAP, WEIGHTS)
 from core.provenance import Fact  # noqa: E402
 from core.score import score_startup  # noqa: E402
 
@@ -53,6 +55,8 @@ def test_ui_constants_match_the_engine_exactly():
     constants = _load("engine-constants.json")
     assert constants["weights"] == WEIGHTS
     assert constants["thin_profile_cap"] == THIN_PROFILE_CAP
+    assert constants["contradiction_penalty"] == CONTRADICTION_PENALTY
+    assert constants["contradiction_floor"] == CONTRADICTION_FLOOR
 
 
 def test_engine_weights_still_sum_to_one():
@@ -85,6 +89,39 @@ def test_confidence_is_still_derived_from_completeness():
     enrichment, verification, fit = _base_kwargs()
     out = score_startup(_row(), enrichment, verification, fit, {})
     assert out["data_confidence"] == round(0.5 + 0.5 * out["data_completeness"], 2)
+
+
+def test_contradictions_reduce_confidence_by_the_mirrored_factor():
+    """Confidence is completeness times a contradiction factor, and the UI applies the same one.
+
+    Without this the assertion above reads as "confidence is completeness", which is now true only
+    when nothing is contradicted — a mirror that silently disagrees on every run where a source
+    conflicts. `contradicted` is passed through `list_runs` for exactly this reason.
+    """
+    enrichment, verification, fit = _base_kwargs()
+    clean = score_startup(_row(), enrichment, verification, fit, {})
+    conflicted = score_startup(
+        _row(), enrichment,
+        {"claims": [{"field": "hq", "value": "Munich", "status": "contradicted"},
+                    {"field": "founded_year", "value": "2021", "status": "contradicted"}],
+         "red_flags": []}, fit, {})
+
+    assert conflicted["contradicted"] == 2
+    assert conflicted["data_completeness"] == clean["data_completeness"]
+    expected = (0.5 + 0.5 * clean["data_completeness"]) * (1 - 2 * CONTRADICTION_PENALTY)
+    assert conflicted["data_confidence"] == pytest.approx(expected, abs=5e-4)
+    assert conflicted["final_score"] < clean["final_score"]
+
+
+def test_the_contradiction_penalty_is_floored():
+    """Aggregators disagree with each other constantly; one stale record must not condemn a
+    company. Twenty contradictions cost the same 15% as four."""
+    enrichment, _, fit = _base_kwargs()
+    many = {"claims": [{"field": f"f{i}", "value": "x", "status": "contradicted"}
+                       for i in range(20)], "red_flags": []}
+    out = score_startup(_row(), enrichment, many, fit, {})
+    floor = (0.5 + 0.5 * out["data_completeness"]) * CONTRADICTION_FLOOR
+    assert out["data_confidence"] == pytest.approx(floor, abs=5e-4)
 
 
 def test_golden_runs_still_reproduce_under_the_current_formula():

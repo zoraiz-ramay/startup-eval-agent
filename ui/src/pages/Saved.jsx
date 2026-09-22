@@ -15,9 +15,9 @@ export default function Saved() {
       {savedViews.length === 0 ? (
         <IxEmptyState
           header="No saved views yet"
-          subHeader="Open Explore, customise the columns, and save the configuration as a view."
+          subHeader="Open Database, customise the columns, and save the configuration as a view."
           icon={iconBookmark}
-          action="Open Explore"
+          action="Open Database"
           onActionClick={() => nav("/explore")}
         />
       ) : (

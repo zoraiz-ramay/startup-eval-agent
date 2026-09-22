@@ -33,6 +33,8 @@ export const DEFAULT_WEIGHTS = Object.freeze(
 
 const THIN_PROFILE_CAP = CONSTANTS.thin_profile_cap;
 const COMPLETENESS_DENOM = CONSTANTS.completeness_denominator;
+const CONTRADICTION_PENALTY = CONSTANTS.contradiction_penalty;
+const CONTRADICTION_FLOOR = CONSTANTS.contradiction_floor;
 
 /**
  * localStorage is user-writable, so anything read from it is untrusted input. A NaN reaching the
@@ -138,7 +140,12 @@ export function reweight(score, weights) {
 
   const rawScore = DIMENSIONS.reduce((s, k) => s + dims[k] * w[k], 0);
   const completeness = snapCompleteness(Number(score.data_completeness) || 0);
-  const dataConfidence = 0.5 + 0.5 * completeness;
+  // Mirrors core/score.py: contradicted claims reduce confidence, bounded at 15%. Derived from
+  // the stored `contradicted` count rather than from `data_confidence`, for the same reason
+  // completeness is — the stored confidence is rounded and would not reproduce the engine's own
+  // arithmetic. Absent on runs stored before the penalty existed, where 0 is the correct reading.
+  const contradicted = Math.max(0, Number(score.contradicted) || 0);
+  const dataConfidence = (0.5 + 0.5 * completeness) * Math.max(CONTRADICTION_FLOOR, 1 - CONTRADICTION_PENALTY * contradicted);
   let finalScore = rawScore * dataConfidence;
   if (completeness < 0.5) finalScore = Math.min(finalScore, THIN_PROFILE_CAP);
 

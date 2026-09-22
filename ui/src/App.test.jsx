@@ -8,6 +8,7 @@ import { findShadowRole, getAllShadowRole, getShadowRole } from "./test/shadow.j
 vi.mock("./api.js", () => ({
   api: {
     me: vi.fn(),
+    tracxnStatus: vi.fn(async () => ({connected: false})),
     search: vi.fn(async () => ({ results: [] })),
     myRuns: vi.fn(async () => ({ runs: [] })),
     views: vi.fn(async () => ({ views: [] })),

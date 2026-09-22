@@ -36,8 +36,8 @@ def enrich(row: pd.Series, do_web: bool = True) -> dict:
     def db_fact(col, key=None, conf=0.5):
         val = str(row.get(col, "")).strip()
         if val:
-            facts.append(Fact(key=key or col, value=val, method="glassdollar_db",
-                              source_url="GlassDollar", confidence=conf, verified=False))
+            facts.append(Fact(key=key or col, value=val, method="tracxn_mcp" if row.get("tracxn_id") else "glassdollar_db",
+                              source_url="https://platform.tracxn.com/mcp" if row.get("tracxn_id") else "GlassDollar", confidence=conf, verified=False))
 
     for col, key in [("hq", "hq"), ("founded_year", "founded_year"),
                      ("employees_count", "employees"), ("funding", "funding"),
@@ -73,6 +73,19 @@ def enrich(row: pd.Series, do_web: bool = True) -> dict:
             "partnerships_web": f"{company} partnership collaboration strategic partner",
             "news_web": f"{company} {domain} news".strip(),
             "crunchbase_web": f"{company} crunchbase founded funding stage pre-seed seed series",
+            # ---- commercial posture -------------------------------------------------------
+            # The evidence the pillar and SFS gates read (core/programs.py). Connect asks whether
+            # the offering is purchasable, deployable as a service, API-exposed and
+            # security-certified — the Xcelerator Marketplace publishes those as hard onboarding
+            # requirements — and SFS asks whether there is an asset or a cash flow to underwrite.
+            # None of it was collected anywhere, so both decisions were being taken from the pitch
+            # text alone, which is the startup describing itself.
+            "pricing_web": f"{company} pricing plans license cost subscription buy",
+            "security_web": f"{company} ISO 27001 IEC 62443 SOC 2 security certification compliance",
+            "api_web": f"{company} API developer documentation SDK integration",
+            "deployment_web": f"{company} cloud edge on-premise SaaS deployment architecture",
+            "marketplace_web": f"{company} marketplace listing reseller partner program available",
+            "investors_web": f"{company} investors led by round participated venture capital",
         }
         if country:
             queries["country_vc_web"] = f"venture capital funding {country} startups 2025"
@@ -85,25 +98,39 @@ def enrich(row: pd.Series, do_web: bool = True) -> dict:
         # Track how much of the wave actually came back: a throttled query is indistinguishable
         # downstream from "the web knows nothing", so without this a partial run looks identical
         # to a genuinely thin company — and reruns of the same startup silently disagree.
-        results = _ddg_many(all_q, max_results=4, stats=search_stats)
+        # The deadline scales with the wave, deliberately. _ddg_many's own docstring is explicit
+        # that too tight a budget turns throttling into silently missing fields, and this wave grew
+        # from ~11 queries to ~17 when the commercial-posture searches were added. The semaphore
+        # caps concurrency at 10 whatever we ask for — raising it would just burst DuckDuckGo into
+        # rate-limiting us — so a longer wave means a second batch, and the deadline has to cover it.
+        results = _ddg_many(all_q, max_results=4, overall_timeout=55.0, stats=search_stats)
         if search_stats.get("timed_out"):
             log.warning("[enrich] %s: %d/%d web queries abandoned at the deadline",
                         company, search_stats["timed_out"], search_stats["requested"])
+        # When a query was replayed from cache rather than searched, the Fact is dated to the
+        # search that actually produced it. Without this, `retrieved_at` was stamped at Fact
+        # construction and so read "now" on every run — which made `freshness_days` a stored
+        # constant zero that decays into a lie, and hid the fact that a re-evaluation can be
+        # reasoning over results up to a week old.
+        replayed = search_stats.get("cached_at") or {}
         web = {k: results.get(k, []) for k in queries}
         for key in queries:
             hits = web.get(key, [])
             if hits:
                 facts.append(Fact(key=key, value=hits[0].get("title", ""),
                                   source_url=hits[0].get("href", ""), method="ddg_search",
-                                  confidence=0.65, verified=True))
+                                  confidence=0.65, verified=True,
+                                  **({"retrieved_at": replayed[key]} if key in replayed else {})))
         # reference-customer verification (anti-gaming feeds traction)
         for i, c in enumerate(custs):
-            hits = results.get(f"__cust__{i}", [])
+            ckey = f"__cust__{i}"
+            hits = results.get(ckey, [])
             if hits:
                 top = hits[0]
                 facts.append(Fact(key=f"verify:{c}", value=top.get("title", ""),
                                   source_url=top.get("href", ""), method="ddg_search",
-                                  confidence=0.7, verified=True))
+                                  confidence=0.7, verified=True,
+                                  **({"retrieved_at": replayed[ckey]} if ckey in replayed else {})))
             else:
                 facts.append(Fact(key=f"verify:{c}", value="no corroboration found",
                                   method="ddg_search", confidence=0.3, verified=False))

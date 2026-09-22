@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 
 import pandas as pd
@@ -30,7 +31,7 @@ def _derive_fit_keywords(startup_text: str, llm: LLMClient) -> list[str]:
             f"STARTUP:\n{startup_text}\n\n"
             'Return ONLY JSON: {"keywords": ["...", "..."]}'
         )
-        data = LLMClient.parse_json(llm.complete(prompt, max_tokens=400))
+        data = LLMClient.parse_json(llm.complete(prompt, max_tokens=400, reasoning="none"))
         if data and isinstance(data.get("keywords"), list):
             terms = [str(k).strip() for k in data["keywords"] if str(k).strip()]
             if terms:
@@ -86,7 +87,24 @@ def match_siemens_tools(row: pd.Series, pitch_pdf: str, tools: list[dict], llm: 
                 "- integration: the startup plugs into / extends the tool\n"
                 "- substitute: the startup does the same thing (competitor — weak partnership fit)\n"
                 "- adjacent: same domain, different function\n"
+                "A relation is REQUIRED for every match; omit the match rather than leave it blank.\n"
                 "If NONE are a credible fit, return aligned=false with an empty matches list.\n\n"
+                # Calibration anchors. Left to itself the model returns 85-100 for EVERY match it
+                # has ever made -- across the 54 matches in the stored corpus the range was 85 to
+                # 100, median 90 -- so the number carried almost no information and siemens_fit
+                # varied only with the relation multiplier. Anchoring each band to an observable
+                # consequence, and naming the expected shape of the distribution, is what makes a
+                # weak match scoreable as weak rather than unsayable.
+                "CONFIDENCE is calibrated, not enthusiasm. Use these anchors:\n"
+                "- 90-100: a Siemens business unit could put this in front of a customer alongside "
+                "the tool as it stands; the overlap is in the tool's own documented capability.\n"
+                "- 70-89: clearly the same problem space and a real engagement is plausible, but it "
+                "would need scoping work first.\n"
+                "- 40-69: related domain, credible but speculative link; a reviewer would have to "
+                "argue for it.\n"
+                "- 1-39: only a thematic or keyword resemblance.\n"
+                "Most genuine matches land in 40-89. Reserve 90+ for cases you would defend to a "
+                "business-unit head. Do not compress the scale.\n\n"
                 f"STARTUP:\n{startup_text}\n\n"
                 f"SIEMENS PORTFOLIO (top {len(shortlist)} candidates):\n{catalogue}\n\n"
                 'Return ONLY JSON: {"aligned": true/false, "matches": '
@@ -94,13 +112,30 @@ def match_siemens_tools(row: pd.Series, pitch_pdf: str, tools: list[dict], llm: 
                 '"relation": "complement|integration|substitute|adjacent", "rationale": "one sentence"}]}'
             )
             data = LLMClient.parse_json(llm.complete(prompt, max_tokens=900))
-            if data and "matches" in data:
-                data.setdefault("aligned", bool(data["matches"]))
-                data["method"] = "llm"
-                data["shortlist_size"] = len(shortlist)
-                data["keywords"] = terms
-                data["challenge_match"] = _challenge_match(startup_text)
-                return data
+            if isinstance(data, dict) and isinstance(data.get("matches"), list):
+                allowed = {t["product"].casefold(): t for t in shortlist}
+                clean, seen = [], set()
+                for match in data["matches"]:
+                    if not isinstance(match, dict):
+                        continue
+                    tool = allowed.get(str(match.get("tool", "")).casefold())
+                    if not tool or tool["product"] in seen or match.get("relation") not in ("complement", "integration", "substitute", "adjacent"):
+                        continue
+                    try:
+                        confidence = float(match.get("confidence", 0))
+                        if not math.isfinite(confidence):
+                            continue
+                        confidence = max(0, min(100, confidence))
+                    except (TypeError, ValueError):
+                        continue
+                    clean.append({"tool": tool["product"], "division": tool["division"],
+                                  "confidence": confidence, "relation": match["relation"],
+                                  "rationale": str(match.get("rationale", ""))[:500]})
+                    seen.add(tool["product"])
+                clean.sort(key=lambda m: m["confidence"], reverse=True)
+                return {"aligned": bool(clean) and clean[0]["confidence"] >= FIT_ALIGN_THRESHOLD,
+                        "matches": clean[:3], "method": "llm", "shortlist_size": len(shortlist),
+                        "keywords": terms, "challenge_match": _challenge_match(startup_text)}
 
     # ---- offline keyword fallback ----
     skw = _keywords(startup_text)

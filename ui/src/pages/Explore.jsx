@@ -1,43 +1,27 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { IxCategoryFilter, IxContentHeader, IxKpi, IxPane, IxToggleButton } from "@siemens/ix-react";
-import { iconScale, iconTableRows } from "@siemens/ix-icons/icons";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { IxButton, IxCategoryFilter, IxSelect, IxSelectItem, IxContentHeader, IxKpi, IxPane, IxToggleButton } from "@siemens/ix-react";
+import { iconTableRows } from "@siemens/ix-icons/icons";
 import { api } from "../api.js";
 import { useApp } from "../state.jsx";
 import ErrorBox from "../components/ErrorBox.jsx";
 import { PillarPill } from "../components/widgets.jsx";
-import WeightSliders, { useWeighting } from "../components/WeightSliders.jsx";
-import { DEFAULT_WEIGHTS, reweight } from "../scoring/index.js";
-import { whatIfRouting } from "../scoring/routing.js";
 import "./Explore.css";
+import { departmentScore } from "../scoring/department.js";
 
 // MIG-12: the one category this filter row ever offered is the pillar, so it maps onto
 // IxCategoryFilter's single-category-hash shape (components.md) with one entry. Free text still
 // goes in as a token — IxCategoryFilter's own input, not a second control next to it.
 const FILTER_CATEGORIES = { pillar: { label: "Pillar", options: ["Connect", "Collaborate", "Empower", "Pass"] } };
 
-/* Column registry — every explorer column in one place.
- *
- * `render(row, weighted)` — `weighted` is the row's re-scored figures when the reviewer has a
- * portfolio weighting applied, and undefined otherwise. Only two columns care; the rest ignore
- * the second argument. The engine's stored value stays on screen next to the re-weighted one
- * rather than being replaced by it: they are not the same claim, and only one of them is what
- * the database holds. */
+/* Stored evaluation columns. */
 const COLUMNS = {
   final_score: {
-    label: "Fit Score",
-    render: (r, w) => (
-      <span>
-        <span className="num">{Number((w ? w.score : r.final_score) || 0).toFixed(0)}</span>
-        {w && (
-          <span className="muted" style={{ fontSize: 11, marginLeft: 5 }}>
-            (engine {Number(r.final_score || 0).toFixed(0)})
-          </span>
-        )}
-      </span>
-    ),
+    label: "Overall score",
+    render: (r) => <span className="num">{typeof r.final_score === "number" ? r.final_score.toFixed(0) : "—"}</span>,
   },
-  siemens_fit: { label: "Siemens Fit", render: (r) => <span className="num">{r.siemens_fit !== "" ? Number(r.siemens_fit).toFixed(0) : "—"}</span> },
+  ...Object.fromEntries([['di_fit', 'DI', 'di'], ['si_fit', 'SI', 'si'], ['smo_fit', 'SMO', 'mobility']].map(([key, label, id]) => [key, {label, render: (r) => <Link onClick={(e) => e.stopPropagation()} to={`/startup/${r.id}?tab=Scoring+%26+Fit&department=${id}`}>{typeof r[key] === "number" ? r[key].toFixed(0) : "Not assessed"}</Link>}])),
+  siemens_fit: { label: "Siemens fit", render: (r) => <span className="num">{typeof r.siemens_fit === "number" ? r.siemens_fit.toFixed(0) : "—"}</span> },
   summary: { label: "Short Description", render: (r) => <span className="desc-clip" title={r.summary}>{r.summary || "—"}</span> },
   hq: { label: "Location", render: (r) => r.hq || "—" },
   founded_year: { label: "Founded", render: (r) => r.founded_year || "—" },
@@ -53,29 +37,45 @@ const COLUMNS = {
   trend: { label: "Market Signal", render: (r) => r.trend || "—" },
   pillar: {
     label: "Route",
-    render: (r, w) => (
+    render: (r) => (
       <span>
         <PillarPill pillar={r.pillar} />{" "}
-        {w?.moved && (
-          <>
-            <span className="muted">→</span>{" "}
-            <PillarPill pillar={w.pillar} ghost />{" "}
-          </>
-        )}
         {(r.secondary || []).map((s) => <PillarPill key={s} pillar={s} ghost>+{s}</PillarPill>)}
       </span>
     ),
   },
-  sfs: { label: "SFS", render: (r) => (r.sfs_relevant ? <span className="pill sfs">SFS</span> : "") },
+  /* Names the line, not just the flag. "SFS" on every row was the old behaviour and it was true of
+     every row — the useful question is which of leasing, vendor finance, project finance or
+     corporate lending applies, and rows evaluated before that was determined stay blank rather
+     than claiming a line nobody established. */
+  sfs: {
+    label: "SFS",
+    render: (r) => (r.sfs_relevant
+      ? <span className="pill sfs" title={r.sfs_line || "Siemens Financial Services relevant"}>
+          {r.sfs_line || "SFS"}
+        </span>
+      : ""),
+  },
   confidence: { label: "Confidence", render: (r) => (r.confidence !== "" ? `${Math.round((r.confidence || 0) * 100)}%` : "—") },
+  /* Portfolio stance — complementary, integrates, adjacent, or competes. Off by default: it is a
+     filtering tool for a specific question ("who overlaps our own products"), not a number a
+     scout reads on every row. */
+  stance: {
+    label: "Portfolio Stance",
+    render: (r) => (r.stance
+      ? <span className={r.competes ? "pill sfs" : "badge"}>{r.stance}</span>
+      : <span className="muted">—</span>),
+  },
   created_at: { label: "Evaluated", render: (r) => <span className="muted">{String(r.created_at).slice(0, 10)}</span> },
 };
-const DEFAULT_COLS = ["final_score", "siemens_fit", "summary", "hq", "stage", "funding",
+const DEFAULT_COLS = ["final_score", "siemens_fit", "di_fit", "si_fit", "smo_fit", "summary", "hq", "stage", "funding",
   "evidence", "pillar", "sfs", "created_at"];
-const SORTABLE = new Set(["final_score", "siemens_fit", "founded_year", "created_at", "hq", "stage"]);
+const SORTABLE = new Set(["final_score", "siemens_fit", "di_fit", "si_fit", "smo_fit", "founded_year", "created_at", "hq", "stage"]);
 
 function ColumnDrawer({ open, onClose, cols, setCols, onSaveView }) {
   const [viewName, setViewName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const asideRef = useRef(null);
   // MIG-14: IxPane's own Escape handler (pane.js's registerEscapeListener) is attached to the
   // host element itself, and only fires while focus is inside it — kept here too, on window,
@@ -129,6 +129,18 @@ function ColumnDrawer({ open, onClose, cols, setCols, onSaveView }) {
           against the compiled source, same gap AssistantDock's own comment documents) — the
           "Customise columns" landmark name has to come from a light-DOM wrapper we slot in. */}
       <div ref={asideRef} tabIndex={-1} role="complementary" aria-label="Customise columns">
+        <form className="save-view-form" onSubmit={async (e) => {
+          e.preventDefault(); if (saving || !viewName.trim()) return;
+          setSaving(true); setSaveError("");
+          try { await onSaveView(viewName.trim(), cols); setViewName(""); }
+          catch (error) { setSaveError(error.message); }
+          finally { setSaving(false); }
+        }}>
+          <label htmlFor="saved-view-name">Save these columns and filters</label>
+          <input id="saved-view-name" className="input" placeholder="View name…" maxLength={80} value={viewName} onChange={(e) => setViewName(e.target.value)} />
+          <IxButton type="submit" disabled={saving || !viewName.trim()}>{saving ? "Saving…" : "Save view"}</IxButton>
+          {saveError && <p role="alert">{saveError}</p>}
+        </form>
         <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>Reorder, remove, or add columns.</p>
         {cols.map((k, i) => (
           <div key={k} className="drow">
@@ -152,14 +164,7 @@ function ColumnDrawer({ open, onClose, cols, setCols, onSaveView }) {
         <div style={{ display: "flex", gap: 6, marginTop: 14 }}>
           <button className="btn secondary" onClick={() => setCols(DEFAULT_COLS)}>Restore defaults</button>
         </div>
-        <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
-          <input className="input" placeholder="View name…" value={viewName}
-            onChange={(e) => setViewName(e.target.value)} />
-          <button className="btn" disabled={!viewName.trim()}
-            onClick={() => { onSaveView(viewName.trim(), cols); setViewName(""); }}>
-            Save view
-          </button>
-        </div>
+
       </div>
     </IxPane>
   );
@@ -171,12 +176,12 @@ export default function Explore() {
   const { watchlist, toggleWatch, savedViews, saveView: persistView } = useApp();
 
   const [runs, setRuns] = useState(null);
+  const [departments, setDepartments] = useState([]);
+  useEffect(() => { api.departments().then((d) => setDepartments(d.departments || [])).catch(() => {}); }, []);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState(new Set());
   const [drawer, setDrawer] = useState(false);
   const [cols, setCols] = useState(DEFAULT_COLS);
-  const [weightingOn, setWeightingOn] = useState(false);
-  const { active: weights, modified, reset: resetWeights } = useWeighting();
   const drawerTriggerRef = useRef(null);
   const drawerWasOpen = useRef(false);
   // Whatever path closed the drawer — Escape, backdrop click, or "Save view" — focus should land
@@ -227,12 +232,12 @@ export default function Explore() {
     if (appliedRef.current === viewName) return;
     if (!activeView) return;                 // views may still be loading from the server
     appliedRef.current = viewName;
-    setCols(activeView.columns?.length ? activeView.columns : DEFAULT_COLS);
+    setCols(activeView.columns?.length ? [...new Set(activeView.columns.flatMap((k) => k === "department_fit" ? ["di_fit", "si_fit", "smo_fit"] : [k]))].filter((k) => COLUMNS[k]) : DEFAULT_COLS);
     const f = activeView.filters || {};
     setParams((prev) => {
       const next = new URLSearchParams(prev);
       next.set("view", viewName);
-      for (const key of ["q", "pillar", "sort"]) {
+      for (const key of ["q", "pillar", "sort", "dir", "density"]) {
         if (f[key]) next.set(key, f[key]); else next.delete(key);
       }
       return next;
@@ -253,38 +258,6 @@ export default function Explore() {
     api.myRuns().then((d) => setRuns(d.runs)).catch((e) => setError(e.message));
   }, []);
 
-  /* Portfolio re-weighting.
-   *
-   * The what-if on a profile answers "would THIS company re-route". The question a scout
-   * actually has is "under my business unit's priorities, who should we be talking to" —
-   * which is a property of the whole table, not one row. Every row carries the eight numbers
-   * needed to re-score it (store.list_runs), so this is arithmetic in the browser, not a
-   * round trip per company.
-   *
-   * The engine's score is never overwritten: whatIf lives beside it, and the columns keep
-   * showing the stored value with the re-weighted one next to it. */
-  const weighted = useMemo(() => {
-    if (!runs || !weightingOn || !modified) return null;
-    const out = new Map();
-    for (const r of runs) {
-      if (!r.dimensions || !Object.keys(r.dimensions).length) continue;
-      const scoreLike = { dimensions: r.dimensions, data_completeness: r.data_completeness };
-      const re = reweight(scoreLike, weights);
-      const rt = whatIfRouting(scoreLike, { aligned: r.fit_aligned }, weights);
-      if (!re || !rt) continue;
-      const base = whatIfRouting(scoreLike, { aligned: r.fit_aligned }, DEFAULT_WEIGHTS);
-      out.set(r.id, {
-        score: re.finalScore,
-        pillar: rt.pillar,
-        // Compared against the RE-DERIVED baseline, not the stored pillar: a human override or
-        // an older engine would otherwise be reported as an effect of the reviewer's weighting.
-        from: base ? base.pillar : r.pillar,
-        moved: Boolean(base && base.pillar !== rt.pillar),
-      });
-    }
-    return out;
-  }, [runs, weightingOn, modified, weights]);
-
   const rows = useMemo(() => {
     if (!runs) return [];
     // one row per COMPANY (latest run) — history stays in the DB, reachable via profile
@@ -292,37 +265,25 @@ export default function Explore() {
     const seen = new Set();
     for (const r of runs) {                      // runs arrive newest-first
       const k = r.company.toLowerCase();
-      if (!seen.has(k)) { seen.add(k); latest.push(r); }
+      if (!seen.has(k)) { seen.add(k); latest.push({...r, di_fit:departmentScore(r, departments.find(d => d.id === "di")), si_fit:departmentScore(r, departments.find(d => d.id === "si")), smo_fit:departmentScore(r, departments.find(d => d.id === "mobility"))}); }
     }
     const f = q.trim().toLowerCase();
     const out = latest.filter((r) =>
       (!f || r.company.toLowerCase().includes(f) || (r.summary || "").toLowerCase().includes(f) ||
         (r.hq || "").toLowerCase().includes(f)) &&
-      // Filter on what the reviewer can see: with a weighting applied, the pillar chips must
-      // select the re-weighted pillar or the two controls contradict each other on screen.
-      (!pillar || (weighted?.get(r.id)?.pillar ?? r.pillar) === pillar));
+      (!pillar || r.pillar === pillar));
     out.sort((a, b) => {
-      if (sortKey === "final_score" && weighted) {
-        const va = weighted.get(a.id)?.score ?? a.final_score ?? 0;
-        const vb = weighted.get(b.id)?.score ?? b.final_score ?? 0;
-        return (va - vb) * sortDir;
-      }
       const va = a[sortKey] ?? "", vb = b[sortKey] ?? "";
       return (va > vb ? 1 : va < vb ? -1 : 0) * sortDir;
     });
     return out;
-  }, [runs, q, pillar, sortKey, sortDir, weighted]);
-
-  const moved = useMemo(
-    () => (weighted ? rows.filter((r) => weighted.get(r.id)?.moved) : []),
-    [rows, weighted],
-  );
+  }, [runs, q, pillar, sortKey, sortDir, departments]);
 
   const stats = useMemo(() => {
     if (!runs?.length) return null;
     return {
       total: runs.length,
-      avg: (runs.reduce((s, r) => s + (r.final_score || 0), 0) / runs.length).toFixed(0),
+      avg: (runs.some((r) => typeof r.final_score === "number") ? (runs.reduce((s, r) => s + (r.final_score || 0), 0) / runs.filter((r) => typeof r.final_score === "number").length).toFixed(0) : "—"),
       aligned: runs.filter((r) => r.pillar !== "Pass").length,
       sfs: runs.filter((r) => r.sfs_relevant).length,
     };
@@ -342,7 +303,7 @@ export default function Explore() {
       [r.company, ...cols.map((k) => {
         const v = k === "pillar" ? [r.pillar, ...(r.secondary || [])].join("+")
           : k === "evidence" ? `${r.verified_facts}/${r.evidence_count}`
-          : k === "sfs" ? (r.sfs_relevant ? "yes" : "")
+          : k === "sfs" ? (r.sfs_relevant ? (r.sfs_line || "yes") : "")
           : r[k] ?? "";
         return `"${String(v).replace(/"/g, '""')}"`;
       })].join(","));
@@ -354,22 +315,18 @@ export default function Explore() {
     URL.revokeObjectURL(a.href);
   };
 
-  const saveView = (name, columns) => {
-    setDrawer(false);
-    persistView(name, columns, { q, pillar, sort: sortKey })
-      // Land on the view just saved, so "Save view" visibly produces something rather than
-      // just closing the drawer.
-      .then(() => { appliedRef.current = name; setParam("view", name); })
-      .catch((e) => setError(e.message));
+  const saveView = async (name, columns) => {
+    await persistView(name, columns, { q, pillar, sort: sortKey, dir: sortDir === 1 ? "asc" : "desc", density: dense ? "dense" : "comfortable" });
+    appliedRef.current = name; setParam("view", name); setDrawer(false);
   };
 
   return (
     <div>
-      <div className="crumb">Databases &gt; Companies</div>
+      <div className="crumb">Workspace &gt; Database</div>
       {/* MIG-13: IxContentHeader replaces the hand-rolled page head, matching Profile's own use
           (MIG-18). headerSubtitle is plain text (components.md), so it carries the result count;
           the saved-view chip — not a title/subtitle concept — goes in the default slot instead. */}
-      <IxContentHeader headerTitle="Companies Covered" headerSubtitle={`${rows.length} results`}>
+      <IxContentHeader headerTitle="Database" headerSubtitle={`${rows.length} results`}>
         {/* Without this a view whose columns happen to match the defaults opens invisibly,
             which is indistinguishable from it not opening at all. */}
         {activeView && (
@@ -415,41 +372,10 @@ export default function Explore() {
           onPressedChange={(e) => setParam("density", e.detail ? "" : "comfortable")}>
           {dense ? "Compact" : "Comfortable"}
         </IxToggleButton>
-        <IxToggleButton variant="secondary" icon={iconScale} pressed={weightingOn}
-          aria-expanded={weightingOn}
-          aria-label={`Weighting: ${weightingOn && modified ? "mine" : "engine"}`}
-          onPressedChange={(e) => setWeightingOn(e.detail)}>
-          Weighting: {weightingOn && modified ? "mine" : "engine"}
-        </IxToggleButton>
         <span className="spacer" />
         {selected.size > 0 && <span className="muted" style={{ fontSize: 12 }}>{selected.size} selected</span>}
         <button className="tool-btn" onClick={exportCsv}>⤓ Export</button>
       </div>
-
-      {weightingOn && (
-        <div className="panel" style={{ marginBottom: 10 }}>
-          <h3>Score this table under your own weighting</h3>
-          <p className="muted" style={{ marginTop: 0, fontSize: 12 }}>
-            Re-scores every row in your browser only. The stored engine score is what the
-            database holds and what every export and every other reviewer sees — it is shown
-            next to the re-weighted one, never replaced by it.
-          </p>
-          <WeightSliders idPrefix="explore-w" />
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
-            <span role="status" aria-live="polite" style={{ fontSize: 12.5 }}>
-              {!modified
-                ? "Engine weighting — move a slider to see what changes."
-                : moved.length === 0
-                  ? `No companies change pillar under this weighting (${rows.length} shown).`
-                  : `${moved.length} of ${rows.length} companies change pillar under this weighting.`}
-            </span>
-            <button type="button" className="btn secondary" disabled={!modified}
-              onClick={resetWeights}>
-              Reset to engine weights
-            </button>
-          </div>
-        </div>
-      )}
 
       <div className="filter-row">
         <IxCategoryFilter
@@ -531,7 +457,7 @@ export default function Explore() {
                       {r.parent_group && <span className="badge">Part of {r.parent_group}</span>}
                     </div>
                   </td>
-                  {cols.map((k) => <td key={k}>{COLUMNS[k].render(r, weighted?.get(r.id))}</td>)}
+                  {cols.map((k) => <td key={k}>{COLUMNS[k].render(r)}</td>)}
                   <td onClick={(e) => e.stopPropagation()} style={{ whiteSpace: "nowrap" }}>
                     <button className="kebab" title="Re-evaluate with fresh data"
                       aria-label={`Re-evaluate ${r.company}`}

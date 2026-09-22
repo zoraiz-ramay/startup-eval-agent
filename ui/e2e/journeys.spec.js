@@ -101,18 +101,21 @@ test.describe("explore", () => {
 });
 
 test.describe("profile", () => {
-  test("PROF-04: the section rail reaches every part of the run on one page", async ({ page }) => {
+  test("PROF-04: the rail switches view without losing the run", async ({ page }) => {
+    // Was a tab bar. The rail is now the page's only navigation, so this asserts the same
+    // journey through the control that replaced it: pick a group, that group's content is what
+    // renders, and the run underneath survives the switch.
     await stubEvaluation(page);
     await page.goto("/startup/1");
 
-    // The tab bar is gone — the report is one scrolling page. What this row protects is
-    // unchanged: every part of a run is reachable, and getting to one does not cost you the
-    // others. The evidence table is the furthest thing down the page, so it is the test case.
-    const rail = page.getByRole("navigation", { name: /profile sections/i });
+    const rail = page.getByRole("navigation", { name: "Profile navigation" });
     await expect(rail).toBeVisible();
-    await rail.getByRole("button", { name: "Evidence" }).click();
-    await expect(page.locator("#sub-facts")).toBeInViewport();
-    // Still the same run, and the header never went anywhere.
+    await rail.getByRole("button", { name: /^evidence$/i }).click();
+    await expect(rail.getByRole("button", { name: /^evidence$/i }))
+      .toHaveAttribute("aria-expanded", "true");
+    // exact: the view's region and the "All evidence" section inside it both carry a name
+    // containing "Evidence", and role-name matching is substring by default.
+    await expect(page.getByRole("region", { name: "Evidence", exact: true })).toBeVisible();
     await expect(page.getByText(/Phena/i).first()).toBeVisible();
   });
 
@@ -137,7 +140,7 @@ test.describe("profile", () => {
   test("PROF-14: a what-if weighting moves only the what-if figure, never the stored score", async ({ page }) => {
     await stubEvaluation(page);
     await page.goto("/startup/1");
-    // No tab to open: the scoring panel is already on the page, further down it.
+    await page.getByRole("button", { name: /^scoring & fit$/i }).click();
     await page.getByRole("button", { name: /what-if weights/i }).click();
 
     // The profile header's score — the canonical one, rendered straight from the stored run.
@@ -161,7 +164,7 @@ test.describe("profile", () => {
   test("PROF-15: a weighting can demote the pillar without touching the stored one", async ({ page }) => {
     await stubRoutableRun(page);
     await page.goto("/startup/2");
-    // No tab to open: the scoring panel is already on the page, further down it.
+    await page.getByRole("button", { name: /^scoring & fit$/i }).click();
     await page.getByRole("button", { name: /what-if weights/i }).click();
 
     // MIG-01 moved the header pillar off a `.pill`-classed span onto `IxPill` — the label is
@@ -326,9 +329,10 @@ test.describe("layout", () => {
     await stubEvaluation(page);
     await page.goto("/startup/1");
     await stabilise(page);
-    await expect(page.getByRole("tablist")).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "Profile navigation" })).toBeVisible();
     await expect(page).toHaveScreenshot(`profile-${testInfo.project.name}.png`, { fullPage: false });
   });
+
 
   test("X-05: no horizontal body scroll at any width", async ({ page }) => {
     await stubRuns(page);
@@ -430,5 +434,48 @@ test.describe("layout", () => {
     await stabilise(page);
     await expect(page.getByRole("heading", { name: "Admin", exact: true })).toBeVisible();
     await expect(page).toHaveScreenshot(`admin-${testInfo.project.name}.png`, { fullPage: false });
+  });
+
+  test("X-05: the section rail does not widen the profile's content", async ({ page }) => {
+    // The profile has a fixed-width rail beside its content. A fixed track next to a fluid one is
+    // the classic way to introduce horizontal scrolling: the fluid track refuses to shrink below
+    // its content unless explicitly allowed to (hence min-width: 0 on .profile-body-main).
+    //
+    // Scoped to the profile body rather than the document because the app's fixed top bar already
+    // overflows at 390px on this route — a pre-existing bug in chrome this change does not touch,
+    // and asserting on the whole document here would report it as a regression in the rail.
+    await stubIdentity(page);
+    await stubEvaluation(page);
+    await page.goto("/startup/1");
+    // Wait on the locator before measuring. `page.evaluate` runs once and does not retry, so
+    // without this the test reads the DOM before React has rendered whenever the suite is under
+    // parallel load — passing alone and failing in a full run.
+    await expect(page.locator(".profile-body")).toBeVisible();
+    await stabilise(page);
+    const m = await page.evaluate(() => {
+      const body = document.querySelector(".profile-body");
+      if (!body) return { ok: false, reason: "no .profile-body on the page" };
+      const limit = body.getBoundingClientRect().right + 1;
+      const wide = [...body.querySelectorAll("*")]
+        .filter((el) => el.getBoundingClientRect().right > limit)
+        .map((el) => `${el.tagName.toLowerCase()}.${(el.className || "").toString().split(" ")[0]}`);
+      return { ok: true, wide: [...new Set(wide)].slice(0, 5) };
+    });
+    expect(m.ok, m.reason).toBe(true);
+    expect(m.wide, `Profile content spills past its column: ${m.wide?.join(", ")}`).toEqual([]);
+  });
+
+  test("X-05: the rail stays reachable on a narrow window", async ({ page }) => {
+    // It used to be `display: none` below 1000px, which was safe only while a tab bar carried
+    // navigation above it. With the tabs gone, hiding the rail would leave a phone with no way to
+    // reach Scoring & Fit, Market & Risk or Evidence at all.
+    await stubIdentity(page);
+    await stubEvaluation(page);
+    await page.setViewportSize({ width: 390, height: 800 });
+    await page.goto("/startup/1");
+    const rail = page.getByRole("navigation", { name: "Profile navigation" });
+    await expect(rail).toBeVisible();
+    await rail.getByRole("button", { name: /^market & risk$/i }).click();
+    await expect(page.getByRole("region", { name: "Market & Risk", exact: true })).toBeVisible();
   });
 });

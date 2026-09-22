@@ -15,17 +15,35 @@ import hashlib
 # the SQLite-backed store at startup via install_cache().
 _cache_get = None
 _cache_put = None
+# Optional: (kind, key) -> (payload, created_at). When the backend supplies it, a cached result
+# carries the timestamp of the search that produced it, so evidence replayed on a re-run is dated
+# honestly instead of inheriting the re-run's own clock.
+_cache_entry = None
 
 # Set False for a run that must hit the network — "Re-evaluate" has to re-search, otherwise it
 # would just replay week-old results. A ContextVar rather than a parameter so the flag follows
 # the request through _ddg_many's worker threads without touching every signature in between.
+_cache_private: contextvars.ContextVar = contextvars.ContextVar("web_cache_private", default=False)
 _cache_enabled: contextvars.ContextVar = contextvars.ContextVar("web_cache_enabled", default=True)
 
 
-def install_cache(getter, putter) -> None:
-    """Wire up the cache backend: ``getter(kind, key)`` and ``putter(kind, key, payload)``."""
-    global _cache_get, _cache_put
-    _cache_get, _cache_put = getter, putter
+def install_cache(getter, putter, entry_getter=None) -> None:
+    """Wire up the cache backend: ``getter(kind, key)`` and ``putter(kind, key, payload)``.
+
+    ``entry_getter(kind, key) -> (payload, created_at) | None`` is optional. Supplying it is what
+    makes evidence age truthful; without it everything behaves exactly as before.
+    """
+    global _cache_get, _cache_put, _cache_entry
+    _cache_get, _cache_put, _cache_entry = getter, putter, entry_getter
+
+
+def set_cache_private(private: bool):
+    """Disable shared cache reads AND writes for licensed, user-specific research."""
+    return _cache_private.set(private)
+
+
+def reset_cache_private(token):
+    _cache_private.reset(token)
 
 
 def set_cache_enabled(enabled: bool):
@@ -41,8 +59,22 @@ def _cache_key(*parts) -> str:
     return hashlib.sha256("\x00".join(str(p) for p in parts).encode("utf-8")).hexdigest()
 
 
-def _cached(kind: str, key: str):
-    if _cache_get is None or not _cache_enabled.get():
+def _cached(kind: str, key: str, meta: dict | None = None):
+    """Cached payload, or None. ``meta`` receives ``cached_at`` when the backend can supply it."""
+    if _cache_private.get() or not _cache_enabled.get():
+        return None
+    if _cache_entry is not None:
+        try:
+            entry = _cache_entry(kind, key)
+        except Exception:
+            return None
+        if entry is None:
+            return None
+        payload, created_at = entry
+        if isinstance(meta, dict) and created_at:
+            meta["cached_at"] = created_at
+        return payload
+    if _cache_get is None:
         return None
     try:
         return _cache_get(kind, key)
@@ -52,7 +84,7 @@ def _cached(kind: str, key: str):
 
 def _store(kind: str, key: str, payload) -> None:
     # Written even when reads are disabled, so a forced refresh repopulates the cache.
-    if _cache_put is None:
+    if _cache_private.get() or _cache_put is None:
         return
     try:
         _cache_put(kind, key, payload)
@@ -61,7 +93,8 @@ def _store(kind: str, key: str, payload) -> None:
 
 
 def ddg_search(query: str, max_results: int = 5,
-               attempts: int = 3, base_delay: float = 0.6) -> list[dict]:
+               attempts: int = 3, base_delay: float = 0.6,
+               meta: dict | None = None) -> list[dict]:
     """Single DuckDuckGo text search with light retry + exponential backoff.
 
     DuckDuckGo rate-limits bursts of free queries and then recovers within a second or
@@ -75,7 +108,7 @@ def ddg_search(query: str, max_results: int = 5,
     import time
     import random
     key = _cache_key("ddg", query, max_results)
-    hit = _cached("ddg", key)
+    hit = _cached("ddg", key, meta)
     if hit is not None:
         return hit
     try:
@@ -128,6 +161,11 @@ def _ddg_many(queries: dict, max_results: int = 4, max_workers: int = 10,
     still in flight at the deadline (silently dropped) as distinct from those that genuinely
     came back with no hits.
 
+    ``stats`` also carries ``cached`` (how many keys were replayed rather than searched) and
+    ``cached_at`` (``{key: iso8601}`` for those that were). A run that replays week-old results is
+    not the same evidence as a run that searched just now, and the Facts built from it should say
+    so rather than inheriting this run's clock.
+
     Uses daemon threads (capped by a semaphore) so abandoned in-flight searches can never block
     process shutdown or pile up across evaluations.
     """
@@ -135,23 +173,28 @@ def _ddg_many(queries: dict, max_results: int = 4, max_workers: int = 10,
     out: dict = {k: [] for k in (queries or {})}
     items = [(k, q) for k, q in (queries or {}).items() if str(q).strip()]
     if isinstance(stats, dict):
-        stats.update({"requested": len(items), "returned": 0, "empty": 0, "timed_out": len(items)})
+        stats.update({"requested": len(items), "returned": 0, "empty": 0,
+                      "timed_out": len(items), "cached": 0, "cached_at": {}})
     if not items:
         return out
     sem = threading.Semaphore(max(1, min(max_workers, len(items))))
     lock = threading.Lock()
     remaining = {"n": len(items)}
     finished: set = set()
+    cached_at: dict = {}
     done = threading.Event()
 
     def worker(key: str, query: str):
+        meta: dict = {}
         with sem:
             try:
-                hits = ddg_search(query, max_results)
+                hits = ddg_search(query, max_results, meta=meta)
             except Exception:
                 hits = []
         with lock:
             out[key] = hits
+            if meta.get("cached_at"):
+                cached_at[key] = meta["cached_at"]
             finished.add(key)
             remaining["n"] -= 1
             if remaining["n"] == 0:
@@ -169,9 +212,12 @@ def _ddg_many(queries: dict, max_results: int = 4, max_workers: int = 10,
         # Snapshot under the lock: workers may still be running past the deadline.
         with lock:
             settled = set(finished)
+            replayed = dict(cached_at)
         stats["returned"] = len(settled)
         stats["timed_out"] = len(items) - len(settled)
         stats["empty"] = sum(1 for k in settled if not out.get(k))
+        stats["cached"] = len(replayed)
+        stats["cached_at"] = replayed
     return out
 
 
@@ -184,9 +230,17 @@ def _ddg_many(queries: dict, max_results: int = 4, max_workers: int = 10,
 _UA = ("Mozilla/5.0 (compatible; StartupEvalBot/1.0; +https://siemens.com) "
        "AppleWebKit/537.36")
 _MAX_BYTES = 800_000            # cap the download so a huge page can't exhaust memory
+# The second group carries commercial posture: whether the offering can actually be bought, how it
+# deploys, whether it exposes an API, and what it is certified against. Those are the Xcelerator
+# Marketplace's own onboarding requirements, so they decide Connect eligibility — and a startup
+# publishes them on its own site far more reliably than the open web indexes them. These are fetched
+# concurrently alongside the rest and deduped by content fingerprint, so a site that 404s or
+# soft-redirects most of them costs almost nothing.
 _FETCH_PATHS = ("", "/en", "/about", "/about-us", "/company", "/partners",
                 "/partners-and-supporters", "/supporters", "/ecosystem",
-                "/customers", "/team")
+                "/customers", "/team",
+                "/pricing", "/security", "/trust", "/docs", "/developers",
+                "/api", "/integrations", "/product")
 _MAX_REDIRECTS = 2              # same-host hops allowed per fetch (see _same_site)
 _TAG_RE = None                 # compiled lazily in _strip_html
 _ATTR_RE = None                # ditto — alt/title text rescued before tags are dropped

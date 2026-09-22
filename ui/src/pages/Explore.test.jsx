@@ -20,6 +20,7 @@ import { findShadowRole, findShadowText } from "../test/shadow.js";
  */
 vi.mock("../api.js", () => ({
   api: {
+    departments: vi.fn(async () => ({departments:[]})),
     myRuns: vi.fn(async () => ({ runs: [] })),
     search: vi.fn(async () => ({ results: [] })),
     views: vi.fn(async () => ({ views: [] })),
@@ -170,11 +171,11 @@ describe("Explore saved views", () => {
   it("saving a view sends it to the server and opens it", async () => {
     const user = userEvent.setup();
     api.views.mockResolvedValueOnce({ views: [] });
-    renderWithNav();
+    const { container } = renderWithNav();
 
     await user.click(await screen.findByRole("button", { name: /customise columns/i }));
     await user.type(screen.getByPlaceholderText(/view name/i), "My view");
-    await user.click(screen.getByRole("button", { name: /^save view$/i }));
+    await user.click(await findShadowRole(container, "button", { name: /^save view$/i }));
 
     expect(api.saveView).toHaveBeenCalledWith("My view", expect.any(Array), expect.any(Object));
     expect(await screen.findByText(/View: My view/)).toBeInTheDocument();
@@ -199,57 +200,10 @@ describe("Explore saved views", () => {
  * against real recorded runs. It is that the table applies it without ever presenting the
  * result as the evaluation: the engine's stored score has to stay on screen beside it.
  */
-describe("Explore portfolio weighting", () => {
-  const ROW = {
-    id: 1, company: "Aeroview", pillar: "Pass", secondary: [], final_score: 40,
-    sfs_relevant: false, created_at: "2026-08-01T00:00:00+00:00", summary: "", hq: "Munich",
-    dimensions: { traction: 43.8, siemens_fit: 66.5, product: 85, market: 50, founder: 70, ecosystem: 100 },
-    data_completeness: 0.25, fit_aligned: true,
-  };
-
-  function render1(runs = [ROW]) {
-    api.myRuns.mockResolvedValueOnce({ runs });
-    api.views.mockResolvedValueOnce({ views: [] });
-    return render(
-      <MemoryRouter initialEntries={["/explore"]}>
-        <AppProvider><Explore /></AppProvider>
-      </MemoryRouter>,
-    );
-  }
-
-  it("leaves the grid on the engine's numbers until a weight is actually moved", async () => {
-    const user = userEvent.setup();
-    const { container } = render1();
-    await user.click(await findShadowRole(container, "button", { name: /weighting/i }));
-
-    expect(screen.getByText(/move a slider to see what changes/i)).toBeInTheDocument();
-    // No "(engine NN)" annotation yet: nothing has been re-weighted, so there is nothing to
-    // distinguish it from.
-    expect(screen.queryByText(/\(engine 40\)/)).toBeNull();
-  });
-
-  it("re-scores the table but keeps the engine's stored score on screen", async () => {
-    const user = userEvent.setup();
-    const { container } = render1();
-    await user.click(await findShadowRole(container, "button", { name: /weighting/i }));
-
-    const slider = await findShadowRole(container, "slider", { name: "Product" });
-    fireEvent.input(slider, { target: { value: "80" } });
-
-    // The re-weighted figure is shown WITH the stored one, never instead of it — this row's
-    // engine score is 40 and must remain visible and labelled as the engine's.
-    expect(await screen.findByText(/\(engine 40\)/)).toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent(/companies change pillar|No companies change pillar/);
-  });
-
-  it("resets back to the engine weighting", async () => {
-    const user = userEvent.setup();
-    const { container } = render1();
-    await user.click(await findShadowRole(container, "button", { name: /weighting/i }));
-    fireEvent.input(await findShadowRole(container, "slider", { name: "Product" }), { target: { value: "80" } });
-    await screen.findByText(/\(engine 40\)/);
-
-    await user.click(screen.getByRole("button", { name: /reset to engine weights/i }));
-    expect(screen.queryByText(/\(engine 40\)/)).toBeNull();
+describe("Explore canonical scores", () => {
+  it("does not offer what-if weighting", async () => {
+    renderExplore();
+    await screen.findByRole("button", { name: /customise columns/i });
+    expect(screen.queryByText(/Weighting:/i)).toBeNull();
   });
 });

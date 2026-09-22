@@ -59,6 +59,49 @@
       ]
     },
     {
+      "method": "decideRun",
+      "args": [
+        "id"
+      ]
+    },
+    {
+      "method": "assessRun",
+      "args": [
+        "id",
+        "department"
+      ]
+    },
+    {
+      "method": "startJobs",
+      "args": [
+        "body"
+      ]
+    },
+    {
+      "method": "job",
+      "args": [
+        "id"
+      ]
+    },
+    {
+      "method": "departments",
+      "args": []
+    },
+    {
+      "method": "tracxnStatus",
+      "args": []
+    },
+    {
+      "method": "tracxnConnect",
+      "args": [
+        "returnTo = \"workspace\""
+      ]
+    },
+    {
+      "method": "tracxnDisconnect",
+      "args": []
+    },
+    {
       "method": "solve",
       "args": [
         "problem"
@@ -139,15 +182,6 @@
       ]
     },
     {
-      "method": "override",
-      "args": [
-        "runId",
-        "newPillar",
-        "reason",
-        "evidenceNote = \"\""
-      ]
-    },
-    {
       "method": "audit",
       "args": [
         "runId"
@@ -197,8 +231,10 @@
     "--pillar-empower-bg",
     "--pillar-pass",
     "--pillar-pass-bg",
+    "--profile-sticky-h",
     "--radius",
     "--rail-w",
+    "--section-rail-w",
     "--sidenav-w",
     "--success",
     "--success-soft",
@@ -232,7 +268,7 @@
   "files": [
     {
       "path": "ui/src/App.jsx",
-      "lines": 375,
+      "lines": 307,
       "exports": [
         "App"
       ],
@@ -248,10 +284,6 @@
         "lens",
         "menu-account",
         "menu-brand",
-        "menu-secondary",
-        "search-hero",
-        "search-hero-field",
-        "search-hero-title",
         "signin",
         "stub-banner",
         "sub",
@@ -262,7 +294,7 @@
     },
     {
       "path": "ui/src/App.test.jsx",
-      "lines": 141,
+      "lines": 142,
       "exports": [],
       "css_classes": []
     },
@@ -311,33 +343,76 @@
       "css_classes": []
     },
     {
-      "path": "ui/src/components/WeightSliders.jsx",
-      "lines": 77,
+      "path": "ui/src/components/ProblemSolver.jsx",
+      "lines": 167,
       "exports": [
-        "WeightSliders",
-        "useWeighting"
-      ],
-      "css_classes": []
-    },
-    {
-      "path": "ui/src/components/WhatIfWeights.jsx",
-      "lines": 251,
-      "exports": [
-        "WhatIfWeights"
+        "ProblemSolver"
       ],
       "css_classes": [
         "badge",
-        "btn",
-        "k",
         "muted",
-        "secondary",
-        "spec",
-        "v"
+        "panel",
+        "problem-brief",
+        "problem-examples",
+        "problem-eyebrow",
+        "problem-layout",
+        "problem-progress",
+        "problem-results",
+        "problem-results-head",
+        "problem-solver",
+        "problem-source-status",
+        "problem-sources",
+        "problem-submit",
+        "solution-actions",
+        "solution-card",
+        "solution-grid",
+        "solution-heading",
+        "solution-reason"
+      ]
+    },
+    {
+      "path": "ui/src/components/ProblemSolver.test.jsx",
+      "lines": 47,
+      "exports": [],
+      "css_classes": []
+    },
+    {
+      "path": "ui/src/components/ProfileSectionNav.jsx",
+      "lines": 72,
+      "exports": [
+        "ProfileSectionNav"
+      ],
+      "css_classes": [
+        "section-rail",
+        "section-rail-caret",
+        "section-rail-group-head",
+        "section-rail-group-label",
+        "section-rail-groups",
+        "section-rail-label",
+        "section-rail-list",
+        "section-rail-node"
+      ]
+    },
+    {
+      "path": "ui/src/components/ProfileSectionNav.test.jsx",
+      "lines": 152,
+      "exports": [],
+      "css_classes": []
+    },
+    {
+      "path": "ui/src/components/TracxnConnection.jsx",
+      "lines": 29,
+      "exports": [
+        "TracxnConnection"
+      ],
+      "css_classes": [
+        "muted",
+        "tracxn-optional"
       ]
     },
     {
       "path": "ui/src/components/widgets.jsx",
-      "lines": 156,
+      "lines": 178,
       "exports": [
         "ExtLink",
         "Loading",
@@ -345,7 +420,8 @@
         "PillarPills",
         "Radar",
         "ScoreBar",
-        "Spec"
+        "Spec",
+        "toHref"
       ],
       "css_classes": [
         "bar-fill",
@@ -358,7 +434,7 @@
     },
     {
       "path": "ui/src/components/widgets.test.jsx",
-      "lines": 114,
+      "lines": 174,
       "exports": [],
       "css_classes": []
     },
@@ -370,7 +446,7 @@
     },
     {
       "path": "ui/src/pages/Admin.jsx",
-      "lines": 349,
+      "lines": 357,
       "exports": [
         "Admin"
       ],
@@ -392,7 +468,7 @@
     },
     {
       "path": "ui/src/pages/Admin.test.jsx",
-      "lines": 135,
+      "lines": 177,
       "exports": [],
       "css_classes": []
     },
@@ -432,7 +508,7 @@
     },
     {
       "path": "ui/src/pages/Explore.jsx",
-      "lines": 554,
+      "lines": 480,
       "exports": [
         "Explore"
       ],
@@ -455,8 +531,8 @@
         "muted",
         "mv",
         "num",
-        "panel",
         "pill",
+        "save-view-form",
         "secondary",
         "sfs",
         "skel",
@@ -470,21 +546,17 @@
     },
     {
       "path": "ui/src/pages/Explore.test.jsx",
-      "lines": 256,
+      "lines": 210,
       "exports": [],
       "css_classes": []
     },
     {
       "path": "ui/src/pages/Home.jsx",
-      "lines": 231,
+      "lines": 159,
       "exports": [
         "Home"
       ],
       "css_classes": [
-        "badge",
-        "composer-card",
-        "composer-input",
-        "composer-row",
         "crumb",
         "grid2",
         "muted",
@@ -493,6 +565,7 @@
         "page-meta",
         "page-title",
         "panel",
+        "problem-workspace-history",
         "run-cell",
         "run-desc",
         "run-name",
@@ -502,7 +575,7 @@
     },
     {
       "path": "ui/src/pages/Profile.jsx",
-      "lines": 795,
+      "lines": 261,
       "exports": [
         "Profile"
       ],
@@ -510,50 +583,35 @@
         "badge",
         "big",
         "btn",
-        "caret",
         "chip",
-        "dense",
-        "dtable",
         "empty",
         "grid2",
-        "info-box",
-        "input",
-        "k",
-        "list-main",
-        "list-row",
-        "loc",
-        "metric",
-        "metric-row",
         "muted",
-        "num",
         "panel",
-        "ph-header-slot",
+        "ph-actions",
+        "ph-desc",
+        "ph-logo",
         "ph-meta",
-        "ph-summary",
+        "ph-row",
+        "ph-title",
         "pill",
-        "profile-body",
         "profile-head",
-        "profile-sections",
-        "reason",
-        "risk",
-        "sec-head",
-        "sec-nav",
-        "sec-title",
         "secondary",
         "sfs",
         "skel",
-        "spec",
         "spinner",
-        "status-dot",
-        "sub",
-        "tool-btn",
-        "unverified",
-        "v"
+        "tool-btn"
       ]
     },
     {
       "path": "ui/src/pages/Profile.test.jsx",
-      "lines": 385,
+      "lines": 406,
+      "exports": [],
+      "css_classes": []
+    },
+    {
+      "path": "ui/src/pages/ProgrammeCriteria.test.jsx",
+      "lines": 181,
       "exports": [],
       "css_classes": []
     },
@@ -570,6 +628,29 @@
         "page-meta",
         "page-title",
         "panel"
+      ]
+    },
+    {
+      "path": "ui/src/pages/SearchHome.jsx",
+      "lines": 77,
+      "exports": [
+        "SearchHome",
+        "parseStartups"
+      ],
+      "css_classes": [
+        "batch-search",
+        "batch-toggle",
+        "lens",
+        "muted",
+        "panel",
+        "problem-submit",
+        "research-item",
+        "research-list",
+        "research-session",
+        "search-hero",
+        "search-hero-field",
+        "search-hero-title",
+        "startup-home"
       ]
     },
     {
@@ -609,8 +690,166 @@
       "css_classes": []
     },
     {
+      "path": "ui/src/pages/profile/EvidenceTab.jsx",
+      "lines": 69,
+      "exports": [],
+      "css_classes": [
+        "dense",
+        "dtable",
+        "flush",
+        "input",
+        "muted",
+        "panel",
+        "status-dot"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/MarketTab.jsx",
+      "lines": 167,
+      "exports": [
+        "MarketTab"
+      ],
+      "css_classes": [
+        "badge",
+        "big",
+        "empty",
+        "k",
+        "list-main",
+        "list-row",
+        "metric",
+        "metric-row",
+        "muted",
+        "reason",
+        "risk",
+        "v"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/OverviewTab.jsx",
+      "lines": 223,
+      "exports": [
+        "OverviewTab"
+      ],
+      "css_classes": [
+        "chip",
+        "k",
+        "list-main",
+        "list-row",
+        "metric",
+        "metric-row",
+        "muted",
+        "reason",
+        "s",
+        "unverified",
+        "v"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/ProfileLayout.jsx",
+      "lines": 62,
+      "exports": [
+        "ProfileLayout"
+      ],
+      "css_classes": [
+        "profile-body",
+        "profile-body-main"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/Section.jsx",
+      "lines": 22,
+      "exports": [
+        "Section"
+      ],
+      "css_classes": []
+    },
+    {
+      "path": "ui/src/pages/profile/scoring/BreakdownPanel.jsx",
+      "lines": 32,
+      "exports": [
+        "BreakdownPanel"
+      ],
+      "css_classes": [
+        "fit-card-grid",
+        "muted",
+        "score-card-grid",
+        "score-headline"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/scoring/FitRubric.jsx",
+      "lines": 78,
+      "exports": [
+        "FitRubric"
+      ],
+      "css_classes": [
+        "badge",
+        "department-needs",
+        "department-selector",
+        "department-summary",
+        "fit-card-grid",
+        "muted"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/scoring/ScoreTile.jsx",
+      "lines": 6,
+      "exports": [
+        "ScoreTile"
+      ],
+      "css_classes": [
+        "score-tile",
+        "score-tile-label",
+        "score-tile-value"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/scoring/ScoringTab.jsx",
+      "lines": 85,
+      "exports": [
+        "ScoringTab"
+      ],
+      "css_classes": [
+        "badge",
+        "decision-next-steps",
+        "muted",
+        "partnership-placeholder"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/scoring/SfsPanel.jsx",
+      "lines": 45,
+      "exports": [
+        "SfsPanel"
+      ],
+      "css_classes": [
+        "badge",
+        "k",
+        "muted",
+        "pill",
+        "sfs",
+        "spec",
+        "v"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/useScrollSpy.test.jsx",
+      "lines": 175,
+      "exports": [],
+      "css_classes": []
+    },
+    {
+      "path": "ui/src/research.jsx",
+      "lines": 49,
+      "exports": [
+        "ResearchProvider",
+        "useResearch"
+      ],
+      "css_classes": []
+    },
+    {
       "path": "ui/src/state.jsx",
-      "lines": 157,
+      "lines": 153,
       "exports": [
         "AppProvider",
         "AuthProvider",
@@ -622,9 +861,9 @@
   ],
   "totals": {
     "routes": 9,
-    "api_methods": 24,
-    "design_tokens": 54,
-    "jsx_files": 25,
-    "jsx_lines": 4646
+    "api_methods": 31,
+    "design_tokens": 56,
+    "jsx_files": 42,
+    "jsx_lines": 5412
   }
 }

@@ -13,6 +13,7 @@ import { within } from "@testing-library/react";
  */
 function collectRoots(root, acc = []) {
   acc.push(root);
+  if (root.shadowRoot) collectRoots(root.shadowRoot, acc);
   const all = typeof root.querySelectorAll === "function" ? root.querySelectorAll("*") : [];
   for (const el of all) {
     if (el.shadowRoot) collectRoots(el.shadowRoot, acc);

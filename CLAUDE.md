@@ -18,11 +18,20 @@ codebase enforces this in several places, and changes must not weaken them:
 - `core/data.py` — `web_profile_row` deliberately does **not** fill verifiable fields (funding,
   founded year, employees, HQ, customers) from model memory. It used to, and produced a funding
   round of "SAR 3.75 million" for makkook.ai that exists nowhere on the web.
-- The **one** sanctioned exception is `profile.py`'s `_recall_hq_offline`: headquarters, and only
-  after GlassDollar and both web passes come back empty. It was added deliberately when Location
-  became a headline tile. The value is stamped `hq_origin="llm"`, carries no source URL, files its
-  Fact under method `model_recall` (so provenance grades it `inferred`), and the UI labels it
-  **unverified** rather than web-sourced. Do not widen this to another field.
+- There are **two** sanctioned exceptions, both in `profile.py`, both last-resort passes that run
+  only after GlassDollar and every web pass have come back empty, both stamping `*_origin="llm"`,
+  carrying no source URL, and labelled **unverified** rather than web-sourced by the UI:
+  - `_recall_hq_offline` — headquarters, added when Location became a headline tile.
+  - `_recall_links_offline` — the LinkedIn and Crunchbase profile URLs, added because a company
+    outside GlassDollar routinely showed both rows blank. A URL is riskier than a place name: it
+    is a claim that a page *exists*, and a near-namesake's profile sends a reviewer to the wrong
+    company. So a recalled URL is not stored as written — it must parse as a real profile path on
+    the right host and its slug must pass the same `_identity_forms` gate `_extract_links` applies
+    to a searched result, and the canonical URL is rebuilt from that slug.
+
+  Do not widen this to a third field, and note what both have in common: they fill a field that is
+  *identifying* (where the company is, where its public profile lives), never one that is
+  *evaluative*. Nothing that feeds a score may come from model memory.
 - `core/score.py` — a self-asserted program membership scores at a discount to an independently
   corroborated one; a source URL alone is not evidence.
 
@@ -33,6 +42,7 @@ If a field cannot be evidenced, leave it empty and let the UI show "—".
 | Path | Role |
 |---|---|
 | `core/` | The engine. Pure Python, no web framework, no `api/` imports. |
+| `core/programs.py` | Siemens' published programme criteria + the SFS gate. Data and pure predicates; no I/O. |
 | `api/` | FastAPI wrapper + SQLite persistence (`api/store.py`, S3-backed). |
 | `ui/` | React 18 + Vite SPA (the product surface). |
 | `tests/` | pytest, backend + engine. |
@@ -75,6 +85,158 @@ The xlsx stays: it carries the pitch-form answers and decks the API does not exp
 only source when no key is set. **The key only resolves inside the Siemens network**, so nothing
 about the live API can be verified from a laptop or CI — `tests/test_glassdollar_first.py` drives
 the client contract with a fake and says so at the top.
+
+## Two gates decide a pillar, and they answer different questions
+
+`core/score.py` produces the six dimensions and three route scorecards; those say how **strong** a
+startup is. `core/programs.py` holds Siemens' **published** Connect / Collaborate / Empower
+criteria and says whether the programme would actually take it. A pillar has to clear both, and
+the criteria layer can only ever remove a route the scorecards admitted — which is what keeps the
+browser what-if (`ui/src/scoring/routing.js`) a sound answer to the question it asks. **Do not
+mirror the criteria client-side**: they read evidence, not weights, so no reviewer weighting can
+move them.
+
+Routing also reports `portfolio_stance` — complementary / integrates / adjacent / **competes** —
+as an outcome in its own right. A startup that substitutes a Siemens product used to be visible
+only as a 0.55 multiplier on `siemens_fit`, which usually pushed it under the alignment gate, so a
+scout read "Pass" and never learned the reason was a product Siemens already sells. That is the
+most strategically interesting thing an evaluation can find and it was being expressed as a
+slightly lower number.
+
+`assess_pillar` returns three states, and collapsing them to two throws away the useful half:
+
+- `blocked` — wrong programme, and no further evidence changes that. A product classified a
+  `substitute` of a Siemens tool cannot be listed beside it as a Marketplace partner offering.
+- `unproven` — nothing disqualifies it, but a requirement is unevidenced. `next_steps` names each.
+- `eligible` — every required criterion met. Outranks `unproven` in the primary-pillar sort
+  regardless of scorecard, so the headline never prefers a higher-scoring guess.
+
+Empower's unconditional append in `route.py` is still there and still the reason a scorecard-only
+run can never be `Pass`; the criteria gate is what makes `Pass` reachable again.
+
+Two things hang off the pillars beyond the criteria, and both are derived rather than researched —
+no extra search, no extra completion, so they cost nothing per run:
+
+- `core/empower.py` turns evidence the run already holds into what a scout can act on today: which
+  Xcelerator bundle to offer, the investment signals (stage, investors, headcount growth, top-tier
+  programme, corroborated customers, market momentum) each carrying the source URL of the fact
+  behind it, and templated approach angles. The angles are **templated, not generated** — a model
+  asked for outreach ideas writes fluent suggestions naming a product the company does not make.
+- `core/departments.py` ships an **empty** `DEPARTMENTS` registry. Collaborate is a venture-client
+  programme, so the real question is which department would buy, and only Siemens can supply that.
+  `assess_departments` reports `configured: False` and the UI says "not yet configured" — never an
+  empty list of departments, which would read as every department having declined. Same rule as
+  `employees_history_status` and the SFS `unassessed` state. Filling it in is data, not code.
+
+**SFS is a lender, not a grant.** `assess_sfs` requires evidenced financeability — an asset the
+startup sells or needs, contracted/recurring revenue, a project with an offtake, or Series A+
+backing — and then names the product line (vendor finance / equipment & technology finance /
+project finance / corporate lending). The rule that matters: **a startup's customers being
+capital-intensive is not a reason to recommend SFS.** The old one-line judgement inside the
+profile extraction prompt confused the two and returned true for all 18 stored runs, including two
+pure software companies. Its fourth state, `unassessed`, is load-bearing — a run whose commercial
+posture was never extracted knows nothing either way, and reporting that as "not relevant" is the
+same mistake `employees_history_status` exists to prevent.
+
+Everything in `core/profile.py` **transcribes** evidence; nothing there judges. Judgements live in
+`core/programs.py`, over the `commercial` sub-profile (deployment, APIs, certifications, pricing,
+hardware, revenue shape, funding stage, investors) that the profile stage evidences.
+
+## Calibrate anything a model scores, and watch for dimensions going flat
+
+Three scored quantities had independently collapsed to constants, and a green test suite could not
+see any of them, because each individual score was arithmetically correct — only the distribution
+across runs shows it. `scripts/dimension_variance.py` (advisory in `scripts/gates.sh`) is the
+check; read its output rather than skipping past it.
+
+Asked for a 0–100 confidence with no anchors, a model uses the top of the scale and nothing else:
+the fit prompt returned 85–100 for all 54 matches it ever made, and trend momentum returned 90–92
+for every niche. Both prompts now tie each band to an observable consequence and require the
+answer to cite what it counted. **A model-produced number without a rubric is not a measurement.**
+
+## The market landscape rides in the trend stage's own wave
+
+`core/trend.py` stage 1 has always asked the model for competitor and funding queries, and stage 3
+threw everything except the prose away. `_market_landscape` now extracts named competitors, funded
+peers, market size and active investors from the same results.
+
+Its five queries go into the **same** `_ddg_many` call as the trend queries, because `_ddg_many`
+caps concurrency at 10 — so ten queries are one round trip and the landscape adds no search time.
+The extraction runs concurrently with the momentum call, both under `copy_context()`.
+
+Both calls read the **same** evidence, and that is deliberate: they used to read different slices,
+which produced a page contradicting itself — "no CAGR figures are cited" as the stated basis for a
+momentum score, directly above a cited CAGR of 31.7%.
+
+Grounding is the same bar as everywhere else, and both halves matter: every entry needs a real
+`http` source, **and** its name has to appear in the evidence text. A model asked for competitors
+in a niche will list the ones it remembers rather than the ones in the results, and a fabricated
+competitor beside a link is indistinguishable from a real one. The startup is also filtered out of
+its own landscape in code — Celonis came back at the top of its own process-mining competitor list,
+because in results about a company's own niche that company genuinely is the most prominent name.
+
+`landscape` absent and `landscape` present-but-empty are different statements, and the UI renders
+them differently: "not researched on this run" versus "the search named no competitor".
+
+## A profile appears before its verdict
+
+`pipeline.evaluate` takes `on_partial(section, data)` alongside `on_step`, and
+`POST /api/evaluate/stream` delivers those over SSE. The returned result is unchanged and still
+complete — `tests/test_evaluate_stream.py` pins that a streamed run is byte-identical to a plain
+one, which is the property that matters. Two code paths producing two answers for one company
+would be far worse than a slow page.
+
+The five concurrent branches are collected with `as_completed`, not in a written order: they differ
+by tens of seconds, and a summary that finished in three seconds used to sit unread until the
+slowest branch returned.
+
+**The header profile is emitted twice, and that is the whole feature.** Measured on a real run, the
+deep-profile branch returned at 112s of 118s — a page waiting for it waits for the entire
+evaluation. So `_header_profile(row, {}, source)` goes out as soon as enrichment finishes and the
+researched version replaces it later. This is only safe because `backfill_profile` fills BLANK
+fields and never overwrites: the later version adds values, it never changes one on screen.
+
+Anything a streaming run has not produced yet must say so rather than render its empty state. A
+pillar pill with no pillar reads as a verdict of nothing; a Fit Score of 0 reads as a bad company.
+Both are the `employees_history_status` mistake one level up.
+
+`EventSource` is not usable here — it is GET-only and this must be a POST carrying the session
+cookie and CSRF header — so the client is `fetch` plus a stream reader, falling back to
+`api.evaluate` on any stream failure.
+
+## Measuring a scoring change instead of arguing about it
+
+`py -3 -m benchmarks.routing_eval` replays the **current** engine over every stored run and scores
+the result against human labels in `benchmarks/labels.json`. `benchmarks/replay.py` rebuilds the
+inputs from `result_json` and re-runs `score_startup` / `route` — no network, no model, no cost —
+so a change to the decision layer is measurable across the whole history in a second.
+
+What is deliberately *not* replayed: enrichment, extraction, fit and trend. Those are the model's
+reading of the web at the time, and re-running them would move the inputs under the experiment.
+
+**The labels are the gap, and only a reviewer can close it.** `--seed` adds an unlabelled row per
+company; the report leads with coverage and refuses to compute anything until a `pillar` is filled
+in, because a precision of 1.00 over three labels is not a result. Once ~30 are labelled, swap the
+advisory line in `scripts/gates.sh` for `--min-f1 <floor>` and make a routing regression fail.
+
+## Evidence age is about the evidence, not the run
+
+`Fact.retrieved_at` records when a search actually ran. For a result replayed from `web_cache` that
+is the *original* search's timestamp, not this run's — `install_cache`'s optional `entry_getter`
+is what carries it through, and `_ddg_many`'s `stats["cached_at"]` is what maps it back per query.
+A re-evaluation can be reasoning over week-old results and now says so.
+
+`freshness_days` is a live property and is **not serialised**. It used to be, as a stored constant
+zero: every Fact is built during the run that gathers it, so its age is always 0 at write time, and
+it then sat frozen in `result_json` while the run aged. Nothing read it, which is the only reason
+nobody noticed. Age belongs to whoever is reading, against their own clock — the Evidence tab
+computes it from `retrieved_at`.
+
+One more of the same family, and the most expensive: `siemens_fit` blended
+`0.3 × challenge_match` whenever the approved-challenge library was non-empty. With one unrelated
+approved challenge recorded, that taxed every startup ~30% of its tool fit and accounted for
+**all eight** `Pass` verdicts in the corpus. A demand-side match is now a bonus that can only
+raise fit. `tests/test_siemens_fit_scoring.py` pins it.
 
 ## Authentication
 
@@ -202,11 +364,64 @@ Rules that are mechanically enforced by `scripts/ix_lint.mjs`, not left to judge
 hex/rgb outside `tokens.css`; interactive elements need accessible names; every data view needs
 visible loading, empty and error states.
 
-Reference material for this migration lives in `docs/ix/`: `INDEX.md` (start here),
-`components.md` (every real @siemens/ix-react 5.1.1 component + props — the only source of truth
-for whether a component name exists), `tokens.md`, `icons.md`, `guidance.md` (distilled usage
-rules, cited to source, with a caveat that the public docs site trails the pinned package version),
-and `current-state-inventory.md` (what the pre-migration UI actually contains).
+## Frontend source-file rules
+
+- Target <= 300 lines per hand-written source file; 400 is the hard ceiling.
+- Split by coherent responsibility, never by line count. Do not manufacture wrapper components to
+  get under the limit — a 40-line component that only forwards props is worse than a long file.
+- `styles.css` and `tokens.css` are exempt: they are the app's single stylesheet and its token
+  source, and slicing them per-component would invent an architecture nothing else follows.
+- Prefer existing components, utilities and tokens. Do not add a dependency for something a
+  browser API does cleanly (the Overview's scroll-spy is ~140 lines of IntersectionObserver).
+- Keep configuration in one place. `ui/src/pages/profile/sections.js` is the only list of the
+  Overview's sections; the rail, the scroll-spy and the tests all read it.
+- Clean up observers, subscriptions and listeners. Every one of them has a disconnect test.
+- Run `bash scripts/gates.sh` before finishing. Do not reformat unrelated code.
+
+## The profile reads top to bottom, and that is load-bearing
+
+Every view under `ui/src/pages/profile/` is a single column of `<section>`s, with the rail beside
+it (`ProfileSectionNav` + `useScrollSpy` + `ProfileLayout`), modelled on Tracxn's profile
+navigation.
+
+They used to be two-column `grid2`s. **Do not put them back.** A table of contents needs a reading
+order, and in two columns "Team & ecosystem" sits beside "Executive summary" at the same scroll
+position — there is no single current section to mark and the indicator flickers between the pair.
+
+**The rail is the page's only navigation.** A pipeline ribbon (`Input › Enrich › … › Route`) and a
+tab bar used to stack above it. The ribbon rendered all seven steps as done on every finished run,
+so it reported nothing a reader could act on while costing ~70px of sticky chrome; two navigation
+systems for one page was the other half of the problem. The Ask tab went with them — the ✦
+Assistant button opens the same conversation in the dock, from any view.
+
+Consequences worth knowing before changing any of it:
+
+- `ui/src/pages/profile/sections.js` is the **only** list of views and sections. A view's `id` is
+  also its `?tab=` value, deliberately unchanged from the old tab labels so permalinks a reviewer
+  already shared still resolve.
+- Exactly one rail group is open, and the open group **is** the rendered view. Rail state and
+  `?tab=` are the same fact; do not add a second source of truth.
+- A group header is a disclosure (`aria-expanded` + `aria-controls`), not a tab — a tablist's
+  children must be tabs, and these own a list. Sections are real anchors.
+- The rail must never be `display: none`. It was hidden below 1000px back when the tab bar carried
+  navigation there; now that would leave a phone with no way to reach Scoring & Fit at all. Below
+  1000px it becomes a full-width block above the content — same markup, same state.
+- `Section` takes its accessible name from the registry. Six unnamed `<section>`s in a row are read
+  out as "region, region, region".
+
+Three numbers have to stay in step, and there is one source for each:
+
+- `--profile-sticky-h` is *measured at runtime* by `useStickyOffset`, because `.profile-head` is
+  itself sticky and its height depends on how long the company's summary is. On a real profile it
+  is ~408px, which is why the scroll-spy's activation band is a fraction of the space *below* the
+  chrome and not of the viewport: a percentage of the viewport produced a negative root rect and
+  the observer silently stopped firing.
+- `.profile-section { scroll-margin-top }` puts a clicked section a few pixels below that line;
+  `CROSS_TOLERANCE_PX` in `useScrollSpy.js` must cover that gap, or a section scrolled to by a
+  click counts as not yet reached and the marker snaps back to its neighbour.
+- The active rule is "the last section whose top has crossed the line" — the same in both scroll
+  directions. Not "first intersecting entry" (IntersectionObserver's entry order is unspecified)
+  and not "most visible" (that tracks panel height, so a two-chip panel can never win).
 
 ## Testing
 

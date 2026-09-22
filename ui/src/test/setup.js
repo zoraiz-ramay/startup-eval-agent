@@ -9,6 +9,7 @@ import { addIcons } from "@siemens/ix-icons";
 import { iconLock, iconStar, iconBookmark, iconTrashcan, iconScale, iconTableRows } from "@siemens/ix-icons/icons";
 
 afterEach(cleanup);
+afterEach(() => { globalThis.__observers = []; });
 
 // Every `icon="…"` prop on an iX component (IxEmptyState, IxIconButton, …) resolves to a real
 // network fetch of an SVG asset (resolveIcon.js) unless the name is pre-registered — and this
@@ -45,25 +46,32 @@ globalThis.ResizeObserver ??= class {
   unobserve() {}
   disconnect() {}
 };
-// jsdom doesn't implement it either, and IxTabs calls it on the newly-active tab item
-// (tabs.js's setTabActive) every time the active tab changes.
-Element.prototype.scrollIntoView ??= () => {};
-
-// jsdom implements neither this one — needed once IxInput (MIG-24's query composer) mounts in a
-// test, since ix-input's field-wrapper uses it internally.
+// jsdom has no IntersectionObserver either. This records the instances so a test can drive the
+// callback directly — the scroll-spy's decision is made from element rects inside that callback,
+// which is exactly the part worth asserting.
+globalThis.__observers = [];
 globalThis.IntersectionObserver ??= class {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
+  constructor(cb, options) {
+    this.cb = cb;
+    this.options = options;
+    this.elements = [];
+    this.disconnected = false;
+    globalThis.__observers.push(this);
+  }
+  observe(el) { this.elements.push(el); }
+  unobserve(el) { this.elements = this.elements.filter((e) => e !== el); }
+  disconnect() { this.disconnected = true; }
+  // Test helper: pretend something crossed the band.
+  trigger() { this.cb([], this); }
 };
 
-// jsdom's ElementInternals stub (used by attachInternals()) implements the ARIA reflection
-// properties but not the form-association half of the spec — setFormValue/setValidity are simply
-// absent. Every form-associated iX control (ix-slider, ix-input) calls these on every input event,
-// so leaving them missing throws on the very first interaction rather than on anything this suite
-// is testing for. No-ops are enough: nothing under test relies on native <form> submission
-// semantics, only on the change events these components dispatch themselves.
-if (typeof ElementInternals !== "undefined") {
+// jsdom exposes ElementInternals but omits form-associated custom-element methods.
+// iX textarea/slider use these even outside a form. Native browser behavior is checked in E2E.
+if (globalThis.ElementInternals) {
   ElementInternals.prototype.setFormValue ??= function () {};
   ElementInternals.prototype.setValidity ??= function () {};
+  ElementInternals.prototype.checkValidity ??= function () { return true; };
+  ElementInternals.prototype.reportValidity ??= function () { return true; };
 }
+
+HTMLElement.prototype.scrollIntoView ??= function () {};

@@ -42,12 +42,13 @@ class GlassDollarError(RuntimeError):
 class GlassDollarClient:
     """Thin, thread-safe client over the GlassDollar public REST API."""
 
-    def __init__(self, api_key: str = "", base: str = "", timeout: float = 0.0):
+    def __init__(self, api_key: str = "", base: str = "", timeout: float = 0.0, max_attempts: int = 4):
         # Read the key dynamically (config -> env) so a key entered at runtime still works
         # even though config captured its value at import time.
         self.api_key = (api_key or GLASSDOLLAR_API_KEY or os.getenv("GLASSDOLLAR_API_KEY", "")).strip()
         self.base = (base or GLASSDOLLAR_API_BASE).rstrip("/")
         self.timeout = timeout or GLASSDOLLAR_API_TIMEOUT
+        self.max_attempts = max(1, max_attempts)
         self._session = requests.Session()
         self._token = ""
         self._token_expiry = 0.0
@@ -133,7 +134,7 @@ class GlassDollarClient:
                  json_body: dict = None) -> dict:
         """Perform an authenticated request, retrying on timeouts and one 401 refresh."""
         url = f"{self.base}{path}"
-        max_attempts = 4
+        max_attempts = self.max_attempts
         last_timeout_err: Optional[Exception] = None
         attempt = 0
         while attempt < max_attempts:
@@ -216,21 +217,8 @@ class GlassDollarClient:
 
 
 # ----------------------------------------------------------------------------- mapping helpers
-def _fmt_funding(value) -> str:
-    """Format the bigint `funding` (in currency units) as a compact human string."""
-    if value in (None, "", 0):
-        return ""
-    try:
-        amount = float(value)
-    except (TypeError, ValueError):
-        return str(value)
-    if amount >= 1_000_000_000:
-        return f"€{amount / 1_000_000_000:.1f}B"
-    if amount >= 1_000_000:
-        return f"€{amount / 1_000_000:.1f}M"
-    if amount >= 1_000:
-        return f"€{amount / 1_000:.0f}K"
-    return f"€{amount:.0f}"
+# Shared with the xlsx path, which carries the same kind of bare amount — see core/text.py.
+from .text import format_funding as _fmt_funding    # noqa: E402  (kept at its original name)
 
 
 def _parse_customers(value) -> str:

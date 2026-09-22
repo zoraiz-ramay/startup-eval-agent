@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { ResearchProvider } from "./research.jsx";
 import { api, setUnauthorizedHandler } from "./api.js";
 
 // App-level UI state: watchlist, saved views, assistant dock. Persisted in
@@ -50,16 +51,12 @@ function dockOpenByDefault() {
 }
 
 export function AppProvider({ children }) {
+  const { user } = useContext(AuthCtx);
   const [watchlist, setWatchlist] = usePersistent("se.watchlist.v2", []);   // company names (stable across re-evaluations)
   // Views live on the server, keyed on the Entra oid, so they follow a reviewer between
   // machines instead of belonging to a browser profile. Loaded rather than persisted here.
   const [savedViews, setSavedViews] = useState([]);                         // {name, columns, filters}
   const [pins, setPins] = usePersistent("se.pins", ["Explore startups", "Solve a problem"]);
-  // Local what-if weighting for the six scoring dimensions, as points out of 100. null means the
-  // reviewer has not overridden anything, which is what makes "reset" a single assignment rather
-  // than a float comparison. Never sent to the API: the engine's score is the shared truth and
-  // this is one person's sandbox.
-  const [whatIfWeights, setWhatIfWeights] = usePersistent("se.whatIfWeights.v1", null);
   const [dockOpen, setDockOpen] = useState(dockOpenByDefault);
   const [dockCtx, setDockCtx] = useState(null);                             // {runId, company}
 
@@ -111,10 +108,9 @@ export function AppProvider({ children }) {
       watchlist, toggleWatch,
       savedViews, saveView, removeView,
       pins, setPins,
-      whatIfWeights, setWhatIfWeights,
       dockOpen, setDockOpen, dockCtx, setDockCtx,
     }}>
-      {children}
+      <ResearchProvider key={user?.oid || "local"} userId={user?.oid}>{children}</ResearchProvider>
     </AppCtx.Provider>
   );
 }

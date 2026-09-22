@@ -1,19 +1,17 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppProvider } from "../state.jsx";
 import { findShadowRole } from "../test/shadow.js";
 
 /**
- * PROF-01 / PROF-04 — profile header and tab bar.
+ * PROF-01 / PROF-04 — profile header and navigation.
  *
- * Replaces tests/test_sticky_profile_tab_bar.py, which asserted the literal string
- * "sticky-header" appeared somewhere in Profile.jsx. That is satisfied by writing the word in a
- * comment, and said nothing about whether the tabs were usable.
- *
+ * The pipeline ribbon and the tab bar are gone; the section rail is the page's whole navigation.
  * jsdom does not do layout, so "is it actually stuck to the top" is a visual-regression concern
  * (contract row X-06) rather than something this layer can honestly assert. What it CAN verify is
- * that the tab bar is a real tablist, correctly marked, and carries the sticky affordance.
+ * that navigation exists as a landmark, that switching a group switches what is rendered, and
+ * that the two removed pieces of chrome are really gone rather than merely hidden.
  */
 const RUN = {
   found: true,
@@ -33,11 +31,15 @@ const RUN = {
 
 vi.mock("../api.js", () => ({
   api: {
+    departments: vi.fn(async () => ({departments:[{id:"di",label:"Digital Industries",interests:["automation"],demo:true}]})),
+    assessRun: vi.fn(async () => ({score:{status:"unavailable"},department_fit:{status:"unavailable",message:"Assessment unavailable"}})),
     run: vi.fn(async () => RUN),
+    job: vi.fn(),
     evaluate: vi.fn(async () => RUN),
     audit: vi.fn(async () => ({ overrides: [] })),
     ask: vi.fn(async () => ({ answer: "", evidence: [] })),
   },
+  evaluateStream: vi.fn(async () => RUN),
 }));
 
 async function renderProfile() {
@@ -58,54 +60,28 @@ async function renderProfile() {
 beforeEach(() => localStorage.clear());
 
 describe("Profile", () => {
-  it("offers every section of the report from one navigation landmark", async () => {
-    // The tab bar is gone: the report is one scrolling page and the rail is a map of it. What
-    // the old tablist assertion protected — that there is a single, marked, complete way to
-    // reach each part of a run — is what this asserts of its replacement, so a rail that
-    // silently loses a destination still fails here.
-    const { container } = await renderProfile();
-    const rail = await screen.findByRole("navigation", { name: /profile sections/i });
-    for (const label of ["Profile", "Scoring & Fit", "Market & Risk", "Evidence"]) {
-      expect(within(rail).getByRole("button", { name: label })).toBeTruthy();
-    }
-    // Every group heading is a real button, so the rail is operable by keyboard and not a set of
-    // styled divs — the failure mode the hand-rolled tab bar had before it became IxTabs.
-    expect(container.querySelector(".sec-nav")).toBeTruthy();
+  it("navigates from the rail, with exactly one group open", async () => {
+    await renderProfile();
+    const rail = await screen.findByRole("navigation", { name: "Profile navigation" });
+    const expanded = within(rail).getAllByRole("button")
+      .filter((b) => b.getAttribute("aria-expanded") === "true");
+    expect(expanded).toHaveLength(1);
+    expect(expanded[0]).toHaveAccessibleName("Profile");
   });
 
-  it("anchors every rail destination to something actually on the page", async () => {
-    // A rail entry that scrolls nowhere is worse than no entry, and `present` (Profile.jsx) is
-    // what is supposed to prevent one. RUN has no trend and no red flags, so those anchors must
-    // be absent from BOTH the rail and the document — not listed and dead.
+  it("no longer stacks a pipeline ribbon and a tab bar above the content", async () => {
+    // The ribbon rendered all seven steps as done on every finished run, so it reported nothing a
+    // reader could act on while costing sticky height on every profile. Two navigation systems for
+    // one page was the other half of the problem.
     const { container } = await renderProfile();
-    const rail = await screen.findByRole("navigation", { name: /profile sections/i });
-    expect(within(rail).queryByRole("button", { name: "Recent signals" })).toBeNull();
-    expect(container.querySelector("#sub-signals")).toBeNull();
-    // …while the ones it does list resolve to a real anchor element.
-    fireEvent.click(within(rail).getByRole("button", { name: "Key metrics" }));
-    expect(container.querySelector("#sub-metrics")).toBeTruthy();
+    await screen.findByRole("navigation", { name: "Profile navigation" });
+    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+    expect(container.querySelector(".ribbon")).toBeNull();
   });
 
-  it("renders the header's pillar as an IxPill carrying its own colour, not a bare class name (MIG-01)", async () => {
-    // RUN's routing.pillar is "Connect". Before MIG-01 this was a `<span class="pill Connect">`
-    // whose colour came only from a stylesheet rule keyed on that class; the delivery mechanism
-    // itself is the thing under test, so this must fail if the pillar reverts to a plain span.
-    const { container } = await renderProfile();
-    // Scoped to the header: the routing rationale renders the same pillar further down the page
-    // now that everything is on one screen, so an unscoped text query matches twice.
-    await screen.findAllByText("Connect");
-    const pill = within(container.querySelector(".ph-header-slot")).getByText("Connect");
-    expect(pill.closest(".ph-header-slot")).toBeTruthy();
-    expect(pill.tagName.toLowerCase()).toBe("ix-pill");
-    // variant="custom" is what makes background/pillColor apply at all (components.md) — without
-    // it the props are silently ignored and the pill renders iX's default primary colour instead
-    // of the pillar ramp. Its reflected attribute lags the slotted text by a render tick (Stencil's
-    // own update cycle), so this waits rather than reading it the instant the text resolves.
-    await vi.waitFor(() => expect(pill).toHaveAttribute("variant", "custom"));
-    // `background`/`pillColor` don't reflect to attributes (components.md), so read them as the
-    // element properties the custom element actually consumes.
-    expect(pill.background).toBe("var(--pillar-connect-bg)");
-    expect(pill.pillColor).toBe("var(--pillar-connect)");
+  it("gives the open group's content a region a reader can jump to", async () => {
+    await renderProfile();
+    expect(await screen.findByRole("region", { name: "Profile" })).toBeInTheDocument();
   });
 
   it("shows a web-sourced field with its provenance link (PROF-02, X-01)", async () => {
@@ -156,6 +132,22 @@ describe("Profile", () => {
     // Visible text is identical on purpose — only the accessible name disambiguates them.
     expect(employeesLink).toHaveTextContent("web");
     expect(foundedLink).toHaveTextContent("web");
+  });
+
+  it("marks a model-recalled value unverified rather than web-sourced", async () => {
+    // core/profile.py's _recall_* passes fill a field from model knowledge when the database and
+    // every web pass came back empty. Nothing evidences that value, so it must never wear the
+    // "web" chip — that chip is a claim that a page was actually read, and here none was.
+    const { api } = await import("../api.js");
+    api.run.mockResolvedValueOnce({
+      ...RUN,
+      profile: { ...RUN.profile, linkedin_url: "https://www.linkedin.com/company/phena/" },
+      profile_sources: { linkedin_url: { origin: "llm", url: "" } },
+    });
+    await renderProfile();
+    expect(await screen.findByText("unverified")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /^web — LinkedIn URL source$/i }))
+      .not.toBeInTheDocument();
   });
 
   it("shows no provenance badge on the Employees metric when no source was recorded (UI-06)", async () => {
@@ -226,159 +218,188 @@ const SCORED_RUN = {
   },
 };
 
-// Scoring & Fit used to be behind a tab click. The report is one scrolling page now, so the
-// panel is already mounted and there is nothing to open — kept as a named no-op so each test
-// below still reads as "get to the scoring panel, then assert", and so the wait for the run to
-// have loaded stays where it was.
+const railLoaded = () => screen.findByRole("navigation", { name: "Profile navigation" });
+
 async function openScoringTab() {
-  await screen.findAllByText(/score breakdown/i);
+  fireEvent.click(await screen.findByRole("button", { name: /^scoring & fit$/i }));
 }
 
-// IxBlind's header <button> (aria-expanded, aria-labelledby the shadow title node) renders inside
-// its own shadow root (blind.js: encapsulation "shadow"), so opening/reading it needs the
-// shadow-piercing helper rather than a plain screen query.
-async function openWhatIf(container) {
-  await openScoringTab();
-  const toggle = await findShadowRole(container, "button", { name: /what-if weights/i });
-  fireEvent.click(toggle);
-  return toggle;
-}
-
-// Likewise IxSlider's native `<input type="range" role="slider">` lives inside its shadow root
-// (slider.js), with its accessible name set directly on that element by ix-field-wrapper from the
-// `label` prop -- so it's findable by name once shadow-pierced, same as the button above.
-function getWeightSlider(container, name) {
-  return findShadowRole(container, "slider", { name });
-}
-
-describe("what-if weights (PROF-14)", () => {
-  it("stays collapsed until asked for, leaving the stored score alone", async () => {
+describe("Evidence-based scoring views", () => {
+  it("replaces what-if controls with three accessible partnership tabs", async () => {
     const { api } = await import("../api.js");
     api.run.mockResolvedValueOnce(SCORED_RUN);
-    const { container } = await renderProfile();
-    await openScoringTab();
+    await renderProfile(); await railLoaded(); await openScoringTab();
+    expect(screen.queryByText(/what-if weights/i)).toBeNull();
+    const tabs = document.querySelectorAll("ix-tab-item");
+    expect(Array.from(tabs).map((t) => t.label)).toEqual(["Empower", "Connect", "Collaborate"]);
+    fireEvent(document.querySelector("ix-tabs"), new CustomEvent("tabChange", {detail:"Collaborate"}));
+    expect(document.getElementById("pillar-panel-Collaborate")).toBeVisible();
 
-    const toggle = await findShadowRole(container, "button", { name: /what-if weights/i });
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+});
+
+const RUN_WITH_FACTS = {
+  ...RUN,
+  profile: { ...RUN.profile, hq: "Istanbul, Turkey", funding: "EUR 2.4M seed" },
+};
+
+describe("Profile — headline facts", () => {
+  const metric = (label) =>
+    screen.getByText(label, { selector: ".metric .k" }).closest(".metric");
+
+  async function renderWithFacts() {
+    const { api } = await import("../api.js");
+    api.run.mockResolvedValueOnce(RUN_WITH_FACTS);
+    await renderProfile();
+    await railLoaded();
+  }
+
+  it("shows funding and location as metric tiles", async () => {
+    await renderWithFacts();
+    expect(metric("Funding")).toHaveTextContent("EUR 2.4M seed");
+    expect(metric("Location")).toHaveTextContent("Istanbul, Turkey");
   });
 
-  it("re-weighting changes the what-if figure but never the stored score", async () => {
-    const { api } = await import("../api.js");
-    api.run.mockResolvedValueOnce(SCORED_RUN);
-    const { container } = await renderProfile();
-    await openWhatIf(container);
-
-    const storedRow = () => screen.getByText(/engine score \(stored\)/i).closest(".spec");
-    const before = (await screen.findByRole("status")).textContent;
-    const storedBefore = within(storedRow()).getByText("40");
-
-    fireEvent.input(await getWeightSlider(container, /^siemens fit$/i), { target: { value: "60" } });
-
-    const after = (await screen.findByRole("status")).textContent;
-    expect(after).not.toEqual(before);
-    // The engine's score is unmoved, and it sits inside this panel beside the what-if — so no
-    // screenshot crop can capture the what-if without also capturing what it is being compared to.
-    expect(within(storedRow()).getByText("40")).toBe(storedBefore);
-    expect(screen.getByText(/not the evaluation result/i)).toBeInTheDocument();
+  it("no longer spends a tile on completeness or the trend label", async () => {
+    await renderWithFacts();
+    expect(screen.queryByText("Completeness", { selector: ".metric .k" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Market signal", { selector: ".metric .k" })).not.toBeInTheDocument();
   });
 
-  it("resets back to the engine's weighting in one action", async () => {
-    const { api } = await import("../api.js");
-    api.run.mockResolvedValueOnce(SCORED_RUN);
-    const { container } = await renderProfile();
-    await openWhatIf(container);
-
-    const original = (await screen.findByRole("status")).textContent;
-    fireEvent.input(await getWeightSlider(container, /^product$/i), { target: { value: "70" } });
-    expect((await screen.findByRole("status")).textContent).not.toEqual(original);
-
-    fireEvent.click(screen.getByRole("button", { name: /reset to engine weights/i }));
-    expect((await screen.findByRole("status")).textContent).toEqual(original);
-    expect(localStorage.getItem("se.whatIfWeights.v1")).toBe("null");
+  it("keeps the header line to the score, not the company facts", async () => {
+    await renderWithFacts();
+    const meta = document.querySelector(".ph-meta");
+    expect(meta).toHaveTextContent(/Score/);
+    expect(meta).not.toHaveTextContent("Istanbul");
+    expect(meta).not.toHaveTextContent("2.4M");
   });
 
-  it("says so plainly when a run has no dimensions to re-weight", async () => {
-    const { api } = await import("../api.js");
-    api.run.mockResolvedValueOnce(RUN);   // dimensions: {}
-    const { container } = await renderProfile();
-    await openWhatIf(container);
-
-    expect(await screen.findByText(/no recorded dimension scores/i)).toBeInTheDocument();
-    // The point of the empty state: no number at all, rather than NaN.
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  it("shows an em dash rather than an empty tile when a fact is missing", async () => {
+    await renderProfile();          // base RUN has no hq and blank funding
+    await railLoaded();
+    expect(metric("Funding")).toHaveTextContent("—");
+    expect(metric("Location")).toHaveTextContent("—");
   });
 });
 
 /**
- * PROF-15 — the what-if routing derivation.
- *
- * The failure mode this guards is a reviewer reading a what-if pillar as the evaluation's verdict.
- * A wrong score is bad; a wrong pillar drives a wrong partnership call. So these assert the engine's
- * pillar stays put and stays visible as much as they assert the what-if is derived correctly.
+ * An empty headcount series has three causes and they are not interchangeable: one is about
+ * the company, one about the evidence, one about our own run. Reporting all three as "no cited
+ * headcount history" told reviewers a company had been checked when it had not.
  */
-const ALIGNED_RUN = {
-  ...SCORED_RUN,
-  fit: { aligned: true, matches: [] },
-  routing: { pillar: "Empower", secondary: [] },
-  score: { ...SCORED_RUN.score, route_scorecards: { Connect: 60, Collaborate: 58, Empower: 62 } },
-};
-
-describe("what-if routing (PROF-15)", () => {
-  it("explains every gate, including the ones that pass", async () => {
+describe("Profile — headcount trend empty states", () => {
+  const withStatus = async (status) => {
     const { api } = await import("../api.js");
-    api.run.mockResolvedValueOnce(ALIGNED_RUN);
-    const { container } = await renderProfile();
-    await openWhatIf(container);
+    api.run.mockResolvedValueOnce({
+      ...RUN,
+      deep_profile: { ...RUN.deep_profile, employees_over_time: [],
+                      employees_history_status: status },
+    });
+    await renderProfile();
+    await railLoaded();
+  };
 
-    expect(await screen.findByText(/what-if routing/i)).toBeInTheDocument();
-    // All four rows, always — a reviewer looking at a blocked pillar needs the whole reason,
-    // and an empty state would be the least useful thing to show them.
-    expect(screen.getByText(/portfolio alignment/i)).toBeInTheDocument();
-    for (const route of ["Connect", "Collaborate", "Empower"]) {
-      expect(screen.getAllByText(route).length).toBeGreaterThan(0);
-    }
-    // Empower's row states the absence of a gate rather than inventing a threshold for symmetry.
-    expect(screen.getByText(/no score gate/i)).toBeInTheDocument();
+  it("says a young company is too new rather than unsourced", async () => {
+    await withStatus("too_young");
+    expect(screen.getByText(/too new for a headcount trend/i)).toBeInTheDocument();
   });
 
-  it("marks the clauses no weighting can move, so a blocked pillar is not read as 'nearly there'", async () => {
-    const { api } = await import("../api.js");
-    api.run.mockResolvedValueOnce(ALIGNED_RUN);
-    const { container } = await renderProfile();
-    await openWhatIf(container);
-    expect(screen.getAllByText(/not affected by your weighting/i).length).toBeGreaterThan(0);
+  it("distinguishes a failed run from an absence of evidence", async () => {
+    await withStatus("unavailable");
+    expect(screen.getByText(/could not be retrieved on this run/i)).toBeInTheDocument();
+    expect(screen.queryByText(/fewer than two independently sourced/i)).not.toBeInTheDocument();
   });
 
-  it("says a verdict cannot change when that is provable, rather than merely that it did not", async () => {
-    // RUN's fit has no `aligned`, so the alignment gate fails — and it reads the raw dimension,
-    // which no weighting touches. "Cannot" is the honest word here.
-    const { api } = await import("../api.js");
-    api.run.mockResolvedValueOnce({ ...SCORED_RUN, fit: { matches: [] } });
-    const { container } = await renderProfile();
-    await openWhatIf(container);
-    expect(await screen.findByText(/cannot change this/i)).toBeInTheDocument();
+  it("still reports genuine absence as absence", async () => {
+    await withStatus("not_found");
+    expect(screen.getByText(/fewer than two independently sourced/i)).toBeInTheDocument();
   });
 
-  it("leaves the header pillar untouched while the what-if is on screen", async () => {
-    const { api } = await import("../api.js");
-    api.run.mockResolvedValueOnce(ALIGNED_RUN);
-    const { container } = await renderProfile();
-    await openWhatIf(container);
-    fireEvent.input(await getWeightSlider(container, /^ecosystem$/i), { target: { value: "100" } });
+  it("falls back to the absence wording for a run stored before the status existed", async () => {
+    await withStatus(undefined);
+    expect(screen.getByText(/fewer than two independently sourced/i)).toBeInTheDocument();
+  });
+});
 
-    // The canonical pillar lives in the profile header and must be unmoved by anything here.
-    const header = container.querySelector(".ph-header-slot");
-    expect(within(header).getByText("Empower")).toBeInTheDocument();
+/**
+ * Progressive render.
+ *
+ * A fresh evaluation takes a minute or two and all of it used to arrive at once, so the page held
+ * a skeleton until routing finished even though the profile had been ready for most of that time.
+ * Measured on a real run: the profile now reaches the browser at 27s of 63s.
+ *
+ * What these pin is the honesty of the half-rendered state. A page showing a company with an empty
+ * pillar pill and a score of 0 would be reporting a verdict the engine has not reached — worse
+ * than the skeleton it replaced.
+ */
+async function renderStreaming(script) {
+  const { api } = await import("../api.js");
+  const partial = {found: true, streaming: true};
+  for (const [section, data] of script) Object.assign(partial, section === "identity" || section === "profile" ? data : {[section]: data});
+  const job = {id: "progress-job", kind: "evaluate", query: "Phena", status: "running", partial};
+  sessionStorage.setItem("research-jobs:local", JSON.stringify([job]));
+  api.job.mockResolvedValue(job);
+  const { default: Profile } = await import("./Profile.jsx");
+  render(<MemoryRouter initialEntries={["/startup/new?name=Phena&job=progress-job"]}>
+    <AppProvider><Routes><Route path="/startup/:id" element={<Profile />} /></Routes></AppProvider>
+  </MemoryRouter>);
+  await waitFor(() => expect(api.job).toHaveBeenCalled());
+  if (partial.profile) await screen.findByRole("heading", {name: /Phena/});
+
+}
+
+const IDENTITY = ["identity", { company: "Phena", source: "web" }];
+const PROFILE = ["profile", {
+  profile: { company_name: "Phena", hq: "Istanbul, Turkey" },
+  profile_sources: {},
+  deep_profile: {},
+}];
+
+describe("Profile — progressive render", () => {
+  it("holds the skeleton until there is a profile to read", async () => {
+    // The company being resolved is not yet something worth showing: a page of em dashes for the
+    // seconds before enrichment finishes is worse than the skeleton.
+    await renderStreaming([IDENTITY]);
+    expect(document.querySelector(".skel")).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Profile navigation" })).not.toBeInTheDocument();
   });
 
-  it("keeps exactly one live region on the tab", async () => {
-    // Two polite regions announce in unpredictable order, and every existing assertion selects
-    // this one unqualified.
-    const { api } = await import("../api.js");
-    api.run.mockResolvedValueOnce(ALIGNED_RUN);
-    const { container } = await renderProfile();
-    await openWhatIf(container);
-    expect(screen.getAllByRole("status")).toHaveLength(1);
+  it("renders the profile while the rest of the run is still going", async () => {
+    await renderStreaming([IDENTITY, PROFILE]);
+    expect(document.querySelector(".skel")).not.toBeInTheDocument();
+    expect(await screen.findByRole("navigation", { name: "Profile navigation" })).toBeInTheDocument();
+    expect(screen.getByText("Istanbul, Turkey", { selector: ".metric .v" })).toBeInTheDocument();
+  });
+
+  it("names the company in the header, rather than heading the page with a blank", async () => {
+    // Regression: `identity` was merged under its own key instead of spread, so `res.company` was
+    // undefined and the <h1> rendered empty for the whole run.
+    await renderStreaming([IDENTITY, PROFILE]);
+    expect(document.querySelector(".ph-title").textContent).toContain("Phena");
+  });
+
+  it("shows no pillar and no score until routing has actually run", async () => {
+    await renderStreaming([IDENTITY, PROFILE]);
+    // An empty pill reads as a verdict of nothing; a score of 0 reads as a bad company.
+    expect(document.querySelector(".ph-title .pill")).toBeNull();
+    expect(document.querySelector(".ph-meta")).toHaveTextContent(/scoring/i);
+    expect(document.querySelector(".ph-meta")).not.toHaveTextContent(/Score 0/);
+  });
+
+  it("says a view is still running rather than showing its empty state", async () => {
+    // "No competitors found" and "we have not looked yet" are opposite readings, and while the
+    // run streams the second one is the true one.
+    await renderStreaming([IDENTITY, PROFILE]);
+    fireEvent.click(screen.getByRole("button", { name: /^market & risk$/i }));
+    expect(screen.getByText(/Market analysis is still running/i)).toBeInTheDocument();
+    expect(screen.queryByText(/No market analysis/i)).not.toBeInTheDocument();
+  });
+
+  it("fills a view in once its branch reports", async () => {
+    await renderStreaming([IDENTITY, PROFILE,
+      ["score", { final_score: 40, dimensions: {}, route_scorecards: [] }],
+      ["routing", { pillar: "Empower", secondary: [] }]]);
+    expect(document.querySelector(".ph-meta")).not.toHaveTextContent(/scoring/i);
+    expect(document.querySelector(".ph-title .pill").textContent).toBe("Empower");
   });
 });

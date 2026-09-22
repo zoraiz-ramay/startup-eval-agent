@@ -171,8 +171,11 @@ def test_bypass_flag_reaches_the_search_worker_threads(monkeypatch):
     default (True) and a forced refresh quietly reads from the cache anyway.
     """
     seen = []
+    # **kw, not a fixed arity: _ddg_many's worker swallows every exception from ddg_search, so a
+    # stub whose signature has fallen behind the real one fails as an empty result rather than as
+    # a TypeError — which reads exactly like the bug this test exists to catch.
     monkeypatch.setattr(web, "ddg_search",
-                        lambda q, n=4: seen.append(web._cache_enabled.get()) or [])
+                        lambda q, n=4, **kw: seen.append(web._cache_enabled.get()) or [])
     token = web.set_cache_enabled(False)
     try:
         web._ddg_many({"a": "one", "b": "two"}, overall_timeout=5)
