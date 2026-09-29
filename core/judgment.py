@@ -6,26 +6,10 @@ import logging
 log = logging.getLogger(__name__)
 
 VERSION = "llm-judgment-v1"
-PROMPT_VERSION = "department-scored-v6"
+PROMPT_VERSION = "department-scored-v5"
 DIMENSIONS = ("traction", "siemens_fit", "product", "market", "founder", "ecosystem")
-
-# Collaborate deep-match rubric: each 0-3, LLM-graded against these anchors, Python sums and
-# derives the verdict — never asked from the model as a free number (see department_fit()).
-COLLABORATE_CRITERIA = ("technology_fit", "capability_fit", "actionability")
-COLLABORATE_LABELS = {"technology_fit": "Technology fit", "capability_fit": "Capability fit",
-                       "actionability": "Actionability"}
-COLLABORATE_ANCHORS = {
-    "technology_fit": {0: "Startup does not provide the capability", 1: "Broad/indirect capability overlap",
-                        2: "Startup clearly provides a relevant capability",
-                        3: "Startup's core offering directly provides the capability"},
-    "capability_fit": {0: "Startup does not address the stated need", 1: "Indirectly related to the need",
-                        2: "Startup clearly contributes to solving the need",
-                        3: "Startup directly addresses the stated need/problem"},
-    "actionability": {0: "No plausible collaboration can be identified",
-                       1: "Possible connection, but vague or speculative",
-                       2: "A concrete collaboration/use case can be described",
-                       3: "Clear department + startup use case with an obvious next step"},
-}
+CRITERIA = {"strategic": "Relevant Siemens use case", "complement": "Relevant Siemens portfolio",
+            "impact": "Demonstrated customer value"}
 
 
 def evidence_for(run):
@@ -46,13 +30,13 @@ def evidence_for(run):
     return records
 
 
-def _number(value, bound=100):
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= bound:
+def _number(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= 100:
         raise ValueError("Invalid score")
     return value
 
 
-def _entries(raw, keys, evidence, numeric, bound=100):
+def _entries(raw, keys, evidence, numeric):
     if not isinstance(raw, dict) or set(raw) != set(keys): raise ValueError("Incomplete assessment")
     by_id = {e["id"]: e for e in evidence}
     out = {}
@@ -73,7 +57,7 @@ def _entries(raw, keys, evidence, numeric, bound=100):
             if not isinstance(quote, str) or not quote.strip() or quote not in e["text"]:
                 raise ValueError("Invalid evidence reference")
             refs.append({**e, "quote": quote})
-        value = _number(item.get("score"), bound) if numeric else None
+        value = _number(item.get("score")) if numeric else None
         # A positive numerical claim needs support. Unknowns are allowed, but never invented.
         if numeric and value > 0 and not refs: raise ValueError("Unsupported score")
         out[key] = {"rationale": item["rationale"], "evidence": refs}
@@ -132,48 +116,29 @@ def score_research(run, llm):
                 "final_score": None, **_failure(llm, exc)}
 
 
-def department_fit(run, department, llm, tech_profile=None):
-    """Collaborate deep-match: technology/capability/actionability, each LLM-graded 0-3 against
-    fixed anchors and citation-grounded, summed and verdict-derived in Python (never asked from
-    the model as a free number) — mirrors core.siemens_fit's "LLM classifies, Python scores"."""
-    from .collaborate_profile import extract_tech_profile
-    if tech_profile is None:
-        tech_profile = extract_tech_profile(run, llm)
+def department_fit(run, department, llm):
     evidence = evidence_for(run)
     # Department needs are a legitimate source too: the model can cite the supplied profile ID.
     evidence.append({"id": department.get("id", "department"),
         "source": ("Mock department interests" if department.get("demo", True) else "Department interests"),
         "text": f"{department.get('label', 'Department')}: " + ", ".join(department.get("interests", [])), "url": ""})
-    evidence.append({"id": "tech_profile", "source": "Extracted technology/capability profile",
-        "text": "Technologies: " + ", ".join(tech_profile.get("technologies", [])) +
-                "; Capabilities: " + ", ".join(tech_profile.get("capabilities", [])) +
-                "; Use cases: " + ", ".join(tech_profile.get("use_cases", [])), "url": ""})
     try:
-        data = _complete(llm, 'Assess Collaborate fit specifically for this department: ' +
-            json.dumps(department) + '. Score three criteria from 0 to 3 using ONLY these anchors '
-            '(pick the highest level fully supported by evidence): ' + json.dumps(COLLABORATE_ANCHORS) +
-            '. technology_fit: does the startup provide the relevant capability/technology itself. '
-            'capability_fit: does that capability actually address this department\'s stated need/problem. '
-            'actionability: how concrete is a plausible department + startup collaboration or use case. '
+        data = _complete(llm, 'Assess fit specifically for this department and its target industries: ' +
+            json.dumps(department) + '. Return JSON {"criteria":{"strategic":{"rationale":string,"citations":[]},'
+            '"complement":{"rationale":string,"citations":[]},"impact":{"rationale":string,"citations":[]}}}. '
+            'Strategic: a specific use case for these needs. Complement: relevant Siemens products already '
+            'identified in the research, or explicitly state no relevant product was established. Impact: '
+            'demonstrated customer value relevant to these needs; separate potential value from measured outcomes. '
             'Department interests describe needs, not evidence of startup performance. '
-            'Return JSON {"criteria":{"technology_fit":{"score":0-3,"rationale":string,"citations":[]},'
-            '"capability_fit":{"score":0-3,"rationale":string,"citations":[]},'
-            '"actionability":{"score":0-3,"rationale":string,"citations":[]}},'
-            '"summary":{"rationale":string,"citations":[]}}. '
+            'Also return overall: {score:number, rationale:string, citations:[evidence IDs]}. '
+            'Score 0–100 for fit to this particular department using a holistic judgment, not weights or a formula. '
             'Explain the strongest opportunity and the main limitation. Cite startup evidence as well as needs. '
-            'If unknown, use level 0 and say so.', evidence)
-        entries = _entries(data.get("criteria"), COLLABORATE_CRITERIA, evidence, True, bound=3)
-        summary = _entries({"summary": data.get("summary")}, ["summary"], evidence, False)["summary"]
-        total = sum(entries[k]["score"] for k in COLLABORATE_CRITERIA)
-        verdict = ("strong" if total >= 7 and entries["actionability"]["score"] >= 2
-                   else "no_match" if total < 4 else "moderate")
-        return {"status": "assessed", "department": department, "score": round(total / 9 * 100),
-                "verdict": verdict, "total": total, "summary": summary["rationale"],
-                "overall_evidence": summary["evidence"], "prompt_version": PROMPT_VERSION,
-                "tech_profile": tech_profile,
-                "criteria": [{"id": k, "label": COLLABORATE_LABELS[k], "level": entries[k]["score"],
-                              "rationale": entries[k]["rationale"], "evidence": entries[k]["evidence"]}
-                             for k in COLLABORATE_CRITERIA]}
+            'Do not assess integration feasibility or delivery readiness. If unknown, say so.', evidence)
+        entries = _entries(data.get("criteria"), CRITERIA, evidence, False)
+        overall = _entries({"overall": data.get("overall")}, ["overall"], evidence, True)["overall"]
+        return {"status": "assessed", "department": department, "score": overall["score"],
+                "summary": overall["rationale"], "overall_evidence": overall["evidence"], "prompt_version": PROMPT_VERSION,
+                "criteria": [{"id": k, "label": label, **entries[k]} for k, label in CRITERIA.items()]}
     except (ValueError, TypeError, KeyError, AttributeError) as exc:
         return {"status": "unavailable", "department": department,
                 **_failure(llm, exc)}

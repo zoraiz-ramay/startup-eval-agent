@@ -186,13 +186,7 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
         try:
             provider_row = tracxn.company_row(name)
             provider_status = "used" if provider_row is not None else "no_exact_match"
-        except Exception as exc:
-            # Falling through to GlassDollar/web is by design (a Tracxn hiccup should not
-            # fail the whole evaluation) but it used to fail *silently* — provider_status told
-            # a reviewer nothing beyond "unavailable", so a real bug (wrong tool selected, a
-            # rejected schema, an expired token) looked identical to Tracxn just being down.
-            # This is a log line, not a raised error: the fallback behaviour is unchanged.
-            log.warning("Tracxn search failed for %r, falling back: %s", name, exc)
+        except Exception:
             provider_status = "unavailable"
     if provider_row is not None:
         df = pd.DataFrame([provider_row])

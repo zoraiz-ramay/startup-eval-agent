@@ -41,31 +41,15 @@ def test_fabricated_quotes_and_incomplete_dimensions_are_rejected():
     assert score_research(RUN, Mock(available=False))["dimensions"] == {}
 
 
-def collaborate_answer(technology=2, capability=2, actionability=2):
-    entry = lambda score: {"score": score, "rationale": "Evidenced overlap with the department's stated need.", "citations": ["E1"]}
-    return {"criteria": {"technology_fit": entry(technology), "capability_fit": entry(capability),
-                          "actionability": entry(actionability)},
-            "summary": {"rationale": "Clear technology overlap with a plausible pilot.", "citations": ["E1"]}}
-
-
 def test_department_needs_and_all_research_reach_the_model():
     department = {"id":"mobility", "label":"Siemens Mobility", "interests":["rail", "fleet"]}
-    model = llm(collaborate_answer()); result = department_fit(RUN, department, model)
-    assert [c["id"] for c in result["criteria"]] == ["technology_fit","capability_fit","actionability"]
+    data = {"criteria":{k:{"rationale":"No directly evidenced rail use case.","citations":[]} for k in ["strategic","complement","impact"]}}
+    data["overall"] = {"score": 31, "rationale": "Limited evidenced rail relevance", "citations": ["E1"]}
+    model = llm(data); result = department_fit(RUN, department, model)
+    assert [c["id"] for c in result["criteria"]] == ["strategic","complement","impact"]
     prompt = model.complete.call_args.args[0]
     assert "rail" in prompt and "Machine vision engineering" in prompt
     assert not any("score" in e["source"] for e in evidence_for({**RUN,"score":{"final_score":99}}))
-
-
-def test_collaborate_score_and_verdict_are_computed_deterministically_from_the_three_levels():
-    department = {"id":"mobility", "label":"Siemens Mobility", "interests":["rail", "fleet"]}
-    strong = department_fit(RUN, department, llm(collaborate_answer(3, 3, 3)))
-    assert strong["total"] == 9 and strong["verdict"] == "strong" and strong["score"] == 100
-    # total >= 7 but actionability < 2 must not qualify as strong.
-    borderline = department_fit(RUN, department, llm(collaborate_answer(3, 3, 1)))
-    assert borderline["total"] == 7 and borderline["verdict"] == "moderate"
-    weak = department_fit(RUN, department, llm(collaborate_answer(1, 1, 1)))
-    assert weak["total"] == 3 and weak["verdict"] == "no_match"
 
 
 def test_assessment_endpoint_scopes_private_results_and_caches_by_needs(monkeypatch):
@@ -127,10 +111,8 @@ def test_timeout_message_distinguishes_loaded_interests_from_model_failure():
 
 def test_department_profile_is_valid_evidence_for_its_stated_needs():
     department={"id":"di","label":"Digital Industries","interests":["automation"],"demo":True}
-    entry = {"score": 2, "rationale": "Potential relevance to the department's automation needs.", "citations": ["E1","di"]}
-    data={"criteria":{k:dict(entry) for k in ["technology_fit","capability_fit","actionability"]}}
+    data={"criteria":{k:{"rationale":"Potential relevance to the department's automation needs.","citations":["E1","di"]} for k in ["strategic","complement","impact"]}}
     data["overall"] = {"score": 47, "rationale": "Potential automation fit", "citations": ["E1", "di"]}
-    data["summary"] = {"rationale": "Potential automation fit", "citations": ["E1", "di"]}
     result=department_fit(RUN,department,llm(data))
     assert result["status"] == "assessed"
     cited=result["criteria"][0]["evidence"][1]

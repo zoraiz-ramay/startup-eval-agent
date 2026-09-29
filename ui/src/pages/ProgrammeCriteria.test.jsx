@@ -2,7 +2,6 @@ import { render, screen, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppProvider } from "../state.jsx";
-import { getShadowRole } from "../test/shadow.js";
 
 /**
  * The Siemens programme criteria and the SFS panel on the Scoring & Fit view.
@@ -109,27 +108,17 @@ beforeEach(() => {
 });
 
 describe("partnership placeholders", () => {
-  it("keeps Empower and Connect empty while under development", async () => {
+  it("keeps the three partnership panels empty while under development", async () => {
     RUN = {...BASE, routing:{pillar:"Empower", secondary:[], pillar_assessments:ASSESSMENTS}};
     await renderScoringTab();
     await screen.findByRole("region", {name:"Scoring & Fit"});
-    for (const pillar of ["Empower", "Connect"]) {
+    for (const pillar of ["Empower", "Connect", "Collaborate"]) {
       expect(within(pillarSection(pillar)).getByText("Under development")).toBeInTheDocument();
       expect(pillarSection(pillar).querySelector(".crit")).toBeNull();
     }
     expect(screen.queryByText("Challenge-library match")).toBeNull();
     expect(screen.queryByText("Flags & gaps")).toBeNull();
     expect(screen.queryByText("Override routing")).toBeNull();
-  });
-
-  it("hosts the department deep-match under the Collaborate tab, not as a standalone panel", async () => {
-    RUN = {...BASE, routing:{pillar:"Empower", secondary:[], pillar_assessments:ASSESSMENTS}};
-    await renderScoringTab();
-    await screen.findByRole("region", {name:"Scoring & Fit"});
-    const collaborate = pillarSection("Collaborate");
-    expect(within(collaborate).queryByText("Under development")).toBeNull();
-    expect(getShadowRole(collaborate, "combobox", { name: /choose your department/i })).toBeInTheDocument();
-    expect(await within(collaborate).findByText(/Example interests/)).toBeInTheDocument();
   });
 });
 

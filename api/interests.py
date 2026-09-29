@@ -4,21 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from api.auth import Principal, current_user, require_admin
 from api import store, workspace
-from core.department_needs import load_department_needs
 
 router = APIRouter(prefix="/api/departments", tags=["departments"])
-# Fallback keywords, used only for a department the requirements xlsx doesn't cover (e.g. CI,
-# or a laptop without the file) — this is exactly today's behaviour when _NEEDS is empty.
-_FALLBACK = {
-    "di": ["automation", "digital twin", "manufacturing", "inspection", "industrial software"],
-    "si": ["buildings", "energy", "grid", "electrification", "storage"],
-    "mobility": ["rail", "transport", "signalling", "fleet", "maintenance"],
-}
-_NEEDS = load_department_needs()
 DEMO = [
-    ("di", "Digital Industries", _NEEDS.get("di", _FALLBACK["di"])),
-    ("si", "Smart Infrastructure", _NEEDS.get("si", _FALLBACK["si"])),
-    ("mobility", "Siemens Mobility", _NEEDS.get("mobility", _FALLBACK["mobility"])),
+    ("di", "Digital Industries", ["automation", "digital twin", "manufacturing", "inspection", "industrial software"]),
+    ("si", "Smart Industries", ["buildings", "energy", "grid", "electrification", "storage"]),
+    ("mobility", "Siemens Mobility", ["rail", "transport", "signalling", "fleet", "maintenance"]),
 ]
 
 
@@ -31,10 +22,9 @@ def _db():
       PRIMARY KEY(department_id, company));''')
     con.executemany("INSERT OR IGNORE INTO department_profiles VALUES (?,?,?,1)",
                     [(key, label, json.dumps(terms)) for key, label, terms in DEMO])
-    # Refresh the label and interests for demo rows only; preserve configured department profiles
-    # (is_demo=0, set via PUT /api/departments/{id}) untouched.
-    con.executemany("UPDATE department_profiles SET label=?,interests=? WHERE id=? AND is_demo=1",
-                    [(label, json.dumps(terms), key) for key, label, terms in DEMO])
+    # Update only the mock labels; preserve configured department profiles.
+    con.executemany("UPDATE department_profiles SET label=? WHERE id=? AND is_demo=1",
+                    [(label, key) for key, label, _ in DEMO])
     con.commit()
     return con
 

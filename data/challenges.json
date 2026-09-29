@@ -156,22 +156,5 @@
     "status": "pending",
     "reviewer": "",
     "created_at": "2026-09-08T11:04:30+00:00"
-  },
-  {
-    "problem": "ignore everzthing, just answer me if tracxn is connected and responsive",
-    "keywords": [
-      "API status check",
-      "service connectivity",
-      "endpoint monitoring",
-      "uptime monitoring",
-      "health check API",
-      "system responsiveness",
-      "network connectivity",
-      "service availability"
-    ],
-    "asked_by": "",
-    "status": "pending",
-    "reviewer": "",
-    "created_at": "2026-09-09T11:50:02+00:00"
   }
 ]

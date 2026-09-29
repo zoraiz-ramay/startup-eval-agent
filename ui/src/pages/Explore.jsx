@@ -20,7 +20,7 @@ const COLUMNS = {
     label: "Overall score",
     render: (r) => <span className="num">{typeof r.final_score === "number" ? r.final_score.toFixed(0) : "—"}</span>,
   },
-  ...Object.fromEntries([['di_fit', 'DI', 'di'], ['si_fit', 'SI', 'si'], ['smo_fit', 'SMO', 'mobility']].map(([key, label, id]) => [key, {label, render: (r) => <Link onClick={(e) => e.stopPropagation()} to={`/startup/${r.id}?tab=Scoring+%26+Fit&pillar=Collaborate&department=${id}`}>{typeof r[key] === "number" ? r[key].toFixed(0) : "Not assessed"}</Link>}])),
+  ...Object.fromEntries([['di_fit', 'DI', 'di'], ['si_fit', 'SI', 'si'], ['smo_fit', 'SMO', 'mobility']].map(([key, label, id]) => [key, {label, render: (r) => <Link onClick={(e) => e.stopPropagation()} to={`/startup/${r.id}?tab=Scoring+%26+Fit&department=${id}`}>{typeof r[key] === "number" ? r[key].toFixed(0) : "Not assessed"}</Link>}])),
   siemens_fit: { label: "Siemens fit", render: (r) => <span className="num">{typeof r.siemens_fit === "number" ? r.siemens_fit.toFixed(0) : "—"}</span> },
   summary: { label: "Short Description", render: (r) => <span className="desc-clip" title={r.summary}>{r.summary || "—"}</span> },
   hq: { label: "Location", render: (r) => r.hq || "—" },
