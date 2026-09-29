@@ -4,6 +4,7 @@ from __future__ import annotations
 import concurrent.futures
 import contextvars
 import functools
+import logging
 
 import pandas as pd
 
@@ -19,6 +20,7 @@ from .trend import analyze_trend
 from .text import format_funding
 from .profile import research_profile
 
+log = logging.getLogger(__name__)
 
 # Headline fields the DB leaves blank but web research can establish, mapped to their key in
 # the researched deep profile.

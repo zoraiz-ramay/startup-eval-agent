@@ -574,6 +574,99 @@
       ]
     },
     {
+      "path": "ui/src/pages/profile/ProfileLayout.jsx",
+      "lines": 62,
+      "exports": [
+        "ProfileLayout"
+      ],
+      "css_classes": [
+        "profile-body",
+        "profile-body-main"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/scoring/BreakdownPanel.jsx",
+      "lines": 32,
+      "exports": [
+        "BreakdownPanel"
+      ],
+      "css_classes": [
+        "fit-card-grid",
+        "muted",
+        "score-card-grid",
+        "score-headline"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/scoring/FitRubric.jsx",
+      "lines": 86,
+      "exports": [
+        "FitRubric"
+      ],
+      "css_classes": [
+        "badge",
+        "department-needs",
+        "department-selector",
+        "department-summary",
+        "fit-card-grid",
+        "muted"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/scoring/ScoreTile.jsx",
+      "lines": 6,
+      "exports": [
+        "ScoreTile"
+      ],
+      "css_classes": [
+        "score-tile",
+        "score-tile-label",
+        "score-tile-value"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/scoring/ScoringTab.jsx",
+      "lines": 86,
+      "exports": [
+        "ScoringTab"
+      ],
+      "css_classes": [
+        "badge",
+        "decision-next-steps",
+        "muted"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/scoring/SfsPanel.jsx",
+      "lines": 45,
+      "exports": [
+        "SfsPanel"
+      ],
+      "css_classes": [
+        "badge",
+        "k",
+        "muted",
+        "pill",
+        "sfs",
+        "spec",
+        "v"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/Section.jsx",
+      "lines": 22,
+      "exports": [
+        "Section"
+      ],
+      "css_classes": []
+    },
+    {
+      "path": "ui/src/pages/profile/useScrollSpy.test.jsx",
+      "lines": 175,
+      "exports": [],
+      "css_classes": []
+    },
+    {
       "path": "ui/src/pages/Profile.jsx",
       "lines": 261,
       "exports": [
