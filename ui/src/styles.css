@@ -773,7 +773,9 @@ ix-menu:not(.expanded) .acct-name { display: none; }
 .department-selector ix-select { width: min(100%, 360px); }
 .partnership-placeholder { padding: 24px 16px; }
 
-.department-needs { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 16px 0; }
+.department-needs { margin: 16px 0; }
+.department-needs summary { cursor: pointer; color: var(--text-2); }
+.department-needs > div { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .department-summary, .score-headline { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; margin: 24px 0; }
 .department-summary > div { flex: 1; min-width: 200px; }
 .department-summary h2 { font-size: 21px; margin: 0 0 8px; }

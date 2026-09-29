@@ -42,16 +42,17 @@ export default function ScoringTab({ res, runId, onAssessment }) {
         {error && <p role="alert">{error}</p>}
       </Section>
 
-      <FitRubric res={res} runId={runId} onAssessment={onAssessment} />
-
       <Section id="scoring-routes">
         <IxTabs aria-label="Partnership routes" activeTabKey={activePillar} layout="stretched"
           onTabChange={(e) => { if (PILLARS.includes(e.detail)) setActivePillar(e.detail); }}>
           {PILLARS.map((p) => <IxTabItem key={p} tabKey={p} id={`pillar-tab-${p}`} label={p} />)}
         </IxTabs>
         {PILLARS.map((p) => <div key={p} role="tabpanel" id={`pillar-panel-${p}`}
-          aria-labelledby={`pillar-tab-${p}`} hidden={activePillar !== p} className="partnership-placeholder">
-          <p className="muted">Under development</p>
+          aria-labelledby={`pillar-tab-${p}`} hidden={activePillar !== p}
+          className={p === "Collaborate" ? undefined : "partnership-placeholder"}>
+          {p === "Collaborate"
+            ? <FitRubric res={res} runId={runId} onAssessment={onAssessment} />
+            : <p className="muted">Under development</p>}
         </div>)}
       </Section>
 

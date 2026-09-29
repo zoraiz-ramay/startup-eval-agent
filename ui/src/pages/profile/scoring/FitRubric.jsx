@@ -53,18 +53,26 @@ export default function FitRubric({ res, runId, onAssessment }) {
         {!fit || fit.status !== "assessed" || !scored ? <IxButton onClick={assess} disabled={busy || !runId || !department}>
           {busy ? "Assessing…" : fit?.status === "assessed" ? "Update startup scores" : "Assess department fit"}</IxButton> : <span className="badge">Saved to Database</span>}
       </div>
-      {department && <div className="department-needs"><span className="muted">{department.demo ? "Example interests" : "Department interests"}</span>
-        {department.interests.map((t) => <span className="badge" key={t}>{t}</span>)}</div>}
+      {department && <details className="department-needs">
+        <summary className="muted">{department.demo ? "Example interests" : "Department interests"} ({department.interests.length})</summary>
+        <div>{department.interests.map((t) => <span className="badge" key={t}>{t}</span>)}</div>
+      </details>}
       {!fit && !busy && <p className="muted">Start an assessment when you’re ready. Existing startup research will be reused.</p>}
       {busy && <Loading text="Assessing the opportunity…" />}
       {(error || fit?.status === "unavailable" || assessment?.score?.status === "unavailable") && <p role="status">{error || (fit?.status === "unavailable" ? fit.message : assessment.score.message)}</p>}
       {fit?.status === "assessed" && <>
         <div className="department-summary">
           <ScoreTile label={`${department?.label} fit`} value={fit.score} />
-          <div><h2>Why this startup fits {department?.label}</h2><p>{fit.summary}</p></div>
+          <div>
+            <h2>Why this startup fits {department?.label}</h2>
+            <span className={`verdict ${{ strong: "eligible", moderate: "unproven", no_match: "blocked" }[fit.verdict] || "unassessed"}`} style={{ marginBottom: 8, display: "inline-block" }}>
+              {{ strong: "Strong Collaborate", moderate: "Moderate / Review", no_match: "No Collaborate Match" }[fit.verdict] || "Unassessed"}
+            </span>
+            <p>{fit.summary}</p>
+          </div>
         </div>
         <div className="fit-card-grid">{(fit.criteria || []).map((c) => <IxCard key={c.id}><IxCardContent>
-          <h3>{c.label}</h3><p>{c.rationale}</p>
+          <h3>{c.label} <span className="badge">{c.level}/3</span></h3><p>{c.rationale}</p>
           <details><summary>Evidence · {c.evidence?.length || 0} sources</summary>
             {(c.evidence || []).map((e, i) => <div key={`${e.id}-${i}`}><blockquote>{e.quote}</blockquote>
               <small className="muted">{e.source} {e.url && <ExtLink href={e.url}>Source</ExtLink>}</small></div>)}

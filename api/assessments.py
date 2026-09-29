@@ -6,6 +6,7 @@ from api.auth import Principal, current_user, sessions
 from api import store, workspace
 from api.interests import profiles
 from core.judgment import VERSION, PROMPT_VERSION, score_research, department_fit, evidence_for
+from core.collaborate_profile import TECH_PROFILE_VERSION, extract_tech_profile
 from core.llm import LLMClient
 from core.web import set_cache_private, reset_cache_private
 
@@ -31,10 +32,15 @@ def assess(run_id: int, department_id: str, user: Principal = Depends(current_us
             if score.get("version") != VERSION or score.get("status") != "assessed":
                 score = sessions().get(base) or score_research(run, llm)
                 if score.get("status") == "assessed": sessions().put(base, score, 86400)
+            tech_key = f"techprofile:{scope}:{TECH_PROFILE_VERSION}:{digest}"
+            tech_profile = sessions().get(tech_key)
+            if tech_profile is None:
+                tech_profile = extract_tech_profile(run, llm)
+                if tech_profile.get("status") == "assessed": sessions().put(tech_key, tech_profile, 86400)
             key = base + ":" + dep_digest
             saved = (run.get("department_assessments") or {}).get(department_id) or {}
             fit = saved if saved.get("prompt_version") == PROMPT_VERSION and saved.get("department") == department and saved.get("status") == "assessed" else sessions().get(key)
-            fit = fit or department_fit(run, department, llm)
+            fit = fit or department_fit(run, department, llm, tech_profile)
             if fit.get("status") == "assessed": sessions().put(key, fit, 86400)
             if score.get("status") == "assessed" or fit.get("status") == "assessed":
                 if run_id < 0: workspace.private_assessment(user.oid, run_id, score, fit)
