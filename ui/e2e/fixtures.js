@@ -308,6 +308,14 @@ export async function stubAdminOverview(page) {
       ],
     },
   }));
+  await page.route("**/api/admin/tool-checks*", (route) => route.fulfill({
+    json: {
+      tools: [
+        { tool_id: "tool:ghost-suite", name: "Ghost Suite", category: "Simulation", division: "DI", status: "not_found",
+          note: "No Siemens product by this name was found.", times_recommended: 2, checked_at: "2026-08-03T10:00:00+00:00" },
+      ],
+    },
+  }));
 }
 
 /**

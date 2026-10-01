@@ -13,14 +13,8 @@
   ],
   "permissions": {
     "deny": [
-      "Write(ui/e2e/**screenshots**/**)",
-      "Edit(ui/e2e/**screenshots**/**)",
-      "Bash(*--update-snapshots*)",
-      "Bash(*playwright test*-u*)",
       "Write(contract/feature-inventory.md)",
-      "Edit(contract/feature-inventory.md)",
-      "Write(.claude/**)",
-      "Edit(.claude/**)"
+      "Edit(contract/feature-inventory.md)"
     ],
     "allow": [
       "Bash(bash scripts/gates.sh*)",
@@ -31,8 +25,7 @@
       "Bash(cd ui && npx playwright test)",
       "Bash(git status*)",
       "Bash(git diff*)",
-      "Bash(git log*)",
-      "Bash(*)"
+      "Bash(git log*)"
     ]
   }
 }

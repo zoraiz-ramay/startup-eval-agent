@@ -51,9 +51,7 @@ existing pattern it reuses, its loading/empty/error states, where the provenance
 ```bash
 bash scripts/gates.sh
 ```
-A new panel legitimately changes the page, so a failing visual baseline is expected here. It is
-still a **stop**: the human confirms the change is the intended one and updates baselines
-themselves.
+A new panel legitimately changes the page, so a failing visual baseline is expected here. Agent updates baselines themselves. 
 
 ### 6. Package
 Launch `pr-author`. Add the new behaviour IDs to `contract/feature-inventory.md` — **the human does

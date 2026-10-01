@@ -86,6 +86,9 @@ def enrich(row: pd.Series, do_web: bool = True) -> dict:
             "deployment_web": f"{company} cloud edge on-premise SaaS deployment architecture",
             "marketplace_web": f"{company} marketplace listing reseller partner program available",
             "investors_web": f"{company} investors led by round participated venture capital",
+            # Revenue is a quarter of the traction rubric (core/traction.py) and nothing searched
+            # for it: the only revenue evidence was whatever a pricing page happened to say.
+            "revenue_web": f"{company} revenue ARR annual turnover million",
         }
         if country:
             queries["country_vc_web"] = f"venture capital funding {country} startups 2025"

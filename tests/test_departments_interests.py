@@ -33,16 +33,24 @@ def signed_in(db) -> TestClient:
     return client
 
 
-def test_demo_department_profiles_are_richer_than_the_old_five_term_lists(signed_in):
+def test_departments_carry_the_workbooks_stated_needs_and_are_not_examples(signed_in):
     depts = signed_in.get("/api/departments").json()["departments"]
     by_id = {d["id"]: d for d in depts}
     assert set(by_id) == {"di", "si", "mobility"}
+    # Stated by Siemens, so Collaborate is not provisional against them.
     for dept in by_id.values():
-        assert dept["demo"] is True
-    # The old hardcoded DEMO list had exactly 5 keywords per department; the requirements xlsx
-    # (when present) is far larger. If the xlsx is absent (e.g. a stripped CI checkout) this
-    # falls back to the old 5-term list, so assert only a lower bound that holds either way.
-    assert len(by_id["di"]["interests"]) >= 5
+        assert dept["source"] == "workbook" and dept["demo"] is False
+    assert by_id["si"]["label"] == "Smart Infrastructure"
+    assert len(by_id["mobility"]["needs"]) == 33 and by_id["mobility"]["needs"][0]["capability"]
+    assert len(by_id["di"]["interests"]) > 5
+
+
+def test_without_the_workbook_departments_fall_back_to_labelled_example_needs(signed_in, monkeypatch):
+    import api.interests as interests
+    monkeypatch.setattr(interests, "load_department_requirements", lambda: {})
+    by_id = {d["id"]: d for d in signed_in.get("/api/departments").json()["departments"]}
+    assert all(d["source"] == "demo" and d["demo"] is True and d["needs"] == [] for d in by_id.values())
+    assert by_id["di"]["interests"] == ["automation", "digital twin", "manufacturing", "inspection", "industrial software"]
 
 
 def test_admin_configured_profile_survives_reseed(signed_in):

@@ -207,3 +207,34 @@ describe("Explore canonical scores", () => {
     expect(screen.queryByText(/Weighting:/i)).toBeNull();
   });
 });
+
+describe("Database rows per department", () => {
+  const RUNS = [
+    { id: 3, company: "Acme", department_id: "si", department_label: "Smart Infrastructure", legacy: false,
+      final_score: 71.2, total_status: "complete", pillar: "Connect", created_at: "2026-09-02" },
+    { id: 2, company: "Acme", department_id: "di", department_label: "Digital Industries", legacy: false,
+      final_score: null, total_status: "pending", pillar: "Defer", created_at: "2026-09-01" },
+    { id: 1, company: "Acme", department_id: "", department_label: "", legacy: true,
+      final_score: 55, total_status: "", pillar: "Empower", created_at: "2026-08-01" },
+  ];
+  const rowsText = () => [...document.querySelectorAll("tbody tr")].map((tr) => tr.textContent);
+
+  it("shows one row per company and department, labelled, with a pending total never shown as 0", async () => {
+    api.myRuns.mockResolvedValueOnce({ runs: RUNS });
+    renderExplore();
+    await screen.findByText("Smart Infrastructure");
+    const rows = rowsText();
+    expect(rows).toHaveLength(3);
+    expect(rows.find((t) => t.includes("Digital Industries"))).toMatch(/pending/);
+    expect(rows.find((t) => t.includes("Legacy"))).toBeTruthy();
+  });
+
+  it("narrows to the reviewer's department", async () => {
+    localStorage.setItem("se.department.v1", JSON.stringify("di"));
+    api.myRuns.mockResolvedValueOnce({ runs: RUNS });
+    renderExplore();
+    await screen.findByText("Digital Industries");
+    expect(rowsText()).toHaveLength(1);
+    localStorage.removeItem("se.department.v1");
+  });
+});

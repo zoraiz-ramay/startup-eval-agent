@@ -24,6 +24,8 @@ class JobBody(BaseModel):
     names: list[str] = Field(default_factory=list, max_length=10)
     problem: str = Field("", max_length=2000)
     refresh: bool = False
+    # Applied to every startup in the batch: one department's search, many startups.
+    department_id: str | None = Field(None, max_length=60, pattern=r"^[A-Za-z0-9_-]+$")
     request_id: str = Field(..., min_length=8, max_length=100, pattern=r"^[a-zA-Z0-9-]+$")
 
 
@@ -51,7 +53,8 @@ def _execute(oid, job_id, body, user):
                 previous.update(data if section in ("identity", "profile") else {section: data})
                 update(partial=previous)
             from api.main import _evaluation_cached
-            request = EvaluateBody(name=record["query"], refresh=body.refresh)
+            request = EvaluateBody(name=record["query"], refresh=body.refresh,
+                                   department_id=body.department_id)
             result = _evaluation_cached(record["query"], request, user)
             if result is None:
                 result = _run_evaluation(record["query"], request, user.as_reviewer(), partial, user)
@@ -72,6 +75,9 @@ def start(body: JobBody, user: Principal = Depends(current_user)):
         raise HTTPException(422, "Provide 1–10 startup names (up to 200 characters each) or a problem.")
     if body.kind == "solve" and len(values[0]) < 3:
         raise HTTPException(422, "Describe the problem in at least three characters.")
+    if body.kind == "evaluate":
+        from api.main import _department
+        _department(body.department_id, user)       # 422 before anything is queued
     dedup = f"job-request:{user.oid}:{body.request_id}"
     with locked(dedup):
         prior = sessions().get(dedup)
@@ -86,7 +92,9 @@ def start(body: JobBody, user: Principal = Depends(current_user)):
         jobs = []
         for value in values:
             job_id = secrets.token_hex(16)
-            row = {"id": job_id, "kind": body.kind, "query": value, "status": "queued", "updated_at": time.time()}
+            row = {"id": job_id, "kind": body.kind, "query": value, "status": "queued",
+                   "department_id": body.department_id if body.kind == "evaluate" else None,
+                   "updated_at": time.time()}
             sessions().put(_key(user.oid, job_id), row, TTL)
             jobs.append(row)
         response = {"jobs": jobs}

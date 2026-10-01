@@ -14,7 +14,7 @@ export function ResearchProvider({ userId, children }) {
   latest.current = jobs;
   useEffect(() => {
     // Only opaque IDs/status/query labels are stored in the tab. Results live on the server.
-    sessionStorage.setItem(key, JSON.stringify(jobs.map(({ id, kind, query, status }) => ({ id, kind, query, status }))));
+    sessionStorage.setItem(key, JSON.stringify(jobs.map(({ id, kind, query, status, department_id }) => ({ id, kind, query, status, department_id }))));
   }, [jobs, key]);
   useEffect(() => {
     let stopped = false;
@@ -33,11 +33,12 @@ export function ResearchProvider({ userId, children }) {
     poll();
     return () => { stopped = true; clearTimeout(timer); };
   }, []);
-  const start = ({ names, problem, refresh = false }) => {
-    const signature = JSON.stringify([names, problem, refresh]);
+  const start = ({ names, problem, refresh = false, department_id = null }) => {
+    const signature = JSON.stringify([names, problem, refresh, department_id]);
     if (pendingStarts.current.has(signature)) return pendingStarts.current.get(signature);
     const promise = api.startJobs({ kind: problem ? "solve" : "evaluate", names: names || [],
-      problem: problem || "", refresh, request_id: crypto.randomUUID() }).then((result) => {
+      problem: problem || "", refresh, request_id: crypto.randomUUID(),
+      ...(problem ? {} : { department_id }) }).then((result) => {
         setJobs((old) => [...result.jobs, ...old].slice(0, 100));
         return result.jobs;
       }).finally(() => pendingStarts.current.delete(signature));

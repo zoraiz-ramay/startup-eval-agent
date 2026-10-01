@@ -32,6 +32,8 @@ const RUN = {
 vi.mock("../api.js", () => ({
   api: {
     departments: vi.fn(async () => ({departments:[{id:"di",label:"Digital Industries",interests:["automation"],demo:true}]})),
+    runDepartments: vi.fn(async () => ({company:"x", department_id:null, legacy:true, departments:[{id:"di",label:"Digital Industries",demo:true,run_id:null,current:false}]})),
+    assessDepartment: vi.fn(async () => ({})),
     assessRun: vi.fn(async () => ({score:{status:"unavailable"},department_fit:{status:"unavailable",message:"Assessment unavailable"}})),
     run: vi.fn(async () => RUN),
     job: vi.fn(),
@@ -225,16 +227,18 @@ async function openScoringTab() {
 }
 
 describe("Evidence-based scoring views", () => {
-  it("replaces what-if controls with three accessible partnership tabs", async () => {
+  it("compares the three routes as selectable controls in a fixed order", async () => {
     const { api } = await import("../api.js");
     api.run.mockResolvedValueOnce(SCORED_RUN);
     await renderProfile(); await railLoaded(); await openScoringTab();
     expect(screen.queryByText(/what-if weights/i)).toBeNull();
-    const tabs = document.querySelectorAll("ix-tab-item");
-    expect(Array.from(tabs).map((t) => t.label)).toEqual(["Empower", "Connect", "Collaborate"]);
-    fireEvent(document.querySelector("ix-tabs"), new CustomEvent("tabChange", {detail:"Collaborate"}));
-    expect(document.getElementById("pillar-panel-Collaborate")).toBeVisible();
-
+    const group = screen.getByRole("group", { name: "Compare and explore partnership routes" });
+    const choices = within(group).getAllByRole("button");
+    expect(choices.map((b) => b.id)).toEqual(["fit-choice-Empower", "fit-choice-Connect", "fit-choice-Collaborate"]);
+    expect(choices[0]).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(choices[2]);
+    expect(choices[2]).toHaveAttribute("aria-pressed", "true");
+    expect(choices[0]).toHaveAttribute("aria-pressed", "false");
   });
 });
 
@@ -266,12 +270,14 @@ describe("Profile — headline facts", () => {
     expect(screen.queryByText("Market signal", { selector: ".metric .k" })).not.toBeInTheDocument();
   });
 
-  it("keeps the header line to the score, not the company facts", async () => {
+  it("keeps the header to what the company is: no score, no confidence, no model name", async () => {
     await renderWithFacts();
-    const meta = document.querySelector(".ph-meta");
-    expect(meta).toHaveTextContent(/Score/);
-    expect(meta).not.toHaveTextContent("Istanbul");
-    expect(meta).not.toHaveTextContent("2.4M");
+    const head = document.querySelector(".profile-head");
+    expect(head).not.toHaveTextContent(/Score|Confidence/);
+    expect(head).not.toHaveTextContent(/gpt|gemini|openai/i);
+    // One line of facts: where it is, not its funding (that is a metric tile below).
+    expect(document.querySelector(".ph-facts")).toHaveTextContent("Istanbul");
+    expect(document.querySelector(".ph-facts")).not.toHaveTextContent("2.4M");
   });
 
   it("shows an em dash rather than an empty tile when a fact is missing", async () => {
@@ -381,9 +387,9 @@ describe("Profile — progressive render", () => {
   it("shows no pillar and no score until routing has actually run", async () => {
     await renderStreaming([IDENTITY, PROFILE]);
     // An empty pill reads as a verdict of nothing; a score of 0 reads as a bad company.
-    expect(document.querySelector(".ph-title .pill")).toBeNull();
-    expect(document.querySelector(".ph-meta")).toHaveTextContent(/scoring/i);
-    expect(document.querySelector(".ph-meta")).not.toHaveTextContent(/Score 0/);
+    expect(document.querySelector(".ph-titleline .pill")).toBeNull();
+    expect(document.querySelector(".ph-titleline")).toHaveTextContent(/assessing/i);
+    expect(document.querySelector(".profile-head")).not.toHaveTextContent(/Score 0/);
   });
 
   it("says a view is still running rather than showing its empty state", async () => {
@@ -399,7 +405,7 @@ describe("Profile — progressive render", () => {
     await renderStreaming([IDENTITY, PROFILE,
       ["score", { final_score: 40, dimensions: {}, route_scorecards: [] }],
       ["routing", { pillar: "Empower", secondary: [] }]]);
-    expect(document.querySelector(".ph-meta")).not.toHaveTextContent(/scoring/i);
-    expect(document.querySelector(".ph-title .pill").textContent).toBe("Empower");
+    expect(document.querySelector(".ph-titleline")).not.toHaveTextContent(/assessing/i);
+    expect(document.querySelector(".ph-titleline .pill").textContent).toBe("Empower");
   });
 });

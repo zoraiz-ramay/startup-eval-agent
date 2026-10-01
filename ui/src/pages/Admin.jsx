@@ -4,6 +4,7 @@ import { IxKpi, IxInput, IxButton, IxEmptyState } from "@siemens/ix-react";
 import { iconLock } from "@siemens/ix-icons/icons";
 import { api } from "../api.js";
 import ErrorBox from "../components/ErrorBox.jsx";
+import UnverifiedTools from "../components/UnverifiedTools.jsx";
 import { Loading } from "../components/widgets.jsx";
 
 /**
@@ -219,6 +220,7 @@ export default function Admin() {
       {!overview && !error && <Loading text="Loading usage…" />}
 
       {admins && <Administrators data={admins} onChange={reloadAdmins} />}
+      {admins && <UnverifiedTools />}
 
       {overview && (
         <>

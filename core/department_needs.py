@@ -1,17 +1,20 @@
-"""Department interest terms sourced from Siemens' own stated capability needs.
+"""Department needs sourced from Siemens' own stated requirements.
 
-`api/interests.py`'s ``DEMO`` used to carry five hand-picked keywords per department — a guess at
-what "Digital Industries" or "Siemens Mobility" cares about. `Startup_Evaluator_Departmental_
-Requirements.xlsx` at the repo root is the real thing: 52 rows of departmental needs Siemens
-itself defined, each with a semicolon-separated `Keywords` column. This module turns that sheet
-into the same `{department_id: [terms]}` shape the demo list already produces, so the interest
-matching in `interest_score()` and the evidence line in `judgment.department_fit()` read Siemens'
-actual requirements instead of a placeholder.
+`api/interests.py`'s ``DEMO`` carries five hand-picked keywords per department — a guess at what
+"Digital Industries" or "Siemens Mobility" cares about. `data/Startup_Evaluator_Departmental_
+Requirements.xlsx` is the real thing: rows of needs Siemens itself defined, each a capability
+(with its description and a semicolon-separated `Keywords` column) under a need category. This
+module reads it two ways:
 
-Reads the workbook once per process (`lru_cache`) rather than per request — the file does not
-change at runtime. Any failure (file missing, sheet renamed, openpyxl broken) degrades to an empty
-dict rather than raising, same as the rest of the app when an optional data source is absent
-(`GLASSDOLLAR_API_KEY`, described in CLAUDE.md): a laptop or CI without the xlsx must still run.
+- `load_department_requirements()` — the structured needs per department, which the Collaborate
+  pillar is assessed against (core/catalogs.py), one catalog entry per capability;
+- `load_department_needs()` — the flattened keyword list per department, the same
+  `{department_id: [terms]}` shape the demo list produces, for keyword screening.
+
+Read once per process (`lru_cache`) — the file does not change at runtime. Any failure (file
+missing, sheet renamed, openpyxl broken) degrades to an empty dict rather than raising, same as the
+rest of the app when an optional data source is absent: a laptop or CI without the xlsx must still
+run, and the departments fall back to their labelled example needs.
 """
 from __future__ import annotations
 
@@ -21,11 +24,13 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-_XLSX_PATH = Path(__file__).resolve().parent.parent / "Startup_Evaluator_Departmental_Requirements.xlsx"
+_NAME = "Startup_Evaluator_Departmental_Requirements.xlsx"
+_ROOT = Path(__file__).resolve().parent.parent
+# data/ beside the other workbooks; the repo root is where it was first dropped, still honoured.
+_XLSX_PATH = next((p for p in (_ROOT / "data" / _NAME, _ROOT / _NAME) if p.exists()), _ROOT / "data" / _NAME)
 _SHEET_NAME = "Startup_Needs"
 
-# The sheet's Department values, mapped to the ids interest_score() and department_fit() already
-# key on everywhere else.
+# The sheet's Department values, mapped to the ids every other module keys on.
 _DEPARTMENT_IDS = {
     "Smart Infrastructure": "si",
     "Siemens Mobility": "mobility",
@@ -33,36 +38,58 @@ _DEPARTMENT_IDS = {
 }
 
 
+def _cell(row, col) -> str:
+    return str(row[col]).strip() if col is not None and col < len(row) and row[col] is not None else ""
+
+
 @functools.lru_cache(maxsize=1)
-def load_department_needs() -> dict:
-    """Return ``{department_id: [keyword, ...]}`` from the requirements xlsx, or ``{}`` on any
-    failure. Keywords are de-duplicated per department, preserving first-appearance order."""
+def load_department_requirements() -> dict:
+    """``{department_id: {"label", "needs": [{id, need_id, category, category_description,
+    capability, description, keywords}]}}`` from the requirements xlsx, or ``{}`` on any failure."""
     try:
         import openpyxl
 
         wb = openpyxl.load_workbook(_XLSX_PATH, read_only=True, data_only=True)
-        ws = wb[_SHEET_NAME]
-        rows = ws.iter_rows(values_only=True)
-        header = [str(c).strip() if c is not None else "" for c in next(rows)]
-        dept_col = header.index("Department")
-        keywords_col = header.index("Keywords")
-
-        needs: dict = {}
-        for row in rows:
-            if dept_col >= len(row) or keywords_col >= len(row):
-                continue
-            dept_id = _DEPARTMENT_IDS.get(str(row[dept_col]).strip() if row[dept_col] else "")
-            if not dept_id:
-                continue
-            raw = row[keywords_col]
-            if not raw:
-                continue
-            terms = needs.setdefault(dept_id, [])
-            for term in str(raw).split(";"):
-                term = term.strip()
-                if term and term not in terms:
-                    terms.append(term)
-        return needs
+        try:
+            rows = wb[_SHEET_NAME].iter_rows(values_only=True)
+            header = [str(c).strip() if c is not None else "" for c in next(rows)]
+            col = {name: header.index(name) if name in header else None
+                   for name in ("Need_ID", "Department", "Need_Category", "Category_Description",
+                                "Capability_ID", "Capability", "Capability_Description", "Keywords")}
+            if col["Department"] is None or col["Keywords"] is None:
+                raise ValueError("requirements sheet lacks Department or Keywords")
+            out: dict = {}
+            for row in rows:
+                label = _cell(row, col["Department"])
+                dept_id = _DEPARTMENT_IDS.get(label)
+                capability = _cell(row, col["Capability"])
+                if not dept_id or not (capability or _cell(row, col["Keywords"])):
+                    continue
+                keywords = list(dict.fromkeys(k.strip() for k in _cell(row, col["Keywords"]).split(";") if k.strip()))
+                out.setdefault(dept_id, {"label": label, "needs": []})["needs"].append({
+                    "id": _cell(row, col["Capability_ID"]) or _cell(row, col["Need_ID"]) or capability,
+                    "need_id": _cell(row, col["Need_ID"]),
+                    "category": _cell(row, col["Need_Category"]),
+                    "category_description": _cell(row, col["Category_Description"]),
+                    "capability": capability or (keywords[0] if keywords else ""),
+                    "description": _cell(row, col["Capability_Description"]),
+                    "keywords": keywords,
+                })
+            return out
+        finally:
+            wb.close()
     except Exception:
         log.warning("could not load department needs from %s", _XLSX_PATH, exc_info=True)
         return {}
+
+
+@functools.lru_cache(maxsize=1)
+def load_department_needs() -> dict:
+    """``{department_id: [keyword, ...]}``, de-duplicated per department in first-appearance order."""
+    return {dept: list(dict.fromkeys(k for n in data["needs"] for k in n["keywords"]))
+            for dept, data in load_department_requirements().items()}
+
+
+def clear_cache() -> None:
+    load_department_requirements.cache_clear()
+    load_department_needs.cache_clear()

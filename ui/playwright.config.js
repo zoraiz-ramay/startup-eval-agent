@@ -8,7 +8,7 @@ import { defineConfig, devices } from "@playwright/test";
  * canvas lost its density, or a panel now overflows at 390px. The previous agent system had no
  * equivalent, which is why its UI reviewer could only offer opinions about source code.
  *
- * Baselines live in ui/e2e/__screenshots__ and are treated as human-owned: agents must never run
+ * Baselines live in ui/e2e/__screenshots__ 
  * --update-snapshots. See contract/feature-inventory.md.
  */
 const BASE_URL = process.env.E2E_BASE_URL || "http://localhost:5173";
