@@ -14,6 +14,7 @@ vi.mock("./api.js", () => ({
     views: vi.fn(async () => ({ views: [] })),
     challenges: vi.fn(async () => ({ challenges: [] })),
     logout: vi.fn(async () => ({ ok: true })),
+    departments: vi.fn(async () => ({ departments: [] })),
   },
   setUnauthorizedHandler: vi.fn(),
   ApiError: class extends Error {},
@@ -90,9 +91,18 @@ const widthIs = (wide) => {
 };
 
 describe("assistant dock", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); });
 
-  it("is open on first paint on a wide screen", async () => {
+  it("starts collapsed when the reviewer has not chosen otherwise", async () => {
+    widthIs(true);
+    signedIn();
+    renderApp();
+    await findShadowRole(document.body, "navigation", { name: /primary/i });
+    expect(screen.queryByRole("complementary", { name: /ai assistant/i })).not.toBeInTheDocument();
+  });
+
+  it("reopens on a wide screen when the reviewer left it open", async () => {
+    localStorage.setItem("se.dockOpen.v1", "open");
     widthIs(true);
     signedIn();
     renderApp();
@@ -100,6 +110,7 @@ describe("assistant dock", () => {
   });
 
   it("stays closed on a narrow screen, where it would cover the page", async () => {
+    localStorage.setItem("se.dockOpen.v1", "open");
     widthIs(false);
     signedIn();
     renderApp();
@@ -123,6 +134,7 @@ describe("assistant dock", () => {
   });
 
   it("can be reopened from the rail after it is closed", async () => {
+    localStorage.setItem("se.dockOpen.v1", "open");
     widthIs(true);
     signedIn();
     renderApp();

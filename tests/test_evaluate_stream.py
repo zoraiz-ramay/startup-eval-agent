@@ -84,6 +84,16 @@ def test_it_emits_the_profile_before_the_score(offline):
     assert seen[-1] == "routing"
 
 
+def test_the_traction_rubric_arrives_before_the_model_score(offline):
+    """The rubric needs no model, so it goes out the moment the research joins — a reviewer can
+    read the points breakdown while the scoring completion is still running."""
+    df, tools = offline
+    seen = []
+    _run(df, tools, on_partial=lambda s, d: seen.append(s))
+    assert seen.count("traction") == 1
+    assert seen.index("traction") < seen.index("score")
+
+
 def test_the_profile_is_emitted_before_the_research_that_deepens_it(offline):
     """The measurement that forced this: on a real run the deep-profile branch returned at 112s of
     118s. A page waiting for it waits for the whole evaluation, so the row-level profile goes out
@@ -134,7 +144,7 @@ def test_every_partial_matches_the_final_result(offline):
     df, tools = offline
     captured = {}
     result = _run(df, tools, on_partial=lambda s, d: captured.__setitem__(s, d))
-    for section in ("score", "routing", "trend", "fit", "verification", "summary"):
+    for section in ("score", "routing", "trend", "fit", "verification", "summary", "traction"):
         assert json.dumps(captured[section], sort_keys=True, default=str) == \
                json.dumps(result[section], sort_keys=True, default=str), section
 

@@ -150,6 +150,8 @@ export const api = {
   startJobs: (body) => request("/api/jobs", { method: "POST", body }),
   job: (id) => request(`/api/jobs/${encodeURIComponent(id)}`),
   departments: () => request("/api/departments"),
+  runDepartments: (id) => request(`/api/runs/${encodeURIComponent(id)}/departments`),
+  assessDepartment: (id, department) => request(`/api/runs/${encodeURIComponent(id)}/departments/${encodeURIComponent(department)}`, { method: "POST", timeoutMs: 240000 }),
   tracxnStatus: () => request("/api/integrations/tracxn"),
   tracxnConnect: (returnTo = "workspace") => request(`/api/integrations/tracxn/connect?return_to=${encodeURIComponent(returnTo)}`, { method: "POST" }),
   tracxnDisconnect: () => request("/api/integrations/tracxn", { method: "DELETE" }),
@@ -163,6 +165,8 @@ export const api = {
   adminOverview: () => request("/api/admin/overview"),
   adminSearches: () => request("/api/admin/searches"),
   adminList: () => request("/api/admin/admins"),
+  // Siemens catalog tools Empower recommended that a web search could not find.
+  adminToolChecks: (status = "not_found") => request(`/api/admin/tool-checks?status=${encodeURIComponent(status)}`),
   adminGrant: (upn, note = "") =>
     request("/api/admin/admins", { method: "POST", body: { upn, note } }),
   adminRevoke: (upn) =>
@@ -174,8 +178,17 @@ export const api = {
     request(`/api/my/views/${encodeURIComponent(name)}`, { method: "DELETE" }),
   deleteRun: (id) => request(`/api/runs/${encodeURIComponent(id)}`, { method: "DELETE" }),
   challenges: () => request("/api/challenges"),
-  ask: (question, runId = null) =>
-    request("/api/ask", { method: "POST", body: { question, run_id: runId }, timeoutMs: 120000 }),
+  // "How this startup works": five plain, cited sentences, written once per run and cached.
+  runBusinessFlow: (runId) =>
+    request(`/api/runs/${encodeURIComponent(runId)}/business-flow`, { method: "POST", timeoutMs: 90000 }),
+  // Traction facts looked up on request, Tracxn first, then web search: kind is "funding"
+  // (rounds and investor profiles) or "headcount" (sourced employee figures).
+  runLookup: (runId, kind, refresh = false) =>
+    request(`/api/runs/${encodeURIComponent(runId)}/lookup/${kind}${refresh ? "?refresh=true" : ""}`, { method: "POST", timeoutMs: 120000 }),
+  // `history` is the chat so far ({role, text}), so a follow-up keeps its subject; the server
+  // holds no conversation state.
+  ask: (question, runId = null, history = []) =>
+    request("/api/ask", { method: "POST", body: { question, run_id: runId, history }, timeoutMs: 120000 }),
   audit: (runId) => request(`/api/runs/${encodeURIComponent(runId)}/audit`),
   setChallengeStatus: (index, status) =>
     request(`/api/challenges/${encodeURIComponent(index)}`, {

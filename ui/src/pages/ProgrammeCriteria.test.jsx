@@ -76,6 +76,8 @@ let RUN = BASE;
 vi.mock("../api.js", () => ({
   api: {
     departments: vi.fn(async () => ({departments:[{id:"di",label:"Digital Industries",interests:["automation"],demo:true}]})),
+    runDepartments: vi.fn(async () => ({company:"x", department_id:null, legacy:true, departments:[{id:"di",label:"Digital Industries",demo:true,run_id:null,current:false}]})),
+    assessDepartment: vi.fn(async () => ({})),
     assessRun: vi.fn(async () => ({score:{status:"unavailable"},department_fit:{status:"unavailable",message:"Assessment unavailable"}})),
     run: vi.fn(async () => RUN),
     evaluate: vi.fn(async () => RUN),
@@ -85,9 +87,6 @@ vi.mock("../api.js", () => ({
 }));
 
 /** One pillar's section, by the id the rail links to. */
-function pillarSection(pillar) {
-  return document.getElementById(`pillar-panel-${pillar}`);
-}
 
 async function renderScoringTab() {
   const { default: Profile } = await import("./Profile.jsx");
@@ -107,14 +106,16 @@ beforeEach(() => {
   RUN = BASE;
 });
 
-describe("partnership placeholders", () => {
-  it("keeps the three partnership panels empty while under development", async () => {
+describe("pillar panels on a legacy run", () => {
+  it("say the run predates departments instead of showing empty scores", async () => {
     RUN = {...BASE, routing:{pillar:"Empower", secondary:[], pillar_assessments:ASSESSMENTS}};
     await renderScoringTab();
     await screen.findByRole("region", {name:"Scoring & Fit"});
+    const detail = document.getElementById("fit-opportunity");
+    expect(within(detail).getByText(/Legacy run: routes are assessed for a department/)).toBeInTheDocument();
+    expect(detail.querySelector(".opp-flow")).toBeNull();
     for (const pillar of ["Empower", "Connect", "Collaborate"]) {
-      expect(within(pillarSection(pillar)).getByText("Under development")).toBeInTheDocument();
-      expect(pillarSection(pillar).querySelector(".crit")).toBeNull();
+      expect(document.getElementById(`fit-choice-${pillar}`)).toHaveTextContent("Not assessed");
     }
     expect(screen.queryByText("Challenge-library match")).toBeNull();
     expect(screen.queryByText("Flags & gaps")).toBeNull();
@@ -123,6 +124,18 @@ describe("partnership placeholders", () => {
 });
 
 describe("SFS panel", () => {
+  // The SFS detail shows in full in the default (summary) view; nothing else sits beside it.
+  it("shows the financing detail without switching view, and no model-score diagnostics", async () => {
+    RUN = { ...BASE, routing: { pillar: "Empower", secondary: [], sfs_relevant: true, sfs_line: "Vendor / sales finance",
+      sfs_lines: [{ line: "Vendor / sales finance", fit: "strong", rationale: "Sells physical equipment.", evidence_url: "", missing: [] }],
+      sfs_blockers: [] } };
+    await renderScoringTab();
+    const panel = (await screen.findByRole("heading", { name: /Siemens Financial Services/i })).closest(".profile-section");
+    expect(panel.id).toBe("scoring-supplementary");
+    expect(within(panel).getByText("Sells physical equipment.")).toBeInTheDocument();
+    expect(screen.queryByText(/Model score diagnostics|model's view of each dimension/i)).toBeNull();
+  });
+
   it("names the financing line rather than saying only 'SFS'", async () => {
     RUN = {
       ...BASE,

@@ -65,6 +65,75 @@ KNOWN_PROGRAM_TIERS = {
 }
 
 
+# --- Traction rubric (core/traction.py) ----------------------------------------------------
+# The product owner's points table, as data. Each band is (lower bound inclusive, points, label),
+# highest first; amounts are EUR. A division with no evidence is dropped and the rest are
+# normalised, so the maxima below are also what "confidence" is measured in: a run that evidences
+# funding and customers has seen 60 of the 100 points it could have.
+TRACTION_RUBRIC = {
+    "funding": {"label": "Funding", "max": 30, "bands": (
+        (2_000_000, 25, "≥ €2M"), (1_500_000, 15, "€1.5M – 2M"), (1_000_000, 10, "€1M – 1.5M"),
+        (500_000, 5, "€500k – 1M"), (0.01, 2.5, "< €500k"))},
+    "customers": {"label": "Customers", "max": 30},
+    "revenue": {"label": "Revenue", "max": 30, "bands": (
+        (10_000_000, 30, "≥ €10M"), (5_000_000, 25, "€5M – 10M"), (1_000_000, 20, "€1M – 5M"),
+        (500_000, 15, "€500k – 1M"), (100_000, 10, "€100k – 500k"), (0.01, 5, "< €100k"))},
+    "employees": {"label": "Employees", "max": 10, "bands": (
+        (21, 10, "> 20"), (11, 8, "11 – 20"), (7, 6, "7 – 10"), (4, 4, "4 – 6"), (1, 2, "1 – 3"))},
+}
+# When the amount is undisclosed, the stage alone scores. With an amount, the amount bands decide,
+# except that Series B+ at ≥ €2M lifts to the division maximum — without it the top band (25) would
+# leave 30 unreachable. A grant is not on the ladder: it says nothing about size.
+FUNDING_STAGE_POINTS = {"pre_seed": 5, "seed": 10, "series_a": 25, "series_b_plus": 30}
+# Big-name and SME points add up (capped at the division max); a generically stated customer base
+# ("chemical producers") is graded 1–3 and counts only if it beats the named total.
+CUSTOMER_BIG_POINTS = ((3, 20), (2, 15), (1, 7.5))
+CUSTOMER_SME_POINTS = ((6, 20), (3, 15), (2, 7), (1, 3.5))
+CUSTOMER_GENERIC_POINTS = {1: 7.5, 2: 11.25, 3: 15}
+# "Clearly strong recurring revenue growth" lifts revenue to 30 — only when the recurring nature,
+# the growth figure and a material amount are all evidenced, never from the adjective alone.
+GROWTH_STRONG_PCT = 100.0
+GROWTH_STRONG_MIN_EUR = 1_000_000
+HEADCOUNT_MAX_PLAUSIBLE = 500_000
+# Static reference rates to EUR, stated with their date so a reader can see how old they are. A
+# band edge is a coarse cut (€500k, €1M), so a rate that has moved a few percent changes nothing
+# except an amount sitting right on an edge — which the panel shows in its original currency.
+FX_AS_OF = "2026-09-01"
+FX_TO_EUR = {
+    "EUR": 1.0, "USD": 0.86, "GBP": 1.16, "CHF": 1.07, "SAR": 0.23, "AED": 0.234, "QAR": 0.236,
+    "INR": 0.0098, "JPY": 0.0058, "CNY": 0.12, "SEK": 0.091, "NOK": 0.085, "DKK": 0.134,
+    "PLN": 0.235, "CAD": 0.62, "AUD": 0.56, "SGD": 0.66, "HKD": 0.11, "ILS": 0.25, "BRL": 0.16,
+    "KRW": 0.00062, "TRY": 0.021,
+}
+# Big-name baseline for customer classification. Offline this list alone decides; with a model, a
+# grounded customer may be UPGRADED to large_enterprise but a name here is never downgraded. It is
+# an identifying attribute of a third party (how big Bosch is), not a claim about the startup —
+# the claim "Bosch is a customer" is still grounded by profile._ground_customers.
+NOTABLE_COMPANIES = (
+    'Siemens', 'Siemens Energy', 'Siemens Healthineers', 'Siemens Mobility', 'Siemens Gamesa',
+    'Bosch', 'BASF', 'Bayer', 'BMW', 'Mercedes-Benz', 'Daimler Truck', 'Volkswagen', 'Audi',
+    'Porsche', 'Continental', 'Infineon', 'SAP', 'Deutsche Bahn', 'Deutsche Telekom', 'DHL',
+    'Lufthansa', 'Airbus', 'thyssenkrupp', 'ZF Friedrichshafen', 'Schaeffler', 'Merck', 'Henkel',
+    'Covestro', 'Evonik', 'RWE', 'E.ON', 'EnBW', 'Uniper', 'Allianz', 'Munich Re', 'Deutsche Bank',
+    'Commerzbank', 'adidas', 'Beiersdorf', 'Heidelberg Materials', 'Fresenius', 'TRUMPF', 'Festo',
+    'KUKA', 'Voith', 'ABB', 'Schneider Electric', 'Rockwell Automation', 'Honeywell', 'Emerson',
+    'General Electric', 'GE Vernova', 'GE HealthCare', 'Philips', 'ASML', 'STMicroelectronics',
+    'NXP', 'Ericsson', 'Nokia', 'Volvo', 'Scania', 'Saab', 'Atlas Copco', 'Sandvik', 'SKF',
+    'Hitachi', 'Toshiba', 'Mitsubishi', 'Panasonic', 'Sony', 'Toyota', 'Honda', 'Nissan',
+    'Hyundai', 'Samsung', 'LG', 'Tata Steel', 'Tata Motors', 'Infosys', 'Wipro',
+    'Reliance Industries', 'Saudi Aramco', 'SABIC', 'Shell', 'BP', 'TotalEnergies', 'Equinor',
+    'Eni', 'Repsol', 'ExxonMobil', 'Chevron', 'Enel', 'Iberdrola', 'Engie', 'EDF', 'Orsted',
+    'Vattenfall', 'Nestle', 'Unilever', 'Procter & Gamble', "L'Oreal", 'Danone', 'Novartis',
+    'Roche', 'Sanofi', 'AstraZeneca', 'GSK', 'Pfizer', 'Johnson & Johnson', 'Medtronic', '3M',
+    'Caterpillar', 'John Deere', 'Boeing', 'Lockheed Martin', 'Rolls-Royce', 'Safran', 'Thales',
+    'Dassault Systemes', 'Renault', 'Stellantis', 'Ford', 'General Motors', 'Tesla', 'Microsoft',
+    'Google', 'Amazon', 'Apple', 'Meta', 'IBM', 'Intel', 'NVIDIA', 'Oracle', 'Cisco', 'Dell', 'HP',
+    'Accenture', 'Capgemini', 'Deloitte', 'PwC', 'KPMG', 'EY', 'McKinsey', 'Walmart', 'IKEA',
+    'Maersk', 'UPS', 'FedEx', 'Dow', 'DuPont', 'Linde', 'Air Liquide', 'Saint-Gobain',
+    'ArcelorMittal', 'Holcim', 'Heineken', 'AB InBev', 'Coca-Cola', 'PepsiCo',
+)
+
+
 def _find_data_dir(start: pathlib.Path) -> pathlib.Path:
     # also scan the repo's data/ folder, where the shipped xlsx/pdfs/runs.db live —
     # local (non-Docker) runs previously missed it unless env vars were set.

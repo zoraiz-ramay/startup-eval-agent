@@ -1,179 +1,25 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { IxButton, IxCategoryFilter, IxSelect, IxSelectItem, IxContentHeader, IxKpi, IxPane, IxToggleButton } from "@siemens/ix-react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { IxCategoryFilter, IxContentHeader, IxKpi, IxToggleButton } from "@siemens/ix-react";
 import { iconTableRows } from "@siemens/ix-icons/icons";
 import { api } from "../api.js";
 import { useApp } from "../state.jsx";
 import ErrorBox from "../components/ErrorBox.jsx";
-import { PillarPill } from "../components/widgets.jsx";
 import "./Explore.css";
 import { departmentScore } from "../scoring/department.js";
+import DepartmentPicker from "../components/DepartmentPicker.jsx";
+import { COLUMNS, DEFAULT_COLS, SORTABLE } from "./exploreColumns.jsx";
+import ColumnDrawer from "./ColumnDrawer.jsx";
 
 // MIG-12: the one category this filter row ever offered is the pillar, so it maps onto
 // IxCategoryFilter's single-category-hash shape (components.md) with one entry. Free text still
 // goes in as a token — IxCategoryFilter's own input, not a second control next to it.
-const FILTER_CATEGORIES = { pillar: { label: "Pillar", options: ["Connect", "Collaborate", "Empower", "Pass"] } };
-
-/* Stored evaluation columns. */
-const COLUMNS = {
-  final_score: {
-    label: "Overall score",
-    render: (r) => <span className="num">{typeof r.final_score === "number" ? r.final_score.toFixed(0) : "—"}</span>,
-  },
-  ...Object.fromEntries([['di_fit', 'DI', 'di'], ['si_fit', 'SI', 'si'], ['smo_fit', 'SMO', 'mobility']].map(([key, label, id]) => [key, {label, render: (r) => <Link onClick={(e) => e.stopPropagation()} to={`/startup/${r.id}?tab=Scoring+%26+Fit&department=${id}`}>{typeof r[key] === "number" ? r[key].toFixed(0) : "Not assessed"}</Link>}])),
-  siemens_fit: { label: "Siemens fit", render: (r) => <span className="num">{typeof r.siemens_fit === "number" ? r.siemens_fit.toFixed(0) : "—"}</span> },
-  summary: { label: "Short Description", render: (r) => <span className="desc-clip" title={r.summary}>{r.summary || "—"}</span> },
-  hq: { label: "Location", render: (r) => r.hq || "—" },
-  founded_year: { label: "Founded", render: (r) => r.founded_year || "—" },
-  stage: { label: "Stage", render: (r) => r.stage || "—" },
-  funding: { label: "Funding", render: (r) => <span className="desc-clip" style={{ maxWidth: 140 }} title={r.funding}>{r.funding || "—"}</span> },
-  founders: { label: "Founder Highlights", render: (r) => <span className="desc-clip" style={{ maxWidth: 180 }} title={r.founders}>{r.founders || "—"}</span> },
-  evidence: {
-    label: "Evidence Strength",
-    render: (r) => r.evidence_count
-      ? <span><span className="num">{r.verified_facts}</span><span className="muted">/{r.evidence_count} verified</span></span>
-      : <span className="muted">—</span>,
-  },
-  trend: { label: "Market Signal", render: (r) => r.trend || "—" },
-  pillar: {
-    label: "Route",
-    render: (r) => (
-      <span>
-        <PillarPill pillar={r.pillar} />{" "}
-        {(r.secondary || []).map((s) => <PillarPill key={s} pillar={s} ghost>+{s}</PillarPill>)}
-      </span>
-    ),
-  },
-  /* Names the line, not just the flag. "SFS" on every row was the old behaviour and it was true of
-     every row — the useful question is which of leasing, vendor finance, project finance or
-     corporate lending applies, and rows evaluated before that was determined stay blank rather
-     than claiming a line nobody established. */
-  sfs: {
-    label: "SFS",
-    render: (r) => (r.sfs_relevant
-      ? <span className="pill sfs" title={r.sfs_line || "Siemens Financial Services relevant"}>
-          {r.sfs_line || "SFS"}
-        </span>
-      : ""),
-  },
-  confidence: { label: "Confidence", render: (r) => (r.confidence !== "" ? `${Math.round((r.confidence || 0) * 100)}%` : "—") },
-  /* Portfolio stance — complementary, integrates, adjacent, or competes. Off by default: it is a
-     filtering tool for a specific question ("who overlaps our own products"), not a number a
-     scout reads on every row. */
-  stance: {
-    label: "Portfolio Stance",
-    render: (r) => (r.stance
-      ? <span className={r.competes ? "pill sfs" : "badge"}>{r.stance}</span>
-      : <span className="muted">—</span>),
-  },
-  created_at: { label: "Evaluated", render: (r) => <span className="muted">{String(r.created_at).slice(0, 10)}</span> },
-};
-const DEFAULT_COLS = ["final_score", "siemens_fit", "di_fit", "si_fit", "smo_fit", "summary", "hq", "stage", "funding",
-  "evidence", "pillar", "sfs", "created_at"];
-const SORTABLE = new Set(["final_score", "siemens_fit", "di_fit", "si_fit", "smo_fit", "founded_year", "created_at", "hq", "stage"]);
-
-function ColumnDrawer({ open, onClose, cols, setCols, onSaveView }) {
-  const [viewName, setViewName] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState("");
-  const asideRef = useRef(null);
-  // MIG-14: IxPane's own Escape handler (pane.js's registerEscapeListener) is attached to the
-  // host element itself, and only fires while focus is inside it — kept here too, on window,
-  // as a second path that doesn't depend on where focus happens to be. Both call the same
-  // onClose, which is idempotent, so there is no double-close to guard against.
-  useEffect(() => {
-    if (!open) return undefined;
-    const onKey = (e) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
-  // IxPane moves focus into itself on its own (pane.js's focusFirstSlottedElement), but only
-  // after its open animation's completion callback fires — real in a browser, not guaranteed in
-  // a test environment that doesn't run animation frames the same way. Doing it here too, plain
-  // and synchronous, means the "focus lands inside" contract holds regardless of the pane's own
-  // animation timing.
-  useEffect(() => {
-    if (open) asideRef.current?.focus();
-  }, [open]);
-  if (!open) return null;
-  const move = (i, d) => {
-    const next = [...cols];
-    const j = i + d;
-    if (j < 0 || j >= next.length) return;
-    [next[i], next[j]] = [next[j], next[i]];
-    setCols(next);
-  };
-  const inactive = Object.keys(COLUMNS).filter((k) => !cols.includes(k));
-  return (
-    // variant="floating" + composition="right" is the same overlay shape AssistantDock (MIG-11)
-    // already uses; .explore-drawer-pane forces position:fixed the same way .assistant-pane
-    // does, since IxPane defaults every composition to position:relative (verified against
-    // pane.css). closeOnClickOutside replaces the old bare `.drawer-mask` div outright — X-04's
-    // complaint was a mouse-only control invisible to assistive tech, and there is now no
-    // backdrop element at all for that problem to attach to; a plain window click listener
-    // (pane.js's onExpandedChange, gated on event.composedPath()) closes it instead.
-    <IxPane
-      className="explore-drawer-pane"
-      variant="floating"
-      composition="right"
-      size="320px"
-      expanded
-      closeOnClickOutside
-      heading="Customise columns"
-      ariaLabelCollapseCloseButton="Close customise columns"
-      onExpandedChanged={(e) => { if (!e.detail.expanded) onClose(); }}
-    >
-      {/* IxPane's <aside> carries no aria-labelledby/aria-label wired to `heading` (verified
-          against the compiled source, same gap AssistantDock's own comment documents) — the
-          "Customise columns" landmark name has to come from a light-DOM wrapper we slot in. */}
-      <div ref={asideRef} tabIndex={-1} role="complementary" aria-label="Customise columns">
-        <form className="save-view-form" onSubmit={async (e) => {
-          e.preventDefault(); if (saving || !viewName.trim()) return;
-          setSaving(true); setSaveError("");
-          try { await onSaveView(viewName.trim(), cols); setViewName(""); }
-          catch (error) { setSaveError(error.message); }
-          finally { setSaving(false); }
-        }}>
-          <label htmlFor="saved-view-name">Save these columns and filters</label>
-          <input id="saved-view-name" className="input" placeholder="View name…" maxLength={80} value={viewName} onChange={(e) => setViewName(e.target.value)} />
-          <IxButton type="submit" disabled={saving || !viewName.trim()}>{saving ? "Saving…" : "Save view"}</IxButton>
-          {saveError && <p role="alert">{saveError}</p>}
-        </form>
-        <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>Reorder, remove, or add columns.</p>
-        {cols.map((k, i) => (
-          <div key={k} className="drow">
-            <input type="checkbox" checked readOnly aria-label={`Remove ${COLUMNS[k].label}`}
-              onClick={() => setCols(cols.filter((c) => c !== k))} />
-            {COLUMNS[k].label}
-            <span className="mv">
-              <button onClick={() => move(i, -1)} aria-label="Move up">↑</button>
-              <button onClick={() => move(i, 1)} aria-label="Move down">↓</button>
-            </span>
-          </div>
-        ))}
-        {inactive.length > 0 && <h4 className="muted" style={{ margin: "14px 0 4px", fontSize: 11 }}>AVAILABLE</h4>}
-        {inactive.map((k) => (
-          <div key={k} className="drow">
-            <input type="checkbox" checked={false} readOnly aria-label={`Add ${COLUMNS[k].label}`}
-              onClick={() => setCols([...cols, k])} />
-            {COLUMNS[k].label}
-          </div>
-        ))}
-        <div style={{ display: "flex", gap: 6, marginTop: 14 }}>
-          <button className="btn secondary" onClick={() => setCols(DEFAULT_COLS)}>Restore defaults</button>
-        </div>
-
-      </div>
-    </IxPane>
-  );
-}
+const FILTER_CATEGORIES = { pillar: { label: "Pillar", options: ["Connect", "Collaborate", "Empower", "Pass", "Defer"] } };
 
 export default function Explore() {
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
-  const { watchlist, toggleWatch, savedViews, saveView: persistView } = useApp();
+  const { watchlist, toggleWatch, savedViews, saveView: persistView, department, setDepartment } = useApp();
 
   const [runs, setRuns] = useState(null);
   const [departments, setDepartments] = useState([]);
@@ -260,11 +106,13 @@ export default function Explore() {
 
   const rows = useMemo(() => {
     if (!runs) return [];
-    // one row per COMPANY (latest run) — history stays in the DB, reachable via profile
+    // One row per company AND department (latest run of each): a startup assessed for two
+    // departments is two results. Filtered to the reviewer's department unless they choose all.
     const latest = [];
     const seen = new Set();
     for (const r of runs) {                      // runs arrive newest-first
-      const k = r.company.toLowerCase();
+      if (department && r.department_id !== department) continue;
+      const k = `${r.company.toLowerCase()}|${r.department_id || ""}`;
       if (!seen.has(k)) { seen.add(k); latest.push({...r, di_fit:departmentScore(r, departments.find(d => d.id === "di")), si_fit:departmentScore(r, departments.find(d => d.id === "si")), smo_fit:departmentScore(r, departments.find(d => d.id === "mobility"))}); }
     }
     const f = q.trim().toLowerCase();
@@ -277,7 +125,7 @@ export default function Explore() {
       return (va > vb ? 1 : va < vb ? -1 : 0) * sortDir;
     });
     return out;
-  }, [runs, q, pillar, sortKey, sortDir, departments]);
+  }, [runs, q, pillar, sortKey, sortDir, departments, department]);
 
   const stats = useMemo(() => {
     if (!runs?.length) return null;
@@ -378,6 +226,7 @@ export default function Explore() {
       </div>
 
       <div className="filter-row">
+        <DepartmentPicker departments={departments} value={department} onChange={setDepartment} allowAll label="Department" />
         <IxCategoryFilter
           categories={FILTER_CATEGORIES}
           filterState={filterState}

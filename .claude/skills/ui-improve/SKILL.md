@@ -41,8 +41,7 @@ Launch `ui-implementer` with the chosen backlog row. Exactly one item.
 ```bash
 bash scripts/gates.sh
 ```
-All five gates. A failing **visual baseline is a stop**, not an obstacle — surface the diff and let
-the human decide whether the layout change was intended. Agents cannot update baselines, by design.
+All five gates. A failing **visual baseline is a stop**, not an obstacle 
 
 ### 5. Package
 Launch `pr-author` for a branch + PR with gate results and before/after screenshots.

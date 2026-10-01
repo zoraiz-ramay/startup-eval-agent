@@ -60,7 +60,15 @@ def _load(db_path: str) -> list[dict]:
             result = json.loads(payload or "{}")
         except (ValueError, TypeError):
             continue
-        dims = (result.get("score") or {}).get("dimensions") or {}
+        # Read the way the app reads it, so `traction` here is the rubric's number. The rubric's
+        # divisions are listed too: a division that scores the same for every company (say, every
+        # run evidencing ≥ €2M) is the ladder-that-always-maxes-out failure, one level down.
+        from core.traction import with_traction
+        result = with_traction(result)
+        dims = dict((result.get("score") or {}).get("dimensions") or {})
+        for d in (result.get("traction") or {}).get("divisions") or []:
+            if d.get("points") is not None:
+                dims[f"traction.{d['id']}"] = d["points"]
         if dims:
             out.append({"id": rid, "company": company, "dimensions": dims})
     return out

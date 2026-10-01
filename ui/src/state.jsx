@@ -31,20 +31,19 @@ const LEGACY_VIEWS_KEY = "se.savedViews";
 /**
  * Whether the assistant starts open, decided once per load.
  *
- * The dock is a 332px `position: fixed` panel (styles.css) — it sits on top of the page
- * rather than in the layout flow, and no media query adapts it. Opening it unconditionally
- * would therefore cover most of a phone screen with something the reader never asked for, so
- * it only auto-opens above the shell's existing 1180px breakpoint. Below that it is one tap
- * away on the rail.
- *
- * Deliberately not persisted: "open when the app loads" is the point, so a dock closed
- * earlier in the day should not still be closed tomorrow.
+ * Collapsed unless the reviewer deliberately left it open. Auto-opening it on every wide screen
+ * squeezed the assessment beside it (the Scoring & Fit review found the fit panels overflowing
+ * with the dock open), so the reviewer's own last explicit choice is what is remembered — and
+ * only honoured above the shell's 1180px breakpoint. The dock is a 332px `position: fixed`
+ * panel, so below that it would cover most of the page; there it opens on request only.
  */
 const DOCK_AUTO_OPEN_QUERY = "(min-width: 1181px)";
+const DOCK_PREF_KEY = "se.dockOpen.v1";
 
 function dockOpenByDefault() {
   try {
-    return Boolean(globalThis.matchMedia?.(DOCK_AUTO_OPEN_QUERY)?.matches);
+    const wide = Boolean(globalThis.matchMedia?.(DOCK_AUTO_OPEN_QUERY)?.matches);
+    return wide && localStorage.getItem(DOCK_PREF_KEY) === "open";
   } catch {
     return false;
   }
@@ -57,7 +56,17 @@ export function AppProvider({ children }) {
   // machines instead of belonging to a browser profile. Loaded rather than persisted here.
   const [savedViews, setSavedViews] = useState([]);                         // {name, columns, filters}
   const [pins, setPins] = usePersistent("se.pins", ["Explore startups", "Solve a problem"]);
-  const [dockOpen, setDockOpen] = useState(dockOpenByDefault);
+  // The department the reviewer is working for. Search, the Database grid and the profile's
+  // department switch all read this one value: "my department" is something a reviewer has, not
+  // a per-screen setting. Empty until they choose — a search cannot start without one.
+  const [department, setDepartment] = usePersistent("se.department.v1", "");
+  const [dockOpen, setDockOpenState] = useState(dockOpenByDefault);
+  // Every open/close is a deliberate act (the rail toggle, the dock's close button, the Ask page),
+  // so each one records the preference the next load starts from.
+  const setDockOpen = useCallback((open) => {
+    setDockOpenState(open);
+    try { localStorage.setItem(DOCK_PREF_KEY, open ? "open" : "closed"); } catch { /* storage off */ }
+  }, []);
   const [dockCtx, setDockCtx] = useState(null);                             // {runId, company}
 
   const toggleWatch = (company) =>
@@ -108,6 +117,7 @@ export function AppProvider({ children }) {
       watchlist, toggleWatch,
       savedViews, saveView, removeView,
       pins, setPins,
+      department, setDepartment,
       dockOpen, setDockOpen, dockCtx, setDockCtx,
     }}>
       <ResearchProvider key={user?.oid || "local"} userId={user?.oid}>{children}</ResearchProvider>

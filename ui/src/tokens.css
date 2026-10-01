@@ -78,6 +78,27 @@
   --pillar-empower-bg: var(--accent-soft);
   --pillar-pass-bg: #f0f2f5;
 
+  /* Chart palette (Scoring & Fit). Aliases of iX's own chart series and chart-infrastructure
+     tokens, so the charts follow the iX theme in both colour schemas. The four total components
+     use series that differ in lightness as well as hue (chart-1/7/10/13), and every chart also
+     labels its values in text, so colour is never the only signal. The fallbacks are iX's
+     classic-light values, for a page rendered before the iX stylesheet loads. */
+  --chart-traction: var(--theme-chart-1, #008a7c);
+  --chart-fit: var(--theme-chart-7, #182171);
+  --chart-team: var(--theme-chart-10, #7c40ff);
+  --chart-market: var(--theme-chart-13, #6f2542);
+  /* "How this startup works": one hue per step of the story. */
+  --flow-problem: var(--theme-chart-13, #6f2542);
+  --flow-offer: var(--theme-chart-1, #008a7c);
+  --flow-how: var(--theme-chart-10, #7c40ff);
+  --flow-customers: var(--theme-chart-4, #b57e00);
+  --flow-money: var(--theme-chart-7, #182171);
+  /* The current step's hue, set per step by .biz-<step> in styles.css. */
+  --stage: var(--flow-offer);
+  --chart-grid: var(--theme-chart-grid-lines, rgba(0, 0, 0, .1));
+  --chart-axes: var(--theme-chart-axes, rgba(0, 0, 0, .3));
+  --chart-track: var(--theme-chart-grid-lines, rgba(0, 0, 0, .1));
+
   /* typography scale */
   --fs-title: 23px;
   --fs-section: 16px;
@@ -94,6 +115,8 @@
      useStickyOffset; the fallback here is what CSS uses before the first measure. */
   --section-rail-w: 220px;
   --profile-sticky-h: 200px;
+  /* Where an opened criterion panel's pointer sits, written per panel by CriterionDetail. */
+  --caret-x: 48px;
   --rail-w: 68px;
   --sidenav-w: 236px;
 

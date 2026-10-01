@@ -1,84 +1,67 @@
-import { api } from "../../../api.js";
-import { ExtLink } from "../../../components/widgets.jsx";
 import React, { useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import FitRubric from "./FitRubric.jsx";
-import { ScoreBar } from "../../../components/widgets.jsx";
-import Section from "../Section.jsx";
-import SfsPanel from "./SfsPanel.jsx";
-import { IxButton, IxContentHeader, IxTabs, IxTabItem } from "@siemens/ix-react";
+import { IxDropdownButton, IxDropdownItem, IxMessageBar, IxToggleButton } from "@siemens/ix-react";
+import DepartmentPanel from "./DepartmentPanel.jsx";
+import FitComparison from "./FitComparison.jsx";
+import FitSummary from "./FitSummary.jsx";
+import MarketScorePanel from "./MarketScorePanel.jsx";
+import Supplementary from "./Supplementary.jsx";
+import TeamPanel from "./TeamPanel.jsx";
+import TotalContribution from "./TotalContribution.jsx";
+import TractionPanel from "./TractionPanel.jsx";
+import { scoringNotices } from "./presentation.js";
 
-const PILLARS = ["Empower", "Connect", "Collaborate"];
+export const VIEW_KEY = "se.scoringView.v1";
 
-export default function ScoringTab({ res, runId, onAssessment }) {
-  const [params, setParams] = useSearchParams();
-  const activePillar = PILLARS.includes(params.get("pillar")) ? params.get("pillar") : "Empower";
-  const setActivePillar = (p) => setParams((old) => { const next = new URLSearchParams(old); next.set("pillar", p); return next; }, { replace: true });
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const decide = async () => {
-    setBusy(true); setError("");
-    try { const result = await api.decideRun(runId);
-      if (result.routing?.status === "assessed") onAssessment?.(result);
-      else setError(result.routing?.message || "Recommendation unavailable. Please retry.");
-    } catch (e) { setError(e.message); } finally { setBusy(false); }
+/* Summary or detailed, remembered per browser. How much of the reasoning a reviewer wants on
+   screen is a reading preference, not part of the run, so it lives beside the page and never in
+   the URL a reviewer shares. */
+function useView() {
+  const [view, setView] = useState(() => {
+    try { return localStorage.getItem(VIEW_KEY) === "detailed" ? "detailed" : "summary"; } catch { return "summary"; }
+  });
+  const change = (next) => {
+    setView(next);
+    try { localStorage.setItem(VIEW_KEY, next); } catch { /* storage off: the choice lasts the visit */ }
   };
-  const fit = res.fit || {}, rt = res.routing || {};
+  return [view, change];
+}
 
+/* Scoring & Fit, in the order a reviewer decides: what we recommend and why, what the total is
+   made of, then its components by weight — Siemens Fit (35%, as three routes), Traction (30%),
+   Team & Ecosystem (20%), Market (15%) — then supporting detail. The order here and in sections.js is the same list; the rail reads the latter. */
+export default function ScoringTab({ res, runId, onAssessment, onRefresh }) {
+  const [view, setView] = useView();
+  const [, setParams] = useSearchParams();
+  const detailed = view === "detailed";
+  const copyLink = () => { try { navigator.clipboard?.writeText(window.location.href); } catch { /* no clipboard */ } };
+  const openEvidence = () => setParams((old) => { const next = new URLSearchParams(old); next.set("tab", "Evidence"); return next; });
   return (
     <>
-      <Section id="scoring-decision">
-        <IxContentHeader headerTitle="Decision" headerSubtitle="Recommended partnership route and practical next steps, based on collected research." />
-        {rt.version === "llm-decision-v2" && rt.status === "assessed" ? <>
-          <p><span className={`pill ${rt.pillar}`}>{rt.pillar}</span> <span className="muted">LLM recommendation · {Math.round(rt.confidence * 100)}% confidence</span></p>
-          {(rt.reasons || []).map((reason, i) => <p key={i}>{reason}</p>)}
-          <h4>How to proceed</h4>
-          <ol className="decision-next-steps">{(rt.next_steps || []).map((step, i) => <li key={i}>{step}</li>)}</ol>
-          <details><summary>Supporting evidence</summary>{(rt.evidence || []).map((e, i) => <div key={i}><blockquote>{e.quote}</blockquote><small>{e.source} {e.url && <ExtLink href={e.url}>Source</ExtLink>}</small></div>)}</details>
-        </> : <>
-          <p className="muted">Generate an evidence-based recommendation for Empower, Collaborate, Connect, Pass or Defer, including what to do next.</p>
-          <IxButton disabled={busy || !runId} onClick={decide}>{busy ? "Assessing partnership…" : "Generate recommendation"}</IxButton>
-        </>}
-        {error && <p role="alert">{error}</p>}
-      </Section>
-
-      <FitRubric res={res} runId={runId} onAssessment={onAssessment} />
-
-      <Section id="scoring-routes">
-        <IxTabs aria-label="Partnership routes" activeTabKey={activePillar} layout="stretched"
-          onTabChange={(e) => { if (PILLARS.includes(e.detail)) setActivePillar(e.detail); }}>
-          {PILLARS.map((p) => <IxTabItem key={p} tabKey={p} id={`pillar-tab-${p}`} label={p} />)}
-        </IxTabs>
-        {PILLARS.map((p) => <div key={p} role="tabpanel" id={`pillar-panel-${p}`}
-          aria-labelledby={`pillar-tab-${p}`} hidden={activePillar !== p} className="partnership-placeholder">
-          <p className="muted">Under development</p>
-        </div>)}
-      </Section>
-
-      <Section id="scoring-portfolio">
-        <h3>Siemens portfolio fit</h3>
-        {rt.portfolio_stance?.label && (
-          <p style={{ margin: "0 0 8px" }}>
-            <span className={`verdict ${rt.portfolio_stance.competes ? "blocked" : "eligible"}`}>
-              {rt.portfolio_stance.label}
-            </span>{" "}
-            <span className="muted" style={{ fontSize: 12.5 }}>{rt.portfolio_stance.note}</span>
-          </p>
-        )}
-        {fit.aligned && (fit.matches || []).length ? fit.matches.map((m, i) => (
-          <div key={i} style={{ marginBottom: 10 }}>
-            <strong>{m.tool}</strong>
-            <span className="badge">{m.division}</span>
-            {m.relation && <span className="badge">{m.relation}</span>}
-            <ScoreBar label="match confidence" value={m.confidence} />
-            <p className="muted" style={{ margin: "3px 0 0", fontSize: 12.5 }}>{m.rationale}</p>
-          </div>
-        )) : <p className="muted">No tool met the fit threshold.</p>}
-        <p className="muted" style={{ fontSize: 11.5, marginBottom: 0 }}>method: {fit.method || "—"}</p>
-      </Section>
-
-      <Section id="scoring-sfs"><SfsPanel rt={rt} /></Section>
-
+      <div className="scoring-toolbar">
+        <DepartmentPanel res={res} runId={runId} />
+        <div className="view-toggle" role="group" aria-label="View">
+          <IxToggleButton pressed={!detailed} variant="subtle-primary" onClick={() => setView("summary")}>Summary</IxToggleButton>
+          <IxToggleButton pressed={detailed} variant="subtle-primary" onClick={() => setView("detailed")}>Detailed</IxToggleButton>
+        </div>
+        <IxDropdownButton label="Actions" variant="secondary" ariaLabelDropdownButton="Actions">
+          {onRefresh && <IxDropdownItem label="Re-evaluate with fresh data" onClick={onRefresh} />}
+          <IxDropdownItem label="Copy link to this view" onClick={copyLink} />
+          <IxDropdownItem label="Open evidence" onClick={openEvidence} />
+        </IxDropdownButton>
+      </div>
+      {scoringNotices(res).map((n) => (
+        <IxMessageBar key={n.id} type={n.type} persistent className="scoring-notice">
+          <strong>{n.title}</strong> {n.text}
+        </IxMessageBar>
+      ))}
+      <FitSummary res={res} runId={runId} onAssessment={onAssessment} detailed={detailed} />
+      <TotalContribution res={res} detailed={detailed} />
+      <FitComparison res={res} detailed={detailed} />
+      <TractionPanel res={res} runId={runId} detailed={detailed} />
+      <TeamPanel res={res} />
+      <MarketScorePanel res={res} detailed={detailed} />
+      <Supplementary res={res} />
     </>
   );
 }

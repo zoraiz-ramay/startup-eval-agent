@@ -53,7 +53,14 @@ export default function ProfileLayout({ view, onSelectView, children }) {
       {/* Named region rather than a bare div: the rail is a landmark, and the thing it controls
           has to be reachable as one too, or a screen-reader user can jump to the navigation and
           then has nowhere to jump to. */}
-      <div className="profile-body-main" role="region" aria-label={current.label}>
+      {/* An in-page link to one of this view's sections (the Total score legend's, say) gets
+          the rail's behaviour: the browser scrolls, and the scroll-spy is pinned to the target
+          so a section that cannot reach the top — Market, near the end — is still the one marked. */}
+      <div className="profile-body-main" role="region" aria-label={current.label}
+        onClickCapture={(e) => {
+          const id = e.target.closest?.('a[href^="#"]')?.getAttribute("href")?.slice(1);
+          if (id && ids.includes(id)) pin(id);
+        }}>
         {children}
       </div>
     </div>

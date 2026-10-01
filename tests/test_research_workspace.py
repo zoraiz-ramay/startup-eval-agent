@@ -34,15 +34,27 @@ def test_private_runs_cannot_be_read_by_another_reviewer():
 
 def test_job_submission_is_idempotent_and_isolated(monkeypatch):
     pool = Mock(); monkeypatch.setattr(jobs,"_pool",pool)
-    body = jobs.JobBody(names=["Alpha","Beta"],request_id="test-request-unique")
+    body = jobs.JobBody(names=["Alpha","Beta"],request_id="test-request-unique",department_id="di")
     a,b = user("job-a"),user("job-b")
     first = jobs.start(body,a)
     assert jobs.start(body,a) == first
     assert pool.submit.call_count == 2
+    # The batch's department is applied to every startup in it.
+    assert {j["department_id"] for j in first["jobs"]} == {"di"}
     with pytest.raises(Exception) as exc:
         jobs.get_job(first["jobs"][0]["id"],b)
     assert exc.value.status_code == 404
     for _ in first["jobs"]: jobs._slots.release()
+
+
+def test_an_evaluation_batch_without_a_department_is_refused_before_anything_queues(monkeypatch):
+    pool = Mock(); monkeypatch.setattr(jobs,"_pool",pool)
+    for department in (None, "no-such-department"):
+        body = jobs.JobBody(names=["Alpha"],request_id=f"no-dept-{department}",department_id=department)
+        with pytest.raises(Exception) as exc:
+            jobs.start(body,user("job-c"))
+        assert exc.value.status_code == 422
+    assert pool.submit.call_count == 0
 
 
 def test_batch_limit_is_enforced_server_side():

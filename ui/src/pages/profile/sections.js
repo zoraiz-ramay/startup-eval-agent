@@ -22,6 +22,7 @@ export const PROFILE_VIEWS = [
     sections: [
       { id: "profile-key-metrics", label: "Key metrics" },
       { id: "profile-executive-summary", label: "Executive summary" },
+      { id: "profile-how-it-works", label: "How this startup works" },
       { id: "profile-team-ecosystem", label: "Team & ecosystem" },
       { id: "profile-reference-customers", label: "Reference customers" },
       { id: "profile-headcount-trend", label: "Headcount trend" },
@@ -32,12 +33,16 @@ export const PROFILE_VIEWS = [
     id: "Scoring & Fit",
     label: "Scoring & Fit",
     sections: [
-      { id: "scoring-decision", label: "Decision" },
-      { id: "scoring-department", label: "Department fit" },
-      { id: "scoring-breakdown", label: "Score breakdown" },
-      { id: "scoring-routes", label: "Partnership routes" },
-      { id: "scoring-portfolio", label: "Portfolio fit" },
-      { id: "scoring-sfs", label: "SFS financing" },
+      // scoring-decision and scoring-department now live inside the summary, and scoring-breakdown
+      // and scoring-sfs inside the SFS section, as plain anchors — so links shared before the
+      // redesign still land on the page (the model-score diagnostics they pointed at are gone).
+      { id: "scoring-summary", label: "Recommendation" },
+      { id: "scoring-total", label: "Total score" },
+      { id: "scoring-routes", label: "Siemens Fit" },
+      { id: "scoring-traction", label: "Traction" },
+      { id: "scoring-team", label: "Team & Ecosystem" },
+      { id: "scoring-market", label: "Market" },
+      { id: "scoring-supplementary", label: "SFS financing" },
     ],
   },
   {

@@ -51,7 +51,7 @@ from .score import score_startup
 from .route import route
 from .trend import analyze_trend
 from .chat import (
-    chat_answer, chat_answer_multi, chat_smart, search_glassdollar_db,
+    chat_answer, chat_answer_multi, chat_assistant, search_glassdollar_db,
     CHAT_DETAIL, CHAT_MAX_TOKENS,
 )
 from .pipeline import evaluate
@@ -79,7 +79,7 @@ __all__ = [
     "match_siemens_tools", "FIT_SHORTLIST_SIZE", "score_startup", "route",
     "analyze_trend",
     # chat
-    "chat_answer", "chat_answer_multi", "chat_smart", "search_glassdollar_db",
+    "chat_answer", "chat_answer_multi", "chat_assistant", "search_glassdollar_db",
     "CHAT_DETAIL", "CHAT_MAX_TOKENS",
     # pipeline
     "evaluate",

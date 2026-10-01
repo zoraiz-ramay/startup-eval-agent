@@ -1,5 +1,7 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { IxButton } from "@siemens/ix-react";
+import { iconArrowLeft, iconRefresh, iconStar, iconStarFilled } from "@siemens/ix-icons/icons";
 import { useResearch } from "../research.jsx";
 import { api, evaluateStream } from "../api.js";
 import { useApp } from "../state.jsx";
@@ -46,10 +48,11 @@ export default function Profile() {
   const { id } = useParams();
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
-  const { watchlist, toggleWatch, setDockCtx, setDockOpen } = useApp();
+  const { watchlist, toggleWatch, setDockCtx, setDockOpen, department } = useApp();
   const [res, setRes] = useState(null);
   const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  const [showContext, setShowContext] = useState(false);
   const research = useResearch();
   const jobId = params.get("job");
   const job = research.jobs.find((j) => j.id === jobId);
@@ -61,7 +64,11 @@ export default function Profile() {
     if (!res || refreshing) return;
     setRefreshing(true);
     try {
-      const [j] = await research.start({ names: [res.company], refresh: true });
+      // A refresh re-evaluates for the department this run was assessed for; a legacy run has
+      // none, so it takes the reviewer's current department — and cannot start without one.
+      const dep = res.department?.id || department;
+      if (!dep) { setError("Choose a department before re-evaluating this startup."); return; }
+      const [j] = await research.start({ names: [res.company], refresh: true, department_id: dep });
       nav(`/startup/new?name=${encodeURIComponent(res.company)}&job=${j.id}`, { replace: true });
     } catch (e) {
       setError(e.message);
@@ -92,7 +99,9 @@ export default function Profile() {
          non-streaming path produces, so every view below reads one shape and none of them know
          this happened. `evaluateStream` falls back to api.evaluate on any stream failure. */
       if (!jobId) {
-        research.start({ names: [evalName], refresh: params.get("refresh") === "1" })
+        const dep = params.get("department") || department;
+        if (!dep) { setError("Choose a department on the search page before starting an evaluation."); return; }
+        research.start({ names: [evalName], refresh: params.get("refresh") === "1", department_id: dep })
           .then(([j]) => { if (active) nav(`/startup/new?name=${encodeURIComponent(evalName)}&job=${j.id}`, { replace: true }); })
           .catch((e) => setError(e.message));
       }
@@ -121,13 +130,6 @@ export default function Profile() {
   }, [res]);                    // eslint-disable-line react-hooks/exhaustive-deps
 
   const p = res?.profile || {};
-  const tags = useMemo(() => {
-    const t = [];
-    if (p["Business model"]) t.push(p["Business model"]);
-    if (p["Development stage of your solution"]) t.push(p["Development stage of your solution"]);
-    if (res?.routing?.sfs_relevant) t.push("SFS relevant");
-    return t;
-  }, [res]);                    // eslint-disable-line react-hooks/exhaustive-deps
 
   if (error) {
     return (
@@ -146,81 +148,63 @@ export default function Profile() {
     return <SkeletonProfile name={res?.company || evalName || `run #${id}`} />;
   }
 
-  const rt = res.routing || {}, sc = res.score || {};
+  const rt = res.routing || {};
+  const compactHead = tab === "Scoring & Fit";
   // A section the run has not produced YET, which is not the same as a section it produced empty.
   const pending = (section) => Boolean(res.streaming) && !res[section];
+
+  /* The sticky head says what the company is and nothing else: name and route, one line of facts,
+     a short summary that opens on request, and where the data came from. The score has its own
+     page (Scoring & Fit), the confidence figure was "not available" on every pillar-routed run,
+     and the model name was an engine detail — all three left the head. */
+  const watching = watchlist.includes(res.company);
+  const age = ageDays === null ? "" : ageDays < 0.08 ? "just now" : ageDays < 1 ? `${Math.round(ageDays * 24)}h ago` : `${Math.round(ageDays)}d ago`;
+  const stage = String(p["Development stage of your solution"] || "").replace(/\s*\(.*$/s, "").trim();
+  const facts = [res.department?.label || "No department (legacy run)", stage, p.hq].filter(Boolean);
+  const longSummary = String(res.summary || "").length > 180;
 
   return (
     <div>
       <div className="profile-head">
         <div className="ph-row">
-          <div className="ph-logo">{(res.company || "?").slice(0, 1).toUpperCase()}</div>
-          <div style={{ flex: 1, minWidth: 240 }}>
-            <h1 className="ph-title">
-              {res.company}
+          <div className="ph-logo" aria-hidden="true">{(res.company || "?").slice(0, 1).toUpperCase()}</div>
+          <div className="ph-main">
+            <div className="ph-titleline">
+              <h1 className="ph-title">{res.company}</h1>
               {/* No pillar until routing has run. An empty pill would read as a verdict of
                   nothing rather than as a verdict not yet reached. */}
-              {rt.pillar && (
-                <span className={`pill ${rt.pillar}`} style={{ marginLeft: 10, verticalAlign: "middle" }}>{rt.pillar}</span>
-              )}{" "}
+              {rt.pillar && <span className={`pill ${rt.pillar === "Defer" ? "pill-warn" : rt.pillar === "Pass" ? "pill-neutral" : "pill-ok"}`}>{rt.pillar}</span>}
               {(rt.secondary || []).map((s) => <span key={s} className={`pill ghost ${s}`}>+{s}</span>)}
-              {/* Only the competing case earns a place in the headline. A complementary or
-                  adjacent startup is the ordinary situation and belongs in the fit panel; one
-                  that does what a Siemens product already does is a different conversation
-                  entirely — competitive watch, or buy-instead-of-build — and used to be visible
-                  only as a quietly reduced fit score. */}
-              {rt.portfolio_stance?.competes && (
-                <span className="pill sfs" style={{ marginLeft: 6, verticalAlign: "middle" }}
-                  title={rt.portfolio_stance.note}>Competes</span>
-              )}
-            </h1>
-            <p className="ph-desc">{res.summary}</p>
-            {/* HQ and funding moved to the metric row below, where they sit beside the other
-                company facts instead of competing with the score for the same line. */}
-            <div className="ph-meta">
-              {pending("score") ? (
-                <span className="muted" role="status" aria-live="polite">
-                  <span className="spinner" aria-hidden="true" /> scoring…
-                </span>
-              ) : (
-                <>
-                  <span>Score <strong>{typeof sc.final_score === "number" ? sc.final_score.toFixed(0) : "—"}</strong></span>
-                  <span>Confidence {Math.round((rt.confidence || 0) * 100)}%</span>
-                </>
-              )}
-              <span className="muted">{res.engine}</span>
-              {/* Rescued from the pipeline ribbon, which was the only place it appeared. A run
-                  assembled from the web rather than the curated GlassDollar record is a caveat on
-                  every figure below it, and dropping the caveat with the chrome would have been a
-                  quiet loss of meaning. */}
-              {res.source === "tracxn" && <span className="badge">Tracxn · your account · private for 30 days</span>}
-              {res.source === "web" && <span className="badge">web-sourced — verify figures</span>}
+              {/* Only the competing case earns a place in the headline: a startup that does what a
+                  Siemens product already does is a different conversation entirely. */}
+              {rt.portfolio_stance?.competes && <span className="pill sfs" title={rt.portfolio_stance.note}>Competes</span>}
+              {pending("score") && <span className="muted ph-pending" role="status" aria-live="polite"><span className="spinner" aria-hidden="true" /> assessing…</span>}
             </div>
-            {tags.length > 0 && (
-              <div style={{ marginTop: 4 }}>
-                {tags.map((t) => <span key={t} className="chip">{t}</span>)}
-              </div>
+            <p className="ph-facts">
+              {facts.map((f, i) => <span key={i}>{f}</span>)}
+              {age && <span className={ageDays > 7 ? "ph-stale" : ""} title={res.run_created_at}>{res.cached ? "Cached · " : ""}Evaluated {age}</span>}
+            </p>
+            {res.summary && (!compactHead || showContext) && (
+              <p className={`ph-desc${showContext ? " open" : ""}`}>{res.summary}</p>
             )}
+            <div className="ph-badges">
+              {(longSummary || compactHead) && res.summary && (
+                <button type="button" className="link-btn ph-more" aria-expanded={showContext}
+                  onClick={() => setShowContext((v) => !v)}>{showContext ? "Less" : compactHead ? "Show summary" : "More"}</button>
+              )}
+              {/* A run assembled from the web rather than a curated record is a caveat on every
+                  figure below it. */}
+              {res.source === "tracxn" && <span className="badge">Tracxn</span>}
+              {res.source === "web" && <span className="badge">Web-sourced · verify figures</span>}
+              {rt.sfs_relevant && <span className="badge">SFS relevant</span>}
+            </div>
           </div>
           <div className="ph-actions">
-            {ageDays !== null && (
-              <span className="badge" title={res.run_created_at}
-                style={ageDays > 7 ? { color: "var(--warning)" } : {}}>
-                {res.cached ? "cached · " : ""}
-                {ageDays < 0.08 ? "just evaluated"
-                  : ageDays < 1 ? `evaluated ${Math.round(ageDays * 24)}h ago`
-                  : `evaluated ${Math.round(ageDays)}d ago`}
-              </span>
-            )}
-            <button className="tool-btn" onClick={refreshData} disabled={refreshing}
-              title="Re-run the full pipeline with fresh web data (old run is kept for history)">
-              {refreshing ? "Refreshing…" : "⟳ Refresh Data"}
-            </button>
-            <button className={"tool-btn" + (watchlist.includes(res.company) ? " active" : "")}
-              onClick={() => toggleWatch(res.company)}>
-              {watchlist.includes(res.company) ? "★ Watching" : "☆ Watch"}
-            </button>
-            <button className="tool-btn" onClick={() => nav("/explore")}>← Companies</button>
+            <IxButton variant="secondary" icon={iconRefresh} onClick={refreshData} disabled={refreshing}
+              title="Re-run the full pipeline with fresh data (the old run is kept for history)">{refreshing ? "Refreshing…" : "Refresh data"}</IxButton>
+            <IxButton variant={watching ? "primary" : "secondary"} icon={watching ? iconStarFilled : iconStar}
+              onClick={() => toggleWatch(res.company)}>{watching ? "Watching" : "Watch"}</IxButton>
+            <IxButton variant="subtle-primary" icon={iconArrowLeft} onClick={() => nav("/explore")}>Companies</IxButton>
           </div>
         </div>
       </div>
@@ -243,7 +227,7 @@ export default function Profile() {
             the same mistake `employees_history_status` exists to prevent, one level up. */}
         {tab === "Scoring & Fit"
           ? (pending("score") ? <StillRunning what="Scoring and routing" />
-            : <ScoringTab res={res} runId={runId} onAssessment={(a) => setRes((old) => !old || (old.run_id && old.run_id !== runId) ? old : ({...old,
+            : <ScoringTab res={res} runId={runId} onRefresh={refreshData} onAssessment={(a) => setRes((old) => !old || (old.run_id && old.run_id !== runId) ? old : ({...old,
                 ...(a.routing?.status === "assessed" ? {routing:a.routing} : {}),
                 ...(a.score?.status === "assessed" ? {score:a.score} : {}),
                 ...(a.department_fit?.status === "assessed" ? {department_assessments:{...old.department_assessments,[a.department_fit.department.id]:a.department_fit}} : {}),

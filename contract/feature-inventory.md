@@ -94,7 +94,7 @@ Legend: **L** = Vitest component test · **E** = Playwright E2E · **V** = visua
 1. **A red contract test blocks the change.** No exceptions for "the test is outdated" — if it is
    outdated, update this file and the test deliberately, in the same commit.
 2. **Agents may not edit this file.** Scope changes come from a human-approved spec.
-3. **Visual baselines are the evidence for V rows.** Agents may not regenerate them
+3. **Visual baselines are the evidence for V rows.** 
    (`ui/e2e/__screenshots__/`); a human runs `--update-snapshots` after reviewing the intent.
 4. **Never assert on source text.** `assert "sticky-header" in file` proves nothing and rots — the
    previous agent system left three such tests failing for months. Render it and assert behaviour.

@@ -1,6 +1,8 @@
 import React from "react";
-import { IxCard, IxCardContent, IxButton } from "@siemens/ix-react";
+import { IxButton } from "@siemens/ix-react";
+import { iconArrowRight, iconInfo } from "@siemens/ix-icons/icons";
 import ErrorBox from "../components/ErrorBox.jsx";
+import Icon from "../components/Icon.jsx";
 
 /**
  * The sign-in screen, and the only surface an unauthenticated visitor ever sees.
@@ -72,35 +74,32 @@ export default function SignIn() {
     window.location.href = `/api/auth/login?next=${encodeURIComponent(next)}`;
   };
 
+  /* The device requirement sits above the button as a notice, not in small print under it:
+     it is the reason most refused sign-ins fail, so it has to be read before the click. A
+     failure (ErrorBox, role="alert") takes the same place and says what to do next. */
   return (
     <div className="signin">
-      {/* IxCard is a styling wrapper only, not a swap for ErrorBox — MIG-03 (ErrorBox ->
-          IxMessageBar) is gated, unconfirmed safe, and out of scope here. ErrorBox keeps its
-          own role="alert" markup unchanged; IxCard just gives the whole card the same surface
-          treatment the rest of the migration uses. */}
-      <IxCard className="signin-card">
-        <IxCardContent>
-          <h1 className="signin-title">ScoutGrid</h1>
-          <p className="muted signin-lede">
-            Startup evaluation for Siemens partnership decisions. Sign in with your Siemens
-            account to continue.
-          </p>
+      <main className="signin-card" aria-labelledby="signin-title">
+        <div className="signin-brand">
+          <span className="signin-mark" aria-hidden="true">SI</span>
+          <h1 id="signin-title" className="signin-title">ScoutGrid</h1>
+        </div>
+        <p className="signin-lede">Startup evaluation for Siemens partnership decisions.</p>
+        <p className="signin-sub">Sign in with your official Siemens account to access the grid.</p>
 
-          {failure && <ErrorBox message={failure.title} hint={failure.body} />}
+        {failure
+          ? <ErrorBox message={failure.title} hint={failure.body} />
+          : (
+            <div className="signin-notice">
+              <Icon icon={iconInfo} size={16} />
+              <p>Requires a Siemens-managed device on the corporate network or VPN.</p>
+            </div>
+          )}
 
-          <IxButton onClick={signIn}>Sign in with Siemens</IxButton>
+        <IxButton className="signin-button" iconRight={iconArrowRight} onClick={signIn}>Sign in with Siemens</IxButton>
 
-          <p className="muted signin-foot">
-            Requires a Siemens-managed device on the corporate network or VPN.
-            {correlationId && (
-              <>
-                <br />
-                Reference for IT: <code>{correlationId}</code>
-              </>
-            )}
-          </p>
-        </IxCardContent>
-      </IxCard>
+        {correlationId && <p className="signin-foot">Reference for IT: <code>{correlationId}</code></p>}
+      </main>
     </div>
   );
 }

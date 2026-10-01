@@ -25,7 +25,7 @@ from .provenance import Fact
 from .web import _ddg_many
 from .llm import LLMClient
 from .config import KNOWN_PROGRAM_TIERS
-from .text import _clean_source_url, _norm, has_funding_signal
+from .text import _clean_source_url, _norm, has_funding_signal, is_named_org
 # Known startup programs for offline detection (matched case-insensitively).
 KNOWN_PROGRAMS = {
     "siemens xcelerator": "corporate_program",
@@ -99,6 +99,14 @@ EMPTY_PROFILE = {
     "programs": [],
     "reference_customers": [],  # NAMED accounts only, grounded in evidence
     "customer_segment": "",    # segment/scale descriptor when customers aren't named (e.g. "7-8 figure e-commerce brands")
+    "customer_segment_source": "",
+    # Labels on the GROUNDED reference customers above — never new names — for the traction
+    # rubric: [{name, relation: customer|pilot|partner|investor|supplier, size:
+    # large_enterprise|sme, by}]. How big a named third party is identifies it, like a programme's
+    # prestige tier; whether it is a customer at all stays with _ground_customers.
+    "customer_classes": [],
+    # {level: 1|2|3, quote, source_url} — how much a generically stated customer base says.
+    "customer_segment_grade": {},
     # Commercial posture — what the Siemens pillar gates and the SFS financeability gate read.
     # None of this was collected anywhere, so "can this be listed on the Xcelerator Marketplace"
     # and "is there anything here for SFS to underwrite" were both being answered from the pitch
@@ -116,6 +124,10 @@ EMPTY_PROFILE = {
         "hardware_source": "",
         "revenue_signal": "",        # none | customers | contracted | recurring
         "revenue_source": "",
+        # {status: amount|pre_revenue, quote, metric, fiscal_year, growth_pct, source_url}. The
+        # quote is verbatim from the evidence and the amount is parsed from it in Python
+        # (core/traction.py); the model's own reading of the number is never kept.
+        "revenue": {},
         "funding_stage": "",         # pre_seed | seed | series_a | series_b_plus | grant | ""
         "investors": [],             # [{name, source_url}]
         "method": "none",
@@ -131,7 +143,7 @@ _COMMERCIAL_PATHS = ("/pricing", "/security", "/trust", "/docs", "/developers", 
                      "/integrations", "/product", "/", "/about")
 _COMMERCIAL_QUERIES = ("pricing_web", "security_web", "api_web", "deployment_web",
                        "marketplace_web", "investors_web", "funding_web", "crunchbase_web",
-                       "customers_web")
+                       "customers_web", "revenue_web")
 
 
 _CORPUS_CHARS = int(os.getenv("PROFILE_CORPUS_CHARS", "24000"))
@@ -457,7 +469,7 @@ def _llm_extract(company: str, row: pd.Series, results: dict, llm: LLMClient) ->
         "public — Crunchbase renders it as 'obfuscated', or the source says undisclosed — STILL "
         "report the stage, e.g. 'Pre-Seed, amount undisclosed'. Leave empty only when the "
         "evidence names neither a stage nor an amount, and NEVER guess an amount.\n"
-        "- hq_source / founded_year_source / funding_source: the source_url of the result supporting each — a "
+        "- hq_source / founded_year_source / funding_source / customer_segment_source: the source_url of the result supporting each — a "
         "real http link from the results, never a label; leave empty if the value came from the "
         "KNOWN block rather than a search result.\n"
         # The SFS judgement used to be asked for here, as one line appended to an extraction
@@ -475,7 +487,7 @@ def _llm_extract(company: str, row: pd.Series, results: dict, llm: LLMClient) ->
         ' "founded_year": "", "founded_year_source": "",\n'
         ' "funding": "", "funding_source": "",\n'
         ' "programs": [{"name":"","type":"incubator|accelerator|corporate_program","source_url":""}],\n'
-        ' "reference_customers": [""], "customer_segment": ""}'
+        ' "reference_customers": [""], "customer_segment": "", "customer_segment_source": ""}'
     )
     data = LLMClient.parse_json(llm.complete(prompt, system="You extract structured company facts "
                                              "strictly from supplied evidence. JSON only.",
@@ -489,6 +501,8 @@ def _llm_extract(company: str, row: pd.Series, results: dict, llm: LLMClient) ->
     prof["employees"] = str(data.get("employees") or "").strip()
     prof["parent_group"] = str(data.get("parent_group") or "").strip()
     prof["customer_segment"] = str(data.get("customer_segment") or "").strip()
+    prof["customer_segment_source"] = (_clean_source_url(data.get("customer_segment_source"))
+                                       if prof["customer_segment"] else "")
     hq = _clean_hq(data.get("hq"))
     prof["hq"] = hq
     prof["hq_source"] = _clean_source_url(data.get("hq_source")) if hq else ""
@@ -573,13 +587,12 @@ def _ground_customers(names: list, row: pd.Series, results: dict) -> list[str]:
 
 def _clean_customers(items: list) -> list[str]:
     """Keep only entries that look like NAMED organisations; drop generic descriptions
-    like 'factories in the semiconductor and new energy sectors'."""
+    like 'factories in the semiconductor and new energy sectors', and the fragments a prose
+    'Reference customers' box splits into ('In parallel', 'Chemical producers (platform …')."""
     out = []
     for c in items or []:
         s = str(c).strip().strip(".")
-        if not s or len(s) > 60 or _GENERIC_CUSTOMER.search(s):
-            continue
-        if not any(ch.isupper() for ch in s):     # named orgs carry capitals
+        if not s or _GENERIC_CUSTOMER.search(s) or not is_named_org(s):
             continue
         if s not in out:
             out.append(s)
@@ -1017,6 +1030,10 @@ def _extract_commercial_posture(prof: dict, company: str, row: pd.Series,
         prof.get("funding") or row.get("funding") or "")
 
     corpus = _commercial_corpus(site, web, company)
+    # The grounded list is final before the recall pool starts (research_profile), so the model
+    # labels exactly the names a reviewer sees — it is never asked for customers of its own.
+    customers = [str(c) for c in prof.get("reference_customers") or []][:15]
+    segment = str(prof.get("customer_segment") or "").strip()
     if not corpus or not llm.available:
         commercial["method"] = "unavailable" if not llm.available else "no_evidence"
         return
@@ -1044,14 +1061,32 @@ def _extract_commercial_posture(prof: dict, company: str, row: pd.Series,
         "contract terms stated), 'none'.\n"
         "- investors: named funds or institutional investors, NOT individuals unless the evidence "
         "calls them the lead.\n"
-        "Give a source_url — a real http link from the evidence, never a label — for every "
+        "- revenue: the company's OWN revenue. status 'amount' only with a stated figure; "
+        "'pre_revenue' only if the evidence says so explicitly. quote = the exact words from the "
+        "evidence containing the figure, copied verbatim. metric = revenue | arr | mrr | "
+        "run_rate | turnover | gmv | bookings | estimate | projection — funding, valuation, market "
+        "size, a customer's revenue and third-party estimates (Growjo, Owler, Zoominfo) are NOT "
+        "revenue. growth_quote = verbatim words stating revenue growth, if any. Leave all empty "
+        "if not stated.\n"
+        + (f"- customer_classes: for EACH of these already-identified customers — {customers} — "
+           "relation to the company (customer | pilot | partner | investor | supplier) and size "
+           "(large_enterprise = a well-known multinational or major public body; sme = anything "
+           "smaller). Use only these names, spelled as given.\n" if customers else "")
+        + (f"- segment_grade: the company describes its customers as '{segment}'. level 1 = a "
+           "customer type only ('chemical producers'); 2 = type plus scale or count ('50+ "
+           "mid-size manufacturers'); 3 = type plus a quantified top-tier claim ('3 of the top-10 "
+           "chemical producers'). quote = the verbatim words.\n" if segment else "")
+        + "Give a source_url — a real http link from the evidence, never a label — for every "
         "non-empty field.\n"
         'Return ONLY JSON: {"deployment":"","deployment_source":"","has_public_api":false,'
         '"api_source":"","certifications":[{"name":"","source_url":""}],"pricing_public":false,'
         '"pricing_source":"","sells_hardware":false,"hardware_source":"","revenue_signal":"",'
-        '"revenue_source":"","investors":[{"name":"","source_url":""}]}',
+        '"revenue_source":"","investors":[{"name":"","source_url":""}],'
+        '"revenue":{"status":"","quote":"","metric":"","fiscal_year":"","growth_quote":"",'
+        '"source_url":""},"customer_classes":[{"name":"","relation":"","size":""}],'
+        '"segment_grade":{"level":0,"quote":"","source_url":""}}',
         system="You extract structured company facts strictly from supplied evidence. JSON only.",
-        max_tokens=700, reasoning="none")) or {}
+        max_tokens=1300, reasoning="none")) or {}
     if not data:
         commercial["method"] = "no_answer"
         return
@@ -1092,7 +1127,80 @@ def _extract_commercial_posture(prof: dict, company: str, row: pd.Series,
                           "source_url": _clean_source_url(
                               inv.get("source_url") if isinstance(inv, dict) else "")})
     commercial["investors"] = investors[:8]
+    commercial["revenue"] = _clean_revenue(data.get("revenue"), corpus)
+    prof["customer_classes"] = _clean_customer_classes(data.get("customer_classes"), customers)
+    prof["customer_segment_grade"] = _clean_segment_grade(data.get("segment_grade"), corpus) \
+        if segment else {}
     commercial["method"] = "llm"
+
+
+def _verbatim(quote, corpus: str, min_len: int = 12) -> str:
+    """The quote, if it really appears in the evidence; otherwise ''.
+
+    The traction rubric scores what a quote *says*, so a paraphrase is not good enough: a model
+    asked for a revenue figure will round, convert and occasionally invent one. Whitespace and
+    case are normalised because snippets are, and nothing else is.
+    """
+    q = re.sub(r"\s+", " ", str(quote or "")).strip()
+    if len(q) < min_len:
+        return ""
+    return q if q.casefold() in re.sub(r"\s+", " ", corpus).casefold() else ""
+
+
+_REVENUE_METRICS = ("revenue", "arr", "mrr", "run_rate", "turnover", "gmv", "bookings",
+                    "estimate", "projection")
+_GROWTH_WORDS = {"doubled": 100.0, "tripled": 200.0, "quadrupled": 300.0}
+
+
+def _clean_revenue(raw, corpus: str) -> dict:
+    """A revenue statement the traction rubric may read, or {} — never a figure without its words."""
+    if not isinstance(raw, dict):
+        return {}
+    status = str(raw.get("status") or "").strip().lower()
+    url = _clean_source_url(raw.get("source_url"))
+    quote = _verbatim(raw.get("quote"), corpus, 6 if status == "pre_revenue" else 12)
+    if status not in ("amount", "pre_revenue") or not url or not quote:
+        return {}
+    metric = str(raw.get("metric") or "revenue").strip().lower().replace("-", "_").replace(" ", "_")
+    year = re.sub(r"\D", "", str(raw.get("fiscal_year") or ""))[:4]
+    out = {"status": status, "quote": quote, "metric": metric if metric in _REVENUE_METRICS else "estimate",
+           "fiscal_year": year if len(year) == 4 else "", "growth_pct": None, "source_url": url}
+    growth = _verbatim(raw.get("growth_quote"), corpus, 6)
+    if growth:
+        pct = re.search(r"(\d+(?:\.\d+)?)\s*%", growth)
+        word = next((v for k, v in _GROWTH_WORDS.items() if k in growth.lower()), None)
+        out["growth_pct"] = float(pct.group(1)) if pct else word
+    return out
+
+
+def _clean_customer_classes(raw, customers: list) -> list[dict]:
+    """Labels for grounded customers only. A name the model adds, renames or merges is dropped."""
+    allowed = {c.casefold(): c for c in customers}
+    out, seen = [], set()
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict):
+            continue
+        name = allowed.get(str(item.get("name") or "").strip().casefold())
+        relation = str(item.get("relation") or "").strip().lower()
+        size = str(item.get("size") or "").strip().lower()
+        if not name or name in seen or relation not in (
+                "customer", "pilot", "partner", "investor", "supplier"):
+            continue
+        seen.add(name)
+        out.append({"name": name, "relation": relation,
+                    "size": size if size in ("large_enterprise", "sme") else "sme", "by": "llm"})
+    return out
+
+
+def _clean_segment_grade(raw, corpus: str) -> dict:
+    """A 1–3 level with the words it was read from; a free-form number is not a level."""
+    if not isinstance(raw, dict):
+        return {}
+    level, url = raw.get("level"), _clean_source_url(raw.get("source_url"))
+    quote = _verbatim(raw.get("quote"), corpus, 6)
+    if isinstance(level, bool) or level not in (1, 2, 3) or not url or not quote:
+        return {}
+    return {"level": int(level), "quote": quote, "source_url": url}
 
 
 def _program_tier_offline(name: str) -> str:

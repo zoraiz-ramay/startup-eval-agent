@@ -40,6 +40,9 @@ LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0"))
 # Safe only because LLM_TEMPERATURE is 0 — see complete().
 LLM_CACHE = os.getenv("LLM_CACHE", "1") != "0"
 MAX_RETRIES = 3
+# A completion that searches the web runs several searches before it answers; the plain LLM
+# timeout cut the longer ones off mid-search.
+WEB_SEARCH_TIMEOUT = max(LLM_TIMEOUT, int(os.getenv("WEB_SEARCH_TIMEOUT", "90")))
 RETRY_BACKOFF = 2
 
 
@@ -182,6 +185,28 @@ class LLMClient:
                     time.sleep(RETRY_BACKOFF * attempt)
         return ""
 
+    def web_answer(self, prompt: str, system: str = "", max_tokens: int = 1200) -> Optional[dict]:
+        """One completion that searches the internet itself, with the sources it actually used.
+
+        Gemini grounds with Google Search; the OpenAI-compatible gateway uses the Responses API's
+        `web_search` tool. Either way the search is the model's own, so there is no scraping and
+        no result list to adjudicate: the sources are the ones the provider says it cited.
+        Returns {"text", "sources": [{"title", "url"}], "queries"} or None when this provider or
+        gateway cannot search — the caller says so rather than passing memory off as search.
+        Never cached: an internet answer is only worth having fresh.
+        """
+        if not self.available:
+            return None
+        try:
+            if self.provider == "gemini":
+                return _gemini_grounded(self, prompt, system, max_tokens)
+            if self.provider == "openai":
+                return _openai_web_search(self, prompt, system, max_tokens)
+        except Exception as e:                              # noqa: BLE001 — any failure means "no search"
+            self.last_error = str(e)
+            log.warning("web-search completion failed: %s", e)
+        return None
+
     @staticmethod
     def parse_json(text: str) -> Optional[dict]:
         if not text:
@@ -190,4 +215,101 @@ class LLMClient:
         try:
             return json.loads(m.group(0)) if m else None
         except Exception:
+            pass
+        # A reply with one stray brace or a trailing remark after the object ("}}}", "…} Done.")
+        # still holds a whole object at its start; read just that rather than discarding it.
+        try:
+            obj, _ = json.JSONDecoder().raw_decode(text[text.index("{"):])
+            return obj if isinstance(obj, dict) else None
+        except Exception:
             return None
+
+
+def _cite(text: str, supports: list, chunks: list) -> tuple[str, list]:
+    """Insert [n] after each grounded segment and number the sources in first-cited order.
+
+    Gemini reports each supported segment's end as a UTF-8 byte offset into the answer, so the
+    markers are placed on the encoded text; placing them on characters would drift after the
+    first non-ASCII character."""
+    order: list[int] = []
+    marks: dict[int, list[int]] = {}
+    # A web chunk's title is its site ("pitchbook.com"). Google also attaches utility chunks —
+    # "Current time information in Munich, DE." — that are not pages anyone could check.
+    def page(i):
+        title = str(((chunks[i] or {}).get("web") or {}).get("title", ""))
+        return bool(title) and not re.search(r"\s", title.strip())
+    for s in supports or []:
+        end = (s.get("segment") or {}).get("endIndex")
+        idx = [i for i in (s.get("groundingChunkIndices") or [])
+               if isinstance(i, int) and 0 <= i < len(chunks) and page(i)]
+        if not isinstance(end, int) or not idx:
+            continue
+        for i in idx:
+            if i not in order:
+                order.append(i)
+        marks.setdefault(end, [])
+        marks[end].extend(order.index(i) + 1 for i in idx if order.index(i) + 1 not in marks[end])
+    raw = text.encode("utf-8")
+    for end in sorted(marks, reverse=True):
+        if 0 <= end <= len(raw):
+            raw = raw[:end] + "".join(f"[{n}]" for n in sorted(marks[end])).encode() + raw[end:]
+    sources = [{"title": (chunks[i].get("web") or {}).get("title", ""), "url": (chunks[i].get("web") or {}).get("uri", "")}
+               for i in order]
+    return raw.decode("utf-8", errors="ignore"), sources
+
+
+def _gemini_grounded(client: "LLMClient", prompt: str, system: str, max_tokens: int) -> Optional[dict]:
+    import requests
+    base = os.getenv("GEMINI_NATIVE_URL", "https://generativelanguage.googleapis.com/v1beta").rstrip("/")
+    body = {"contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "tools": [{"google_search": {}}],
+            "generationConfig": {"temperature": LLM_TEMPERATURE,
+                                 "maxOutputTokens": max(max_tokens, LLM_MIN_BUDGET) + LLM_THINKING_HEADROOM}}
+    if system:
+        body["systemInstruction"] = {"parts": [{"text": system}]}
+    resp = requests.post(f"{base}/models/{client.model}:generateContent", headers={"x-goog-api-key": client.key},
+                         json=body, timeout=WEB_SEARCH_TIMEOUT)
+    resp.raise_for_status()
+    cand = (resp.json().get("candidates") or [{}])[0]
+    text = "".join(p.get("text", "") for p in (cand.get("content") or {}).get("parts", []) if isinstance(p, dict))
+    if not text.strip():
+        return None
+    meta = cand.get("groundingMetadata") or {}
+    chunks = [c for c in meta.get("groundingChunks") or [] if isinstance(c, dict)]
+    text, sources = _cite(text, meta.get("groundingSupports") or [], chunks)
+    return {"text": text.strip(), "sources": [s for s in sources if s["url"]],
+            "queries": [q for q in meta.get("webSearchQueries") or [] if isinstance(q, str)]}
+
+
+def _openai_web_search(client: "LLMClient", prompt: str, system: str, max_tokens: int) -> Optional[dict]:
+    resp = client._client.responses.create(
+        model=client.model, tools=[{"type": "web_search"}], instructions=system or None,
+        input=prompt, max_output_tokens=max(max_tokens, LLM_MIN_BUDGET), timeout=WEB_SEARCH_TIMEOUT)
+    text, sources, index, marks, searched = "", [], {}, {}, False
+    for item in getattr(resp, "output", None) or []:
+        if getattr(item, "type", "") == "web_search_call":
+            searched = True
+        for part in getattr(item, "content", None) or []:
+            if getattr(part, "type", "") != "output_text":
+                continue
+            offset = len(text)
+            text += getattr(part, "text", "") or ""
+            for a in getattr(part, "annotations", None) or []:
+                url = getattr(a, "url", "")
+                if getattr(a, "type", "") != "url_citation" or not url:
+                    continue
+                if url not in index:
+                    index[url] = len(sources) + 1
+                    sources.append({"title": getattr(a, "title", "") or url, "url": url})
+                end = getattr(a, "end_index", None)
+                if isinstance(end, int):
+                    marks.setdefault(offset + end, set()).add(index[url])
+    text = text or getattr(resp, "output_text", "") or ""
+    # The same "[n] after the claim" shape Gemini's grounding produces, so callers read one format.
+    for end in sorted(marks, reverse=True):
+        if 0 <= end <= len(text):
+            text = text[:end] + "".join(f"[{n}]" for n in sorted(marks[end])) + text[end:]
+    # A gateway that accepts the tool but never runs it would return memory under a search label.
+    if not text.strip() or not (searched or sources):
+        return None
+    return {"text": text.strip(), "sources": sources, "queries": []}

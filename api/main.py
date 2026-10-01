@@ -20,6 +20,8 @@ from fastapi import Depends, FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 import glob
@@ -67,6 +69,7 @@ _local_df: "pd.DataFrame | None" = None
 # before the schema existed.
 try:
     store.backfill_entities()
+    store.backfill_assessment_records()
 except Exception:
     pass
 
@@ -155,6 +158,9 @@ class EvaluateBody(BaseModel):
     do_web: bool = True
     save: bool = True
     refresh: bool = Field(False, description="Force a fresh evaluation, bypassing the cache")
+    # Required by every evaluate endpoint (checked there, so the 422 can say what to do): Siemens
+    # Fit is scored for a department, and a run is one startup assessed for one department.
+    department_id: str | None = Field(None, max_length=60, pattern=r"^[A-Za-z0-9_-]+$")
 
 
 class SolveBody(BaseModel):
@@ -163,9 +169,17 @@ class SolveBody(BaseModel):
     do_web: bool = True
 
 
+class AskTurn(BaseModel):
+    role: Literal["user", "assistant"]
+    text: str = Field(..., max_length=4000)
+
+
 class AskBody(BaseModel):
     question: str = Field(..., min_length=2, max_length=2000)
     run_id: int | None = Field(None, description="Ground the answer in this evaluated run")
+    # Earlier turns of this chat, so a follow-up keeps its subject. Bounded: the server keeps no
+    # conversation state, and an unbounded history would be an unbounded prompt.
+    history: list[AskTurn] = Field(default_factory=list, max_length=12)
 
 
 # Neither of the two bodies below carries a `reviewer` any more: it is taken from the
@@ -320,13 +334,36 @@ def evaluate(body: EvaluateBody, user: Principal = Depends(current_user)) -> dic
     return cached if cached is not None else _run_evaluation(name, body, principal, user=user)
 
 
+def _department(department_id, user) -> dict:
+    """The selected department's profile, or a 422 that says what is missing."""
+    if not department_id:
+        raise HTTPException(422, "Choose a department before starting an evaluation.")
+    from api.interests import profiles
+    dep = next((d for d in profiles(user)["departments"] if d["id"] == department_id), None)
+    if dep is None:
+        raise HTTPException(422, f"Unknown department '{department_id}'.")
+    return dep
+
+
+def _current_key(department: dict) -> str:
+    """The assessment key a run must carry to count as current for this department today."""
+    from core import catalogs
+    from core.assessment import assessment_key
+    return assessment_key({"siemens_tools": catalogs.tools_catalog(),
+                           "xcelerator": catalogs.xcelerator_catalog(),
+                           "department_needs": catalogs.department_catalog(department)})
+
+
 def _evaluation_cached(name, body, user):
+    """Only an exact hit: same company, same department, current rubric and catalogs."""
     if body.refresh:
         return None
+    dep = _department(body.department_id, user)
+    key = _current_key(dep)
     if tracxn_client_for(user):
-        cached = workspace.private_latest(user.oid, name)
+        cached = workspace.private_latest(user.oid, name, dep["id"], key)
     else:
-        cached = store.latest_run_for_alias(name)
+        cached = store.latest_department_run(name, dep["id"], key)
     if cached:
         cached["cached"] = True
         cached["freshness"] = _freshness(cached.get("run_created_at", ""))
@@ -342,14 +379,24 @@ def _run_evaluation(name: str, body: "EvaluateBody", principal, on_partial=None,
     Extracted rather than duplicated: the two endpoints must agree on what a fresh evaluation is,
     including which searches get to replay from cache and what is recorded against the reviewer.
     """
+    department = _department(body.department_id, user) if user else None
+    tracxn = tracxn_client_for(user, core.LLMClient()) if user else None
+    if department and not body.refresh and not tracxn:
+        # Another department already evaluated this startup recently: its research is reused and
+        # only Siemens Fit is scored for this department — as a NEW run, never a rewrite of theirs.
+        research = store.latest_research_run(name)
+        if research and _freshness(research.get("run_created_at", ""))["status"] == "fresh":
+            from core.pipeline import assess_department
+            res = assess_department(research, department, do_web=body.do_web)
+            return _saved(res, name, body, principal, served_from="research")
     df = None if _gd_key() else _get_local_df()
     # An explicit refresh must re-search: serving cached hits would replay the very evidence
     # the caller asked to renew.
-    tracxn = tracxn_client_for(user, core.LLMClient()) if user else None
     token = core.web.set_cache_private(True) if tracxn else None
     try:
         res = core.evaluate(name, None, core.DEFAULT_TOOLS_CSV, do_web=body.do_web, df=df,
-                            use_web_cache=not body.refresh, on_partial=on_partial, tracxn=tracxn)
+                            use_web_cache=not body.refresh, on_partial=on_partial, tracxn=tracxn,
+                            department=department)
     finally:
         if token is not None:
             core.web.reset_cache_private(token)
@@ -360,14 +407,18 @@ def _run_evaluation(name: str, body: "EvaluateBody", principal, on_partial=None,
         from datetime import datetime, timezone
         res.update(cached=False, run_created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))
         return workspace.private_save(user.oid, name, res) if body.save else res
+    return _saved(res, name, body, principal)
+
+
+def _saved(res: dict, name: str, body: "EvaluateBody", principal, served_from: str = "fresh") -> dict:
     if body.save:
         # The typed query is filed as an alias so the next reviewer who types it the same
         # way is served from the database instead of re-running the pipeline.
         res["run_id"] = store.save_run(res, aliases=[name])
     store.record_search(principal, name, company_name=str(res.get("company", "")),
-                        run_id=res.get("run_id"), served_from="fresh")
+                        run_id=res.get("run_id"), served_from=served_from)
     from datetime import datetime, timezone
-    res["cached"] = False
+    res["cached"] = served_from != "fresh"
     res["run_created_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     res["freshness"] = _freshness(res["run_created_at"])
     return res
@@ -602,6 +653,128 @@ def run_detail(run_id: int, user: Principal = Depends(current_user)) -> dict:
     return res
 
 
+def _run_for(run_id: int, user: Principal) -> dict:
+    res = workspace.private_get(user.oid, run_id) if run_id < 0 else store.get_run(run_id)
+    if res is None:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found.")
+    return res
+
+
+@app.post("/api/runs/{run_id}/business-flow")
+def run_business_flow(run_id: int, user: Principal = Depends(current_user)) -> dict:
+    """The profile's "How this startup works": five plain, cited sentences (core/business_flow.py).
+    Written once per run and kept in the database; served from there on every later read."""
+    from core.business_flow import business_flow
+    res = _run_for(run_id, user)
+    stored = store.latest_enrichment(str(res.get("company", "")), "business_flow", run_id=run_id)
+    if stored:
+        return stored
+    out = business_flow(res, core.LLMClient())
+    if out.get("status") == "ok":
+        store.save_enrichment(str(res.get("company", "")), "business_flow", {**out, "provider": "model"},
+                              run_id=run_id, user_oid=user.oid)
+    return out
+
+
+@app.post("/api/runs/{run_id}/lookup/{kind}")
+def run_lookup(run_id: int, kind: Literal["funding", "headcount", "signals"], refresh: bool = False,
+               user: Principal = Depends(current_user)) -> dict:
+    """Funding rounds with investor profiles, a sourced headcount, or dated momentum signals in the
+    company's market (core/traction_lookup.py, core/market_signals.py).
+
+    Served from the database when this company's result was fetched before — by anyone, for any of
+    its runs — and searched again only on Refresh. A fresh result is stored (history kept), whether
+    it came from Tracxn or the web: Tracxn first through the reviewer's own connection, the model's
+    web search second.
+    """
+    from core.market_signals import market_signals
+    from core.traction_lookup import funding_details, headcount_details
+    res = _run_for(run_id, user)
+    company = str(res.get("company", ""))
+    if not refresh:
+        stored = store.latest_enrichment(company, kind)
+        if stored:
+            return stored
+    profile = res.get("profile") or {}
+    llm = core.LLMClient()
+    tracxn = tracxn_client_for(user, llm)
+    website = str(profile.get("website") or "")
+    if kind == "signals":
+        # Signals start from an understanding of the market, which needs the run's own research.
+        out = market_signals(company, run=res, website=website, llm=llm, tracxn=tracxn, refresh=refresh)
+    else:
+        fetch = funding_details if kind == "funding" else headcount_details
+        out = fetch(company, website=website, llm=llm, tracxn=tracxn, refresh=refresh)
+    # Only a real answer is kept: "no model", "timed out" or a signals search with a failed domain
+    # would otherwise be served back as if it were the finding.
+    if out.get("provider") in ("tracxn", "web") and "failed" not in (out.get("domains") or {}).values():
+        store.save_enrichment(company, kind, out, user_oid=user.oid)
+    return out
+
+
+@app.get("/api/admin/tool-checks")
+def admin_tool_checks(status: str | None = "not_found", user: Principal = Depends(require_admin)) -> dict:
+    """Siemens catalog tools Empower recommended and a web search checked — by default the ones it
+    could NOT find, which are the catalog rows worth a reviewer's look."""
+    return {"tools": store.list_tool_checks(status or None)}
+
+
+@app.get("/api/runs/{run_id}/departments")
+def run_departments(run_id: int, user: Principal = Depends(current_user)) -> dict:
+    """For each department: this company's saved run and whether it is current.
+
+    What the profile's department switch reads. A department with no current run is listed with
+    run_id None, and the page offers an explicit assessment rather than showing another
+    department's result in its place.
+    """
+    res = _run_for(run_id, user)
+    from api.interests import profiles
+    company = str(res.get("company", ""))
+    if run_id < 0:
+        saved = {}
+        for d in profiles(user)["departments"]:
+            r = workspace.private_latest(user.oid, company, d["id"])
+            if r:
+                saved[d["id"]] = {"run_id": r.get("run_id"),
+                                  "assessment_key": (r.get("assessment") or {}).get("assessment_key")}
+    else:
+        saved = {r["department_id"]: r for r in store.company_department_runs(company) if r["department_id"]}
+    out = []
+    for d in profiles(user)["departments"]:
+        s = saved.get(d["id"]) or {}
+        out.append({"id": d["id"], "label": d["label"], "demo": d["demo"], "run_id": s.get("run_id"),
+                    "current": bool(s) and s.get("assessment_key") == _current_key(d)})
+    return {"company": company, "department_id": (res.get("department") or {}).get("id"),
+            "legacy": not res.get("department"), "departments": out}
+
+
+@app.post("/api/runs/{run_id}/departments/{department_id}")
+def run_assess_department(run_id: int, department_id: str, user: Principal = Depends(current_user)) -> dict:
+    """Assess this run's startup for another department, reusing its research, as a NEW run.
+
+    Idempotent against the current version: when a current run for that department already
+    exists it is returned rather than recomputed.
+    """
+    res = _run_for(run_id, user)
+    dep = _department(department_id, user)
+    key = _current_key(dep)
+    company = str(res.get("company", ""))
+    existing = (workspace.private_latest(user.oid, company, dep["id"], key) if run_id < 0
+                else store.latest_department_run(company, dep["id"], key))
+    if existing:
+        return existing
+    from core.pipeline import assess_department
+    new = assess_department(res, dep)
+    from datetime import datetime, timezone
+    new["run_created_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    if run_id < 0:
+        return workspace.private_save(user.oid, company, new)
+    new["run_id"] = store.save_run(new, aliases=[company])
+    store.record_search(user.as_reviewer(), company, company_name=company,
+                        run_id=new["run_id"], served_from="research")
+    return new
+
+
 @app.delete("/api/runs/{run_id}")
 def run_delete(run_id: int) -> dict:
     if not store.delete_run(run_id):
@@ -644,8 +817,8 @@ def challenge_status(index: int, body: ChallengeStatusBody,
 
 @app.post("/api/ask")
 def ask(body: AskBody, user: Principal = Depends(current_user)) -> dict:
-    """Combined AI + web answer (credit-efficient 2-LLM-call flow). Optionally grounded
-    in a stored evaluation via run_id."""
+    """The assistant: the reviewer's own Tracxn connection first, the model's web search when
+    there is none (core.chat.chat_assistant). Optionally grounded in a stored evaluation."""
     company, brief = "", ""
     if body.run_id is not None:
         res = workspace.private_get(user.oid, body.run_id) if body.run_id < 0 else store.get_run(body.run_id)
@@ -659,9 +832,15 @@ def ask(body: AskBody, user: Principal = Depends(current_user)) -> dict:
                  f"HQ: {p.get('hq','—')} | Funding: {p.get('funding','—')}\n"
                  f"Final score: {sc.get('final_score','—')} | Routing: {rt.get('pillar','—')} "
                  f"(+{', '.join(rt.get('secondary', []) or [])})\nSiemens fit tools: {tools}")
-    token = core.web.set_cache_private(True) if body.run_id is not None and body.run_id < 0 else None
+    llm = core.LLMClient()
+    tracxn = tracxn_client_for(user, llm)
+    # Tracxn answers are licensed to this reviewer, and a private run is theirs alone; neither
+    # may be served to someone else from the shared model cache.
+    private = tracxn is not None or (body.run_id is not None and body.run_id < 0)
+    token = core.web.set_cache_private(True) if private else None
     try:
-        return core.chat_smart(body.question, llm=core.LLMClient(), context_company=company, context_brief=brief)
+        return core.chat_assistant(body.question, llm=llm, tracxn=tracxn, context_company=company,
+                                   context_brief=brief, history=[t.model_dump() for t in body.history])
     finally:
         if token is not None:
             core.web.reset_cache_private(token)
