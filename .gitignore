@@ -25,6 +25,12 @@ static/
 
 # Keep this dataset tracked
 !siemens_tools.csv
+# The Xcelerator ecosystem export Connect is scored against. Tracked so the deployed image scores
+# against exactly the bytes whose checksum each assessment records (core/catalogs.py).
+!data/siemens_xcelerator_data.xlsx
+# The departments' stated needs Collaborate is scored against (core/department_needs.py). Tracked
+# for the same reason: without it every department falls back to example keywords.
+!data/Startup_Evaluator_Departmental_Requirements.xlsx
 
 # Playwright artefacts (baselines in ui/e2e/__screenshots__ ARE committed — they are the record
 # that the layout survived; only run output is transient).
