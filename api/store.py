@@ -669,8 +669,11 @@ def save_run(result: dict, aliases: Iterable[str] = ()) -> int:
              datetime.now(timezone.utc).isoformat(timespec="seconds"),
              json.dumps(result, default=str),
              str(result.get("summary", ""))[:300], str(dp.get("parent_group", ""))[:120],
-             (result.get("department") or {}).get("id") or None,
-             (result.get("assessment") or {}).get("assessment_key") or None))
+             # An all-departments run is filed under "*", with the key covering every department;
+             # result["department"] is only its recommended one.
+             "*" if result.get("departments") else (result.get("department") or {}).get("id") or None,
+             (result.get("departments") or {}).get("assessment_key")
+             or (result.get("assessment") or {}).get("assessment_key") or None))
         run_id = int(cur.lastrowid)
         cid = _upsert_company(con, result, run_id)
         con.execute("UPDATE runs SET company_id=? WHERE id=?", (cid, run_id))

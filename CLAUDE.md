@@ -207,10 +207,19 @@ department-less engine calls).
   fixing that list is a catalog edit, not code.
 - **Unassessed is not a no-match.** No grounded concept, no catalog, no model or output that fails
   validation → `unassessed`. Only assessed pillars feed Siemens Fit, and Pass needs all three.
-- **A run is one startup for one department.** `runs.department_id` + `runs.assessment_key` (rubric
-  version and the SHA-256 of every catalog, `core/catalogs.py`). Cache hits must match all of it;
-  another department's fresh research is reused but always saved as a new run
-  (`pipeline.assess_department`). Runs with no department are legacy history, never current.
+- **A run is one startup assessed for every department.** Nobody picks a department before
+  searching — that asked the reviewer to guess what the evaluation exists to find. Research,
+  Empower and Connect are department-independent and run once; Collaborate is matched against each
+  department's needs in parallel (`pillar_match.for_department`), and `assessment.build_all` heads
+  the run with the department whose needs it answers best (`departments.recommended`; null, never
+  a default, when no Collaborate could be assessed). The run's own `department` / `assessment` are
+  the recommended one's, so single-department readers keep working; `departments.ranked` holds every
+  department's full assessment, hydrated on read, and the Scoring tab switches between them with
+  `?dept=` and no call. Stored under `runs.department_id = '*'`, with `assessment_key` covering the
+  rubric, the shared catalogs and EVERY department's needs — one department's needs changing makes
+  the run stale. Fresh research from an older run is re-assessed (`pipeline.assess_departments`)
+  and always saved as a new run. One-department runs and runs with no department are history,
+  readable and never rewritten.
 - **Collaborate reads Siemens' stated needs** from `data/Startup_Evaluator_Departmental_Requirements.xlsx`
   (`core/department_needs.py`): one catalog entry per capability, with its category, description and
   keywords; the 15 sharing most concepts with the startup go to the model when a department states

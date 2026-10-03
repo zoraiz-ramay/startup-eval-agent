@@ -14,8 +14,8 @@ test("a batch continues across pages and restores after reload", async ({ page }
     else if (path === "/api/jobs") {
       const request=route.request().postDataJSON(); submissions++;
       expect(request.names).toHaveLength(10);
-      expect(request.department_id).toBe("di");   // one department for the whole batch
-      body={jobs:request.names.map((query,i)=>{const j={id:`batch-${i}`,query,kind:"evaluate",status:"queued",department_id:request.department_id};jobs.set(j.id,j);return j;})};
+      expect(request.department_id).toBeUndefined();   // every department, so none is sent
+      body={jobs:request.names.map((query,i)=>{const j={id:`batch-${i}`,query,kind:"evaluate",status:"queued"};jobs.set(j.id,j);return j;})};
     } else if (path.startsWith("/api/jobs/")) {
       const j=jobs.get(path.split("/").pop());
       body=complete ? {...j,status:"complete",result:{...RUN_FIXTURE,company:j.query,run_id:12}} : j;
@@ -25,7 +25,6 @@ test("a batch continues across pages and restores after reload", async ({ page }
   await page.goto("/");
   await expect(page.getByText("Tracxn connected",{exact:true})).toBeVisible();
   await page.screenshot({path:testInfo.outputPath("startup-home.png"),fullPage:true});
-  await page.getByRole("radio",{name:/Digital Industries/}).click();
   await page.getByRole("button",{name:"Search options"}).click();
   await page.getByText("Mass search · up to 10 startups", {exact:true}).click();
   await page.getByRole("textbox",{name:"Startup names or websites"}).fill(Array.from({length:11},(_,i)=>`Startup ${i+1}`).join(", "));
@@ -36,7 +35,7 @@ test("a batch continues across pages and restores after reload", async ({ page }
   await expect(page.getByRole("link",{name:"Open research"})).toHaveCount(10);
   await page.goto("/workspace"); complete=true; await page.goto("/");
   await page.getByText("Your research session (10)",{exact:true}).click();
-  await expect(page.getByText("Startup evaluation · Digital Industries · complete")).toHaveCount(10);
+  await expect(page.getByText("Startup evaluation · complete")).toHaveCount(10);
   expect(submissions).toBe(1);
   await page.getByRole("link",{name:"Open research"}).first().click();
   await expect(page.getByRole("heading",{name:/Startup 1/})).toBeVisible();

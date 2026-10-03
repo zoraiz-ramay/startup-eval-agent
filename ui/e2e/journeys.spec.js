@@ -57,16 +57,14 @@ test.describe("shell", () => {
 
   test("SHELL-02/04: Ctrl+K focuses the command bar and Enter opens a profile", async ({ page }) => {
     await stubEvaluation(page);
-    // A search starts a research job for the chosen department; the stubbed job completes at once.
-    await page.route("**/api/departments", (route) => route.fulfill({ json: { departments: [
-      { id: "di", label: "Digital Industries", interests: ["automation"], demo: true }] } }));
+    // A search starts a research job — for every department, so there is nothing to choose
+    // first; the stubbed job completes at once.
     await page.route("**/api/jobs", (route) => route.fulfill({ json: { jobs: [
-      { id: "shell-job", kind: "evaluate", query: "Phena", status: "queued", department_id: "di" }] } }));
+      { id: "shell-job", kind: "evaluate", query: "Phena", status: "queued" }] } }));
     await page.route("**/api/jobs/shell-job", (route) => route.fulfill({ json: {
-      id: "shell-job", kind: "evaluate", query: "Phena", status: "complete", department_id: "di",
+      id: "shell-job", kind: "evaluate", query: "Phena", status: "complete",
       result: { ...RUN_FIXTURE, run_id: 1 } } }));
     await page.goto("/");
-    await page.getByRole("radio", { name: /Digital Industries/ }).click();
 
     // By its label, not its placeholder: the placeholder is an example ("e.g., Radical Dot").
     const search = page.getByRole("textbox", { name: "Search a startup" });

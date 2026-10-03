@@ -168,8 +168,12 @@ def _by_domain(name: str):
 def evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = True,
              df: "pd.DataFrame" = None, on_step=None, use_web_cache: bool = True,
              on_partial=None, tracxn=None, department: dict | None = None,
-             prior_runs: list | None = None) -> dict:
+             prior_runs: list | None = None, departments: list | None = None) -> dict:
     """Run the full pipeline for one startup.
+
+    ``departments`` assesses the startup for every listed department at once: research, Empower
+    and Connect once, Collaborate per department, headed by the department whose needs it answers
+    best (core/assessment.build_all). It takes precedence over ``department``.
 
     ``prior_runs`` are earlier stored runs of the same company. Their sourced evidence is carried
     into this one (core/carry_forward.py), so a refresh adds what it finds and never quietly drops
@@ -195,7 +199,7 @@ def evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = T
     collecting, failures = llm_mod.collect_failures()
     try:
         return _with_degraded(_evaluate(name, glassdollar_path, tools_path, do_web, df, on_step,
-                                        on_partial, tracxn, department, prior_runs), failures)
+                                        on_partial, tracxn, department, prior_runs, departments), failures)
     finally:
         llm_mod.stop_collecting(collecting)
         web.reset_cache_enabled(token)
@@ -214,7 +218,8 @@ def _with_degraded(result: dict, failures: list) -> dict:
 
 def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = True,
               df: "pd.DataFrame" = None, on_step=None, on_partial=None, tracxn=None,
-              department: dict | None = None, prior_runs: list | None = None) -> dict:
+              department: dict | None = None, prior_runs: list | None = None,
+              departments: list | None = None) -> dict:
     # Optional progress callback: on_step(step_label, status) where status is one of
     # "running" | "done" | "error". Reporting must never break the evaluation itself.
     def _step(label: str, status: str = "running") -> None:
@@ -323,6 +328,7 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
     from .traction import score_traction, gather_traction_inputs, apply_traction
     from .judgment import score_research, decision_research
     company = str(row.get("company_name", "")) or name
+    deps = list(departments or ([department] if department else []))
     # The raw database values ride along in the result: the header profile only keeps funding
     # after format_funding has rounded it, and "€2.0M" can be €1.96M, one band lower.
     traction_inputs = {"origin": {"glassdollar": "GlassDollar", "tracxn": "Tracxn"}.get(source, "application"),
@@ -388,8 +394,8 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
             if research is None and all(s in done for s in jobs if s != "fit"):
                 research, traction = _join_research(name, row, enrichment, done, profile,
                                                     profile_sources, traction_inputs, _emit)
-                if department:
-                    early = _start_fit_free_scoring(ex, research, company, department, llm, do_web)
+                if deps:
+                    early = _start_fit_free_scoring(ex, research, company, deps, llm, do_web)
         _step("REVIEW", "done")
 
         fit = done["fit"]
@@ -400,7 +406,7 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
         # The model score, Team & Ecosystem and the three pillars read the same finished research;
         # each is emitted as it lands, which is what lets the page show the component scores while
         # Siemens Fit and the total are still pending.
-        if department:
+        if deps:
             f_score = _submit(ex, "pipeline.score", score_research, research, llm)
             f_empower = _submit(ex, "pipeline.pillars", _pillar_after, early["prep"], "Empower",
                                 {**research, "company": company}, llm)
@@ -411,11 +417,17 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
             _emit("team_ecosystem", team)
             market = early["market"].result()
             _emit("market", market)
-            from .pillar_match import package_pillars
-            pillars = {"Empower": f_empower.result(), "Collaborate": early["Collaborate"].result(),
-                       "Connect": early["Connect"].result()}
-            pillar_result = package_pillars(early["prep"].result(),
-                                            {p: pillars[p] for p in ("Empower", "Collaborate", "Connect")})
+            from .pillar_match import package_pillars, for_department
+            state = early["prep"].result()
+            shared = {"Empower": f_empower.result(), "Connect": early["Connect"].result()}
+            # One packaged pillar result per department: Empower and Connect are shared, Collaborate
+            # is that department's own. The first department's state IS the prepared state.
+            pillar_results = {
+                d["id"]: package_pillars(state if i == 0 else for_department(state, d),
+                                         {"Empower": shared["Empower"],
+                                          "Collaborate": early[("Collaborate", d["id"])].result(),
+                                          "Connect": shared["Connect"]})
+                for i, d in enumerate(deps)}
         else:
             sc = apply_traction(score_research(research, llm), traction)
             _step("SCORE", "done")
@@ -426,7 +438,7 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
     sfs = assess_sfs(row, deep_profile, fit)
     rt = {"portfolio_stance": _portfolio_stance(fit), "sfs_relevant": bool(sfs.get("relevant")),
           **{f"sfs_{k}": sfs.get(k) for k in ("status", "line", "lines", "blockers", "rationale")}}
-    if not department:
+    if not deps:
         rt.update(decision_research(research, llm))
     _step("ROUTE", "done")
 
@@ -461,9 +473,15 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
     }
     if priors or carried:
         result["carry_forward"] = {"prior_runs": len(priors), **carried}
-    if department:
+    if departments:
+        from .assessment import build_all
+        result = build_all(result, deps, pillar_results, team, market)
+        _emit("departments", result["departments"])
+        _emit("assessment", result["assessment"])
+        _emit("score", result["score"])
+    elif department:
         from .assessment import build
-        result = build(result, department, pillar_result, team, market)
+        result = build(result, department, pillar_results[department["id"]], team, market)
         _emit("assessment", result["assessment"])
         # Again, because the headline now carries the weighted total: a partial that later
         # disagrees with the stored result is worse than no partial.
@@ -492,28 +510,39 @@ def _join_research(name, row, enrichment, done, profile, profile_sources, tracti
     return research, traction
 
 
-def _start_fit_free_scoring(ex, research, company, department, llm, do_web) -> dict:
-    """Everything in scoring that never reads fit, started while fit may still be running."""
+def _start_fit_free_scoring(ex, research, company, departments, llm, do_web) -> dict:
+    """Everything in scoring that never reads fit, started while fit may still be running.
+
+    Concepts, Connect, Team & Ecosystem and Market are department-independent and run once;
+    Collaborate runs once per department, in parallel.
+    """
     from .team_ecosystem import assess_team
     from .market import assess_market
     from .pillar_match import prepare_pillars
     run = {**research, "company": company}
     early = {"team": _submit(ex, "pipeline.team_ecosystem", assess_team, research, llm),
              "market": _submit(ex, "pipeline.market", assess_market, research, llm),
-             "prep": _submit(ex, "pipeline.pillars", prepare_pillars, run, department, llm, do_web)}
-    for pillar in ("Connect", "Collaborate"):
-        early[pillar] = _submit(ex, "pipeline.pillars", _pillar_after, early["prep"], pillar, run, llm)
+             "prep": _submit(ex, "pipeline.pillars", prepare_pillars, run, departments[0], llm, do_web)}
+    early["Connect"] = _submit(ex, "pipeline.pillars", _pillar_after, early["prep"], "Connect", run, llm)
+    for i, d in enumerate(departments):
+        early[("Collaborate", d["id"])] = _submit(ex, "pipeline.pillars", _pillar_after, early["prep"],
+                                                  "Collaborate", run, llm, None if i == 0 else d)
     return early
 
 
-def _pillar_after(prep, pillar, run, llm) -> dict:
-    """One pillar once its concepts are ready — with assess_pillars' own fallbacks."""
-    from .pillar_match import assess_pillar
+def _pillar_after(prep, pillar, run, llm, department=None) -> dict:
+    """One pillar once its concepts are ready — with assess_pillars' own fallbacks.
+
+    ``department`` switches the prepared state to another department's needs catalog.
+    """
+    from .pillar_match import assess_pillar, for_department
     from .pillars import unassessed
     try:
         state = prep.result()
         if not state["model"]:
             return unassessed(pillar, "model_unavailable", "The assessment model is not configured.")
+        if department is not None:
+            state = for_department(state, department)
         return assess_pillar(pillar, state, run, llm)
     except Exception:
         return unassessed(pillar, "error", "This pillar could not be assessed.")
@@ -535,13 +564,57 @@ def assess_department(result: dict, department: dict, llm: "LLMClient | None" = 
         llm_mod.stop_collecting(collecting)
 
 
-def _assess_department(result: dict, department: dict, llm, do_web: bool) -> dict:
-    from .assessment import build
+@_tracer.start_as_current_span("assess_departments")
+def assess_departments(result: dict, departments: list, llm: "LLMClient | None" = None,
+                       do_web: bool = True) -> dict:
+    """An existing run's research assessed for every department, without researching again.
+
+    The all-departments counterpart of assess_department: Empower and Connect once, Collaborate
+    per department, headed by the department whose needs the startup answers best.
+    """
+    llm = llm or LLMClient()
+    collecting, failures = llm_mod.collect_failures()
+    try:
+        return _with_degraded(_assess_department(result, departments, llm, do_web), failures)
+    finally:
+        llm_mod.stop_collecting(collecting)
+
+
+def _pillars_for_all(run: dict, departments: list, llm, do_web: bool) -> dict:
+    """{department id: packaged pillar result}, sharing everything but Collaborate."""
+    from .pillar_match import prepare_pillars, assess_pillar, for_department, package_pillars
+    from .pillars import unassessed
+    state = prepare_pillars(run, departments[0], llm, do_web)
+    states = {d["id"]: state if i == 0 else for_department(state, d) for i, d in enumerate(departments)}
+    if not state["model"]:
+        none = {p: unassessed(p, "model_unavailable", "The assessment model is not configured.")
+                for p in ("Empower", "Collaborate", "Connect")}
+        return {i: package_pillars(st, dict(none)) for i, st in states.items()}
+
+    def one(pillar, st):
+        try:
+            return assess_pillar(pillar, st, run, llm)
+        except Exception:
+            return unassessed(pillar, "error", "This pillar could not be assessed.")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2 + len(departments)) as ex:
+        f_emp = _submit(ex, "pipeline.pillars", one, "Empower", state)
+        f_con = _submit(ex, "pipeline.pillars", one, "Connect", state)
+        f_col = {i: _submit(ex, "pipeline.pillars", one, "Collaborate", st) for i, st in states.items()}
+        emp, con = f_emp.result(), f_con.result()
+        return {i: package_pillars(states[i], {"Empower": emp, "Collaborate": f_col[i].result(),
+                                               "Connect": con}) for i in states}
+
+
+def _assess_department(result: dict, department, llm, do_web: bool) -> dict:
+    """``department`` is one department's dict, or a list of them for an all-departments run."""
+    from .assessment import build, build_all
     from .pillar_match import assess_pillars
     from .team_ecosystem import assess_team, VERSION as TEAM_VERSION
     from .market import assess_market, VERSION as MARKET_VERSION
+    many = isinstance(department, list)
     base = {k: v for k, v in result.items()
-            if k not in ("assessment", "department", "run_id", "run_created_at", "cached",
+            if k not in ("assessment", "department", "departments", "run_id", "run_created_at", "cached",
                          "freshness", "private", "department_assessments", "original_score")}
     from .judgment import score_research, VERSION as JUDGMENT_VERSION
     from .traction import apply_traction, with_traction
@@ -556,7 +629,8 @@ def _assess_department(result: dict, department: dict, llm, do_web: bool) -> dic
     prior_market = result.get("market") or {}
     reuse_market = prior_market.get("status") == "assessed" and prior_market.get("version") == MARKET_VERSION
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
-        f_pill = _submit(ex, "pipeline.pillars", assess_pillars, base, department, llm, do_web)
+        f_pill = (ex.submit(contextvars.copy_context().run, _pillars_for_all, base, department, llm, do_web)
+                  if many else _submit(ex, "pipeline.pillars", assess_pillars, base, department, llm, do_web))
         f_team = None if reuse_team else _submit(ex, "pipeline.team_ecosystem", assess_team, base, llm)
         f_score = _submit(ex, "pipeline.score", score_research, base, llm) if rescore else None
         f_market = None if reuse_market else _submit(ex, "pipeline.market", assess_market, base, llm)
@@ -565,4 +639,6 @@ def _assess_department(result: dict, department: dict, llm, do_web: bool) -> dic
         if f_score:
             base["score"] = apply_traction(f_score.result(), base.get("traction"))
         pillars = f_pill.result()
+    if many:
+        return build_all(base, department, pillars, team, market)
     return build(base, department, pillars, team, market)

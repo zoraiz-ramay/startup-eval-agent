@@ -102,6 +102,72 @@ def build(result: dict, department: dict, pillar_result: dict, team: dict, marke
     return hydrate(out)
 
 
+def all_departments_key(catalogs: dict, needs_by_department: dict) -> str:
+    """The cache key for a run assessed for every department: rubric, tool and Xcelerator catalogs,
+    and EVERY department's needs — one department's needs changing makes the whole run stale.
+
+    ``catalogs`` holds the shared catalogs, ``needs_by_department`` each department's needs catalog;
+    both as core/catalogs.py returns them, so the API can compute the key before any run exists.
+    """
+    needs = "/".join(f"{dep_id}={(cat or {}).get('checksum', '')[:16]}"
+                     for dep_id, cat in sorted(needs_by_department.items()))
+    sums = ":".join((catalogs.get(k) or {}).get("checksum", "")[:16] for k in ("siemens_tools", "xcelerator"))
+    return f"{rubric_version()}|{sums}|{needs}"
+
+
+def _collaborate_rank(entry: dict, order: int) -> tuple:
+    """Sort key: assessed first, then Collaborate points, then distinct needs cited, then the
+    configured department order. A reviewer reads "most relevant" as "the department whose stated
+    needs this startup answers best" — the Collaborate pillar, not the total, which is shared by
+    every department except for that one pillar."""
+    c = ((entry.get("assessment") or {}).get("pillars") or {}).get("Collaborate") or {}
+    needs = {e.get("id") for cr in c.get("criteria") or [] for e in cr.get("catalog") or []
+             if str(e.get("id", "")).startswith("need:")}
+    assessed = c.get("status") == "assessed"
+    return (0 if assessed else 1, -(c.get("total") or 0) if assessed else 0, -len(needs), order)
+
+
+def build_all(result: dict, departments: list, pillar_results: dict, team: dict,
+              market: dict | None = None) -> dict:
+    """One run assessed for every department, headed by the one whose needs it answers best.
+
+    The run's own ``department`` / ``assessment`` / ``routing`` are the recommended department's,
+    so everything that reads a single-department run keeps working; ``departments`` carries every
+    department's full assessment, ranked, so the profile can show each without another call.
+    """
+    built = {d["id"]: build(result, d, pillar_results[d["id"]], team, market) for d in departments}
+    order = {d["id"]: i for i, d in enumerate(departments)}
+    ranked = sorted(built, key=lambda dep_id: _collaborate_rank(built[dep_id], order[dep_id]))
+    best = ranked[0]
+    collab = ((built[best].get("assessment") or {}).get("pillars") or {}).get("Collaborate") or {}
+    out = dict(built[best])
+    out["departments"] = {
+        "scope": "all",
+        "recommended": best if collab.get("status") == "assessed" else None,
+        "basis": "collaborate" if collab.get("status") == "assessed" else "no_collaborate_assessment",
+        "assessment_key": all_departments_key(
+            (next(iter(pillar_results.values())) or {}).get("catalogs") or {},
+            {i: (r.get("catalogs") or {}).get("department_needs") for i, r in pillar_results.items()}),
+        "ranked": [{"department": built[i]["department"], "assessment": built[i]["assessment"],
+                    "routing": built[i]["routing"], "score": built[i]["score"]} for i in ranked],
+    }
+    return out
+
+
+def _hydrate_departments(result: dict) -> dict:
+    """Recompute every department's derived fields on read, as hydrate does for the headline one."""
+    block = result.get("departments")
+    if not isinstance(block, dict) or not isinstance(block.get("ranked"), list):
+        return result
+    base = {k: v for k, v in result.items() if k != "departments"}
+    ranked = []
+    for entry in block["ranked"]:
+        one = hydrate({**base, "department": entry.get("department"), "assessment": entry.get("assessment"),
+                       "routing": entry.get("routing")})
+        ranked.append({**entry, "assessment": one.get("assessment"), "score": one.get("score")})
+    return {**result, "departments": {**block, "ranked": ranked}}
+
+
 def _named_customers(result: dict) -> dict:
     """Reference customers that read as named organisations, for runs stored before the check.
 
@@ -147,4 +213,4 @@ def hydrate(result: dict) -> dict:
     else:
         dims.pop("siemens_fit", None)
     score.update(dimensions=dims, final_score=grand, total_method="weighted_components")
-    return {**result, "assessment": a, "score": score}
+    return _hydrate_departments({**result, "assessment": a, "score": score})

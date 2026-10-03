@@ -167,8 +167,8 @@ class EvaluateBody(BaseModel):
     do_web: bool = True
     save: bool = True
     refresh: bool = Field(False, description="Force a fresh evaluation, bypassing the cache")
-    # Required by every evaluate endpoint (checked there, so the 422 can say what to do): Siemens
-    # Fit is scored for a department, and a run is one startup assessed for one department.
+    # Accepted from older clients and ignored: every evaluation is assessed for all departments
+    # and recommends the best one for Collaborate.
     department_id: str | None = Field(None, max_length=60, pattern=r"^[A-Za-z0-9_-]+$")
 
 
@@ -354,6 +354,25 @@ def _department(department_id, user) -> dict:
     return dep
 
 
+def _all_departments(user) -> list[dict]:
+    """Every configured department. An evaluation is assessed for all of them and recommends the
+    one whose needs the startup answers best, so nobody has to guess a department up front."""
+    from api.interests import profiles
+    departments = profiles(user)["departments"]
+    if not departments:
+        raise HTTPException(503, "No departments are configured.")
+    return departments
+
+
+def _all_key(departments: list[dict]) -> str:
+    """The assessment key an all-departments run must carry to count as current today."""
+    from core import catalogs
+    from core.assessment import all_departments_key
+    return all_departments_key({"siemens_tools": catalogs.tools_catalog(),
+                                "xcelerator": catalogs.xcelerator_catalog()},
+                               {d["id"]: catalogs.department_catalog(d) for d in departments})
+
+
 def _current_key(department: dict) -> str:
     """The assessment key a run must carry to count as current for this department today."""
     from core import catalogs
@@ -364,15 +383,15 @@ def _current_key(department: dict) -> str:
 
 
 def _evaluation_cached(name, body, user):
-    """Only an exact hit: same company, same department, current rubric and catalogs."""
+    """Only an exact hit: same company, assessed for every department against the current rubric
+    and every current catalog. A run for one department (the old flow) is not a hit."""
     if body.refresh:
         return None
-    dep = _department(body.department_id, user)
-    key = _current_key(dep)
+    key = _all_key(_all_departments(user))
     if tracxn_client_for(user):
-        cached = workspace.private_latest(user.oid, name, dep["id"], key)
+        cached = workspace.private_latest(user.oid, name, "*", key)
     else:
-        cached = store.latest_department_run(name, dep["id"], key)
+        cached = store.latest_department_run(name, "*", key)
     if cached:
         cached["cached"] = True
         cached["freshness"] = _freshness(cached.get("run_created_at", ""))
@@ -390,7 +409,7 @@ def _run_evaluation(name: str, body: "EvaluateBody", principal, on_partial=None,
     Every fresh run passes through here, which is why the concurrency cap and the one-run-per-
     company rule (api/flight.py) live here and not on any one route.
     """
-    department = _department(body.department_id, user) if user else None
+    departments = _all_departments(user) if user else None
     tracxn = tracxn_client_for(user, core.LLMClient()) if user else None
 
     def queued(emit):
@@ -400,15 +419,15 @@ def _run_evaluation(name: str, body: "EvaluateBody", principal, on_partial=None,
         # A Tracxn-backed run is private to its reviewer, so it is never shared — only queued.
         emit = on_partial or (lambda s, d: None)
         with flight.slot(queued(emit)):
-            return _fresh_evaluation(name, body, principal, emit, user, department, tracxn)
-    key = flight.flight_key(name, (department or {}).get("id", ""), "refresh" if body.refresh else "")
+            return _fresh_evaluation(name, body, principal, emit, user, departments, tracxn)
+    key = flight.flight_key(name, "refresh" if body.refresh else "")
 
     led = []
 
     def lead(emit):
         led.append(True)
         with flight.slot(queued(emit)):
-            return _fresh_evaluation(name, body, principal, emit, user, department, None)
+            return _fresh_evaluation(name, body, principal, emit, user, departments, None)
 
     res = flight.single_flight(key, lead, on_partial)
     if not led:
@@ -419,14 +438,15 @@ def _run_evaluation(name: str, body: "EvaluateBody", principal, on_partial=None,
     return res
 
 
-def _fresh_evaluation(name, body, principal, on_partial, user, department, tracxn) -> dict:
-    if department and not body.refresh and not tracxn:
-        # Another department already evaluated this startup recently: its research is reused and
-        # only Siemens Fit is scored for this department — as a NEW run, never a rewrite of theirs.
+def _fresh_evaluation(name, body, principal, on_partial, user, departments, tracxn) -> dict:
+    if departments and not body.refresh and not tracxn:
+        # Recent research exists (a one-department run, or one assessed against older catalogs):
+        # it is reused and only the department assessments are redone — as a NEW run, never a
+        # rewrite of the old one.
         research = store.latest_research_run(name)
         if research and _freshness(research.get("run_created_at", ""))["status"] == "fresh":
-            from core.pipeline import assess_department
-            res = assess_department(research, department, do_web=body.do_web)
+            from core.pipeline import assess_departments
+            res = assess_departments(research, departments, do_web=body.do_web)
             return _saved(res, name, body, principal, served_from="research")
     df = None if _gd_key() else _get_local_df()
     # An explicit refresh must re-search: serving cached hits would replay the very evidence
@@ -435,7 +455,7 @@ def _fresh_evaluation(name, body, principal, on_partial, user, department, tracx
     try:
         res = core.evaluate(name, None, core.DEFAULT_TOOLS_CSV, do_web=body.do_web, df=df,
                             use_web_cache=not body.refresh, on_partial=on_partial, tracxn=tracxn,
-                            department=department, prior_runs=store.prior_runs_for(name))
+                            departments=departments, prior_runs=store.prior_runs_for(name))
     finally:
         if token is not None:
             core.web.reset_cache_private(token)

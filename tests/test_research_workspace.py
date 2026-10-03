@@ -47,14 +47,13 @@ def test_job_submission_is_idempotent_and_isolated(monkeypatch):
     for _ in first["jobs"]: jobs._slots.release()
 
 
-def test_an_evaluation_batch_without_a_department_is_refused_before_anything_queues(monkeypatch):
+def test_an_evaluation_batch_needs_no_department(monkeypatch):
+    """Every evaluation is assessed for all departments; an older client's id is ignored."""
     pool = Mock(); monkeypatch.setattr(jobs,"_pool",pool)
     for department in (None, "no-such-department"):
         body = jobs.JobBody(names=["Alpha"],request_id=f"no-dept-{department}",department_id=department)
-        with pytest.raises(Exception) as exc:
-            jobs.start(body,user("job-c"))
-        assert exc.value.status_code == 422
-    assert pool.submit.call_count == 0
+        assert jobs.start(body,user("job-c"))["jobs"][0]["status"] == "queued"
+    assert pool.submit.call_count == 2
 
 
 def test_batch_limit_is_enforced_server_side():

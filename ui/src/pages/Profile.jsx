@@ -57,7 +57,7 @@ export default function Profile() {
   const { id } = useParams();
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
-  const { watchlist, toggleWatch, setDockCtx, setDockOpen, department } = useApp();
+  const { watchlist, toggleWatch, setDockCtx, setDockOpen } = useApp();
   const [res, setRes] = useState(null);
   const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
@@ -73,11 +73,9 @@ export default function Profile() {
     if (!res || refreshing) return;
     setRefreshing(true);
     try {
-      // A refresh re-evaluates for the department this run was assessed for; a legacy run has
-      // none, so it takes the reviewer's current department — and cannot start without one.
-      const dep = res.department?.id || department;
-      if (!dep) { setError("Choose a department before re-evaluating this startup."); return; }
-      const [j] = await research.start({ names: [res.company], refresh: true, department_id: dep });
+      // A refresh re-evaluates for every department, legacy runs included, and carries the
+      // earlier runs' sourced evidence forward (core/carry_forward.py).
+      const [j] = await research.start({ names: [res.company], refresh: true });
       nav(`/startup/new?name=${encodeURIComponent(res.company)}&job=${j.id}`, { replace: true });
     } catch (e) {
       setError(e.message);
@@ -108,9 +106,7 @@ export default function Profile() {
          non-streaming path produces, so every view below reads one shape and none of them know
          this happened. `evaluateStream` falls back to api.evaluate on any stream failure. */
       if (!jobId) {
-        const dep = params.get("department") || department;
-        if (!dep) { setError("Choose a department on the search page before starting an evaluation."); return; }
-        research.start({ names: [evalName], refresh: params.get("refresh") === "1", department_id: dep })
+        research.start({ names: [evalName], refresh: params.get("refresh") === "1" })
           .then(([j]) => { if (active) nav(`/startup/new?name=${encodeURIComponent(evalName)}&job=${j.id}`, { replace: true }); })
           .catch((e) => setError(e.message));
       }
@@ -169,7 +165,11 @@ export default function Profile() {
   const watching = watchlist.includes(res.company);
   const age = ageDays === null ? "" : ageDays < 0.08 ? "just now" : ageDays < 1 ? `${Math.round(ageDays * 24)}h ago` : `${Math.round(ageDays)}d ago`;
   const stage = String(p["Development stage of your solution"] || "").replace(/\s*\(.*$/s, "").trim();
-  const facts = [res.department?.label || "No department (legacy run)", stage, p.hq].filter(Boolean);
+  // An all-departments run names the department it recommends; a one-department run names the
+  // department it was assessed for.
+  const deptFact = res.departments ? (res.departments.recommended ? `Best fit: ${res.department?.label}` : "All departments")
+    : res.department?.label || "No department (legacy run)";
+  const facts = [deptFact, stage, p.hq].filter(Boolean);
   const longSummary = String(res.summary || "").length > 180;
 
   return (

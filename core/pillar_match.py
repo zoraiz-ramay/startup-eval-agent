@@ -298,6 +298,20 @@ def prepare_pillars(run: dict, department: dict | None, llm: LLMClient, do_web: 
     return state
 
 
+def for_department(state: dict, department: dict) -> dict:
+    """The prepared state with another department's needs catalog.
+
+    Concepts, evidence records and the tool / Xcelerator catalogs do not depend on the department,
+    so an evaluation prepares them once and only Collaborate is matched per department.
+    """
+    needs = cat.department_catalog(department)
+    info = {"name": needs["name"], "available": needs["available"], "checksum": needs["checksum"],
+            "reason": needs.get("reason", ""), **({"issues": needs["issues"]} if needs.get("issues") else {})}
+    return {**state, "department": department,
+            "catalogs": {**state["catalogs"], "department_needs": needs},
+            "catalog_info": {**state["catalog_info"], "department_needs": info}}
+
+
 def assess_pillar(p: str, state: dict, run: dict, llm: LLMClient) -> dict:
     """One pillar's match. ``run`` must carry ``fit`` for Empower; the other two never read it."""
     concepts, records, department = state["concepts"], state["records"], state["department"]
