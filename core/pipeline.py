@@ -472,7 +472,6 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
     return result
 
 
-@_tracer.start_as_current_span("assess_department")
 def _join_research(name, row, enrichment, done, profile, profile_sources, traction_inputs, _emit):
     """The research every scorer reads, assembled once the four branches other than fit land."""
     from .traction import score_traction, gather_traction_inputs
@@ -520,6 +519,7 @@ def _pillar_after(prep, pillar, run, llm) -> dict:
         return unassessed(pillar, "error", "This pillar could not be assessed.")
 
 
+@_tracer.start_as_current_span("assess_department")
 def assess_department(result: dict, department: dict, llm: "LLMClient | None" = None,
                       do_web: bool = True) -> dict:
     """A new department run from an existing one's research — no enrichment, no profile search.
