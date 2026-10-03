@@ -189,3 +189,37 @@ def test_the_api_runs_the_pipeline_once_and_files_the_second_search_as_shared(ba
     # The leader's search is recorded by _saved inside the (stubbed) pipeline path; the follower's
     # is recorded here, as shared.
     assert searches == [("b@siemens.com", "shared")]
+
+
+def test_background_work_never_takes_a_slot_while_a_reviewer_waits(backend):
+    """Prewarming the cache must not delay anyone: it starts only when no one is queued."""
+    release, held = threading.Event(), threading.Event()
+
+    def reviewer_holding():
+        with flight.slot(limit=1):
+            held.set()
+            release.wait(5)
+
+    t = threading.Thread(target=reviewer_holding)
+    t.start()
+    held.wait(5)
+    waiting = threading.Thread(target=lambda: flight.slot(limit=1).__enter__().__exit__())
+    waiting.start()                                       # a second reviewer queues behind the first
+    time.sleep(0.1)
+    order = []
+    bg = threading.Thread(target=lambda: (flight.slot(limit=2, background=True).__enter__().__exit__(),
+                                          order.append("background")))
+    bg.start()
+    time.sleep(0.2)
+    # One slot of two is free, but a reviewer is waiting: background work stays out.
+    assert order == []
+    release.set()
+    t.join(5); waiting.join(5); bg.join(5)
+    assert order == ["background"]
+
+
+def test_background_work_runs_at_its_own_lower_cap_when_idle(backend):
+    with flight.slot(limit=2, background=True):
+        with flight.slot(limit=2, background=True):
+            # A third would exceed the cap of 2; it is refused rather than queued.
+            assert flight.slot(limit=2, background=True)._try() == 1

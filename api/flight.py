@@ -63,6 +63,24 @@ return rank - math.max(free, 0) + 1
 """
 
 
+# Background work (scripts/prewarm.py) never joins the line: it starts only when nobody is waiting
+# and fewer than its own cap are running, so warming the cache overnight cannot delay a reviewer.
+_ACQUIRE_IDLE = """
+local holders, waiters, seen = KEYS[1], KEYS[2], KEYS[3]
+local token, now = ARGV[1], tonumber(ARGV[2])
+local limit, lease = tonumber(ARGV[3]), tonumber(ARGV[4])
+redis.call('ZREMRANGEBYSCORE', holders, '-inf', now - lease)
+for _, m in ipairs(redis.call('ZRANGEBYSCORE', seen, '-inf', now - lease)) do
+  redis.call('ZREM', waiters, m); redis.call('ZREM', seen, m)
+end
+if redis.call('ZCARD', waiters) == 0 and redis.call('ZCARD', holders) < limit then
+  redis.call('ZADD', holders, now, token)
+  return -1
+end
+return 1
+"""
+
+
 def _redis():
     return getattr(sessions(), "_client", None)
 
@@ -87,6 +105,13 @@ class _LocalQueue:
                 return -1
             return rank - max(free, 0) + 1
 
+    def try_acquire_idle(self, token: str, limit: int) -> int:
+        with self.cond:
+            if not self.waiters and len(self.holders) < limit:
+                self.holders.add(token)
+                return -1
+            return 1
+
     def leave(self, token: str) -> None:
         with self.cond:
             self.holders.discard(token)
@@ -102,20 +127,25 @@ class slot:
 
     ``on_wait(position)`` is called whenever the caller's place in line changes (1 = next to
     start), and with 0 once admitted, so a caller that showed a position can clear it.
+
+    ``background=True`` never queues ahead of anyone: it is admitted only when no one is waiting
+    and fewer than ``limit`` runs hold slots in total, and it waits as long as that takes.
     """
 
-    def __init__(self, on_wait=None, limit: int | None = None):
+    def __init__(self, on_wait=None, limit: int | None = None, background: bool = False):
         self.on_wait = on_wait
         self.limit = limit or EVAL_CONCURRENCY
+        self.background = background
         self.token = secrets.token_hex(8)
         self._stop = threading.Event()
 
     def _try(self) -> int:
         client = _redis()
         if client is None:
-            return _local.try_acquire(self.token, self.limit)
-        return int(client.eval(_ACQUIRE, 3, _HOLDERS, _WAITERS, _SEEN,
-                               self.token, time.time(), self.limit, LEASE))
+            acquire = _local.try_acquire_idle if self.background else _local.try_acquire
+            return acquire(self.token, self.limit)
+        return int(client.eval(_ACQUIRE_IDLE if self.background else _ACQUIRE, 3, _HOLDERS, _WAITERS,
+                               _SEEN, self.token, time.time(), self.limit, LEASE))
 
     def _tell(self, position: int) -> None:
         if self.on_wait:
@@ -134,7 +164,7 @@ class slot:
             if position != last:
                 self._tell(position)
                 last = position
-            if time.time() > deadline:
+            if not self.background and time.time() > deadline:
                 self._leave()
                 raise HTTPException(503, "Evaluations are queued longer than usual. Please try again shortly.")
             time.sleep(_POLL)

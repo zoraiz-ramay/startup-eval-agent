@@ -354,6 +354,9 @@ def _department(department_id, user) -> dict:
     return dep
 
 
+PREWARM_CONCURRENCY = int(os.getenv("PREWARM_CONCURRENCY", "2"))
+
+
 def _all_departments(user) -> list[dict]:
     """Every configured department. An evaluation is assessed for all of them and recommends the
     one whose needs the startup answers best, so nobody has to guess a department up front."""
@@ -401,15 +404,20 @@ def _evaluation_cached(name, body, user):
     return cached
 
 
-def _run_evaluation(name: str, body: "EvaluateBody", principal, on_partial=None, user=None) -> dict:
+def _run_evaluation(name: str, body: "EvaluateBody", principal, on_partial=None, user=None,
+                    departments: list | None = None, background: bool = False) -> dict:
     """The uncached half of /api/evaluate, shared with the streaming route and the job queue.
 
     Extracted rather than duplicated: the endpoints must agree on what a fresh evaluation is,
     including which searches get to replay from cache and what is recorded against the reviewer.
     Every fresh run passes through here, which is why the concurrency cap and the one-run-per-
     company rule (api/flight.py) live here and not on any one route.
+
+    ``background`` is for work no reviewer is waiting on (scripts/prewarm.py): it takes a slot only
+    when nobody is queued, at PREWARM_CONCURRENCY, and runs without a signed-in user, so it passes
+    ``departments`` itself and records no search.
     """
-    departments = _all_departments(user) if user else None
+    departments = departments or (_all_departments(user) if user else None)
     tracxn = tracxn_client_for(user, core.LLMClient()) if user else None
 
     def queued(emit):
@@ -426,7 +434,8 @@ def _run_evaluation(name: str, body: "EvaluateBody", principal, on_partial=None,
 
     def lead(emit):
         led.append(True)
-        with flight.slot(queued(emit)):
+        with flight.slot(queued(emit), **({"limit": PREWARM_CONCURRENCY, "background": True}
+                                          if background else {})):
             return _fresh_evaluation(name, body, principal, emit, user, departments, None)
 
     res = flight.single_flight(key, lead, on_partial)
