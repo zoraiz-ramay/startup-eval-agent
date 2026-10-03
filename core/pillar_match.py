@@ -60,6 +60,13 @@ def _evidence(run: dict) -> list[dict]:
     """
     out, used = [], 0
     for e in evidence_for(run):
+        # The fit stage's tool matches are the model's inference, not research about the startup,
+        # so concepts, Team & Ecosystem and Market never cite them. It also makes these
+        # assessments independent of fit, which is what lets them start before fit's ~35s call
+        # finishes. Measured on all 52 stored runs: the budget below had already cut fit off in
+        # every one, so no stored input changes.
+        if str(e.get("source", "")).startswith("portfolio_analysis"):
+            continue
         text = str(e["text"]).strip()
         if len(text) < 3 or text.lower() in ("true", "false", "none"):
             continue
@@ -230,17 +237,41 @@ def _zero(pillar: str, note: str) -> dict:
 def assess_pillars(run: dict, department: dict | None, llm: LLMClient, do_web: bool = True,
                    search=None) -> dict:
     """All three pillars, Siemens Fit and the route for one run and one department."""
+    state = prepare_pillars(run, department, llm, do_web, search)
+    if not state["model"]:
+        return package_pillars(state, {p: unassessed(p, "model_unavailable",
+                                                     "The assessment model is not configured.")
+                                       for p in ORDER})
+    pillars: dict = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
+        futures = {p: ex.submit(contextvars.copy_context().run, assess_pillar, p, state, run, llm)
+                   for p in ORDER}
+        for p, fut in futures.items():
+            try:
+                pillars[p] = fut.result()
+            except Exception:
+                pillars[p] = unassessed(p, "error", "This pillar could not be assessed.")
+    return package_pillars(state, pillars)
+
+
+def prepare_pillars(run: dict, department: dict | None, llm: LLMClient, do_web: bool = True,
+                    search=None) -> dict:
+    """Catalogs, the run's evidence records and the grounded concepts every pillar matches on.
+
+    Separate from matching because it needs no fit: the pipeline runs it, and the Connect and
+    Collaborate matches after it, while fit's long call is still going. Only Empower waits.
+    """
     catalogs = {"siemens_tools": cat.tools_catalog(), "xcelerator": cat.xcelerator_catalog(),
                 "department_needs": cat.department_catalog(department)}
     catalog_info = {k: {"name": v["name"], "available": v["available"], "checksum": v["checksum"],
                         "reason": v.get("reason", ""), **({"issues": v["issues"]} if v.get("issues") else {})}
                     for k, v in catalogs.items()}
     records = _evidence(run)
-    pillars: dict = {}
-    if not llm or not llm.available:
-        for p in ORDER:
-            pillars[p] = unassessed(p, "model_unavailable", "The assessment model is not configured.")
-        return _package(pillars, {}, catalog_info, department, catalogs, [])
+    state = {"catalogs": catalogs, "catalog_info": catalog_info, "department": department,
+             "records": records, "concepts": {}, "searched": [],
+             "model": bool(llm and llm.available)}
+    if not state["model"]:
+        return state
     try:
         concepts = extract_concepts(records, llm)
     except Exception:
@@ -263,35 +294,37 @@ def assess_pillars(run: dict, department: dict | None, llm: LLMClient, do_web: b
             for g, items in more.items():
                 have = {c["key"] for c in concepts.get(g, [])}
                 concepts[g] = concepts.get(g, []) + [c for c in items if c["key"] not in have]
+    state.update(concepts=concepts, searched=searched, records=records)
+    return state
 
-    def one(p):
-        catalog = catalogs[PILLARS[p]["catalog"]]
-        if not catalog["available"]:
-            return unassessed(p, "catalog_unavailable", catalog["reason"])
-        if not any(concepts.get(g) for g in PILLARS[p]["concepts"]):
-            return unassessed(p, "no_grounded_evidence",
-                              "No cited research describes what this pillar needs.")
-        entries = shortlist(p, concepts, catalog, run)
-        if not entries:
-            return _zero(p, "No catalog entry shares a concept with the startup's cited research.")
-        try:
-            result = deep_match(p, concepts, entries, records, llm, department, run)
-            if p == "Empower" and result.get("status") == "assessed":
-                result = _with_real_tools(result, entries, concepts, records, llm, department, run)
-            return result
-        except (ValueError, TypeError, KeyError, AttributeError) as exc:
-            log.warning("[pillars] %s rejected: %s", p, exc)
-            return unassessed(p, "invalid_model_output",
-                              "The model's assessment failed validation; retry to assess this pillar.")
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
-        futures = {p: ex.submit(contextvars.copy_context().run, one, p) for p in ORDER}
-        for p, fut in futures.items():
-            try:
-                pillars[p] = fut.result()
-            except Exception:
-                pillars[p] = unassessed(p, "error", "This pillar could not be assessed.")
-    return _package(pillars, concepts, catalog_info, department, catalogs, searched, records)
+def assess_pillar(p: str, state: dict, run: dict, llm: LLMClient) -> dict:
+    """One pillar's match. ``run`` must carry ``fit`` for Empower; the other two never read it."""
+    concepts, records, department = state["concepts"], state["records"], state["department"]
+    catalog = state["catalogs"][PILLARS[p]["catalog"]]
+    if not catalog["available"]:
+        return unassessed(p, "catalog_unavailable", catalog["reason"])
+    if not any(concepts.get(g) for g in PILLARS[p]["concepts"]):
+        return unassessed(p, "no_grounded_evidence",
+                          "No cited research describes what this pillar needs.")
+    entries = shortlist(p, concepts, catalog, run)
+    if not entries:
+        return _zero(p, "No catalog entry shares a concept with the startup's cited research.")
+    try:
+        result = deep_match(p, concepts, entries, records, llm, department, run)
+        if p == "Empower" and result.get("status") == "assessed":
+            result = _with_real_tools(result, entries, concepts, records, llm, department, run)
+        return result
+    except (ValueError, TypeError, KeyError, AttributeError) as exc:
+        log.warning("[pillars] %s rejected: %s", p, exc)
+        return unassessed(p, "invalid_model_output",
+                          "The model's assessment failed validation; retry to assess this pillar.")
+
+
+def package_pillars(state: dict, pillars: dict) -> dict:
+    """The pillars, Siemens Fit and the route, packaged exactly as assess_pillars returns them."""
+    return _package(pillars, state["concepts"], state["catalog_info"], state["department"],
+                    state["catalogs"], state["searched"], state["records"] if state["model"] else ())
 
 
 def _cited_tools(result: dict) -> list[dict]:

@@ -164,3 +164,35 @@ def test_a_consumer_that_throws_does_not_break_the_evaluation(offline):
 def test_no_callback_is_still_the_supported_case(offline):
     df, tools = offline
     assert _run(df, tools)["found"]
+
+
+def test_scoring_that_never_reads_fit_starts_while_fit_is_still_running(offline, monkeypatch):
+    """Fit's match call takes ~35s and used to sit in front of all scoring. Here fit refuses to
+    finish until Team & Ecosystem and Market have started: under the old schedule (score only
+    after all five branches) that is a wait that never ends, so the run comes back without them."""
+    import threading
+    from core import team_ecosystem, market as market_mod
+    df, tools = offline
+    started = {"team": threading.Event(), "market": threading.Event()}
+    real_fit, real_team, real_market = pipeline.match_siemens_tools, team_ecosystem.assess_team, market_mod.assess_market
+
+    def slow_fit(*a, **kw):
+        overlapped = all(e.wait(5) for e in started.values())
+        out = real_fit(*a, **kw)
+        out["_overlapped"] = overlapped
+        return out
+
+    def team(*a, **kw):
+        started["team"].set()
+        return real_team(*a, **kw)
+
+    def market(*a, **kw):
+        started["market"].set()
+        return real_market(*a, **kw)
+
+    monkeypatch.setattr(pipeline, "match_siemens_tools", slow_fit)
+    monkeypatch.setattr(team_ecosystem, "assess_team", team)
+    monkeypatch.setattr(market_mod, "assess_market", market)
+    dep = {"id": "di", "label": "Digital Industries", "interests": ["machine vision"], "demo": True}
+    result = _run(df, tools, department=dep)
+    assert result["fit"]["_overlapped"] is True

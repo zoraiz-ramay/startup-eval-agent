@@ -309,7 +309,21 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
     _step("VERIFY", "running")
     _step("STRUCTURE", "running")
     _step("REVIEW", "running")
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as ex:
+    from .traction import score_traction, gather_traction_inputs, apply_traction
+    from .judgment import score_research, decision_research
+    company = str(row.get("company_name", "")) or name
+    # The raw database values ride along in the result: the header profile only keeps funding
+    # after format_funding has rounded it, and "€2.0M" can be €1.96M, one band lower.
+    traction_inputs = {"origin": {"glassdollar": "GlassDollar", "tracxn": "Tracxn"}.get(source, "application"),
+                       **{k: _cell(row.get(k, "")) for k in
+                          ("funding", "employees_count", "employee_band", "customers")}}
+    team = pillar_result = market = None
+    # One pool for the research branches AND the scoring after them. Scoring used to start only
+    # once all five branches had returned, which put fit's ~35s match call in front of everything.
+    # Only the model score and Empower read fit; Team & Ecosystem, Market, concept extraction,
+    # Connect and Collaborate start the moment the other four branches land (pillar_match._evidence
+    # never cites fit), and only Empower and the model score wait for fit itself.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=12) as ex:
         # Pool threads start with an EMPTY context, so anything submitted plainly here loses
         # the cache-bypass ContextVar set by evaluate() and falls back to its default (True):
         # a forced refresh would keep replaying cached searches and completions for the whole
@@ -334,6 +348,8 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
         # returned. `.result()` still raises here exactly as it did, so a failing branch fails the
         # run the same way.
         done: dict = {}
+        research = None
+        early: dict = {}
         pending = {fut: section for section, fut in jobs.items()}
         for fut in concurrent.futures.as_completed(pending):
             section = pending[fut]
@@ -352,59 +368,41 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
                                   "deep_profile": deep_profile})
             else:
                 _emit(section, done[section])
+            if research is None and all(s in done for s in jobs if s != "fit"):
+                research, traction = _join_research(name, row, enrichment, done, profile,
+                                                    profile_sources, traction_inputs, _emit)
+                if department:
+                    early = _start_fit_free_scoring(ex, research, company, department, llm, do_web)
         _step("REVIEW", "done")
 
-    verification, summary = done["verification"], done["summary"]
-    fit, trend, prof_res = done["fit"], done["trend"], done["profile"]
-    deep_profile = prof_res["profile"]
-    enrichment["facts"].extend(prof_res["facts"])
-    _emit("facts", [f.as_dict() for f in enrichment["facts"]])
-    # The traction rubric needs no model, so it is ready the moment the branches join — well
-    # before the scoring completion returns — and goes to the page on its own. The raw database
-    # values ride along in the result: the header profile only keeps funding after
-    # format_funding has rounded it, and "€2.0M" can be €1.96M, one band lower.
-    from .traction import score_traction, gather_traction_inputs, apply_traction
-    traction_inputs = {"origin": {"glassdollar": "GlassDollar", "tracxn": "Tracxn"}.get(source, "application"),
-                       **{k: _cell(row.get(k, "")) for k in
-                          ("funding", "employees_count", "employee_band", "customers")}}
-    traction = score_traction(gather_traction_inputs({
-        "company": str(row.get("company_name", "")) or name, "traction_inputs": traction_inputs,
-        "profile": profile, "profile_sources": profile_sources, "deep_profile": deep_profile,
-        "verification": verification}))
-    _emit("traction", traction)
-    _step("SCORE", "running")
-    from .judgment import score_research, decision_research
-    research = {"company": name, "application": row.to_dict(), "profile": profile,
-                         "deep_profile": deep_profile, "summary": summary, "fit": fit,
-                         "facts": [f.as_dict() for f in enrichment["facts"]],
-                         "verification": verification, "trend": trend}
-    # The model score, Team & Ecosystem and the three pillars read the same finished research and
-    # nothing else, so they run side by side; each is emitted as it lands, which is what lets the
-    # page show the component scores while Siemens Fit and the total are still pending.
-    team = pillar_result = market = None
-    if department:
-        from .team_ecosystem import assess_team
-        from .pillar_match import assess_pillars
-        from .market import assess_market
-        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
+        fit = done["fit"]
+        verification, summary, trend = done["verification"], done["summary"], done["trend"]
+        deep_profile = done["profile"]["profile"]
+        research = {**research, "fit": fit}
+        _step("SCORE", "running")
+        # The model score, Team & Ecosystem and the three pillars read the same finished research;
+        # each is emitted as it lands, which is what lets the page show the component scores while
+        # Siemens Fit and the total are still pending.
+        if department:
             f_score = _submit(ex, "pipeline.score", score_research, research, llm)
-            f_team = _submit(ex, "pipeline.team_ecosystem", assess_team, research, llm)
-            f_market = _submit(ex, "pipeline.market", assess_market, research, llm)
-            f_pill = _submit(ex, "pipeline.pillars", assess_pillars,
-                             {**research, "company": str(row.get("company_name", "")) or name},
-                             department, llm, do_web)
+            f_empower = _submit(ex, "pipeline.pillars", _pillar_after, early["prep"], "Empower",
+                                {**research, "company": company}, llm)
             sc = apply_traction(f_score.result(), traction)
             _step("SCORE", "done")
             _emit("score", sc)
-            team = f_team.result()
+            team = early["team"].result()
             _emit("team_ecosystem", team)
-            market = f_market.result()
+            market = early["market"].result()
             _emit("market", market)
-            pillar_result = f_pill.result()
-    else:
-        sc = apply_traction(score_research(research, llm), traction)
-        _step("SCORE", "done")
-        _emit("score", sc)
+            from .pillar_match import package_pillars
+            pillars = {"Empower": f_empower.result(), "Collaborate": early["Collaborate"].result(),
+                       "Connect": early["Connect"].result()}
+            pillar_result = package_pillars(early["prep"].result(),
+                                            {p: pillars[p] for p in ("Empower", "Collaborate", "Connect")})
+        else:
+            sc = apply_traction(score_research(research, llm), traction)
+            _step("SCORE", "done")
+            _emit("score", sc)
     _step("ROUTE", "running")
     from .route import _portfolio_stance
     from .programs import assess_sfs
@@ -456,6 +454,53 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
 
 
 @_tracer.start_as_current_span("assess_department")
+def _join_research(name, row, enrichment, done, profile, profile_sources, traction_inputs, _emit):
+    """The research every scorer reads, assembled once the four branches other than fit land."""
+    from .traction import score_traction, gather_traction_inputs
+    deep_profile = done["profile"]["profile"]
+    enrichment["facts"].extend(done["profile"]["facts"])
+    _emit("facts", [f.as_dict() for f in enrichment["facts"]])
+    # The traction rubric needs no model, so it is ready the moment the research joins — well
+    # before the scoring completion returns — and goes to the page on its own.
+    traction = score_traction(gather_traction_inputs({
+        "company": str(row.get("company_name", "")) or name, "traction_inputs": traction_inputs,
+        "profile": profile, "profile_sources": profile_sources, "deep_profile": deep_profile,
+        "verification": done["verification"]}))
+    _emit("traction", traction)
+    research = {"company": name, "application": row.to_dict(), "profile": profile,
+                "deep_profile": deep_profile, "summary": done["summary"], "fit": None,
+                "facts": [f.as_dict() for f in enrichment["facts"]],
+                "verification": done["verification"], "trend": done["trend"]}
+    return research, traction
+
+
+def _start_fit_free_scoring(ex, research, company, department, llm, do_web) -> dict:
+    """Everything in scoring that never reads fit, started while fit may still be running."""
+    from .team_ecosystem import assess_team
+    from .market import assess_market
+    from .pillar_match import prepare_pillars
+    run = {**research, "company": company}
+    early = {"team": _submit(ex, "pipeline.team_ecosystem", assess_team, research, llm),
+             "market": _submit(ex, "pipeline.market", assess_market, research, llm),
+             "prep": _submit(ex, "pipeline.pillars", prepare_pillars, run, department, llm, do_web)}
+    for pillar in ("Connect", "Collaborate"):
+        early[pillar] = _submit(ex, "pipeline.pillars", _pillar_after, early["prep"], pillar, run, llm)
+    return early
+
+
+def _pillar_after(prep, pillar, run, llm) -> dict:
+    """One pillar once its concepts are ready — with assess_pillars' own fallbacks."""
+    from .pillar_match import assess_pillar
+    from .pillars import unassessed
+    try:
+        state = prep.result()
+        if not state["model"]:
+            return unassessed(pillar, "model_unavailable", "The assessment model is not configured.")
+        return assess_pillar(pillar, state, run, llm)
+    except Exception:
+        return unassessed(pillar, "error", "This pillar could not be assessed.")
+
+
 def assess_department(result: dict, department: dict, llm: "LLMClient | None" = None,
                       do_web: bool = True) -> dict:
     """A new department run from an existing one's research — no enrichment, no profile search.
