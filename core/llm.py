@@ -110,8 +110,14 @@ class LLMClient:
 
     def complete(self, prompt: str, system: str = "", max_tokens: int = 1200,
                  model: str = "", temperature: float = LLM_TEMPERATURE,
-                 reasoning: str = "", max_attempts: int | None = None) -> str:
+                 reasoning: str = "", max_attempts: int | None = None,
+                 timeout: float | None = None) -> str:
         """Run one completion; '' on failure.
+
+        ``timeout`` overrides LLM_TIMEOUT for a call measured to need longer. The default is sized
+        for a hung request, not a slow one: a call that reliably takes longer than it is killed
+        and retried from scratch every time, which costs the whole budget again and, when every
+        attempt dies the same way, ends in the caller's offline fallback.
 
         ``temperature`` defaults to 0 so repeated runs agree: left unset, Gemini defaults to 1.0
         and four identical extraction calls returned three different JSON spellings, which is
@@ -162,7 +168,7 @@ class LLMClient:
                     model=use_model,
                     messages=msgs,
                     max_completion_tokens=budget,
-                    timeout=LLM_TIMEOUT,
+                    timeout=timeout or LLM_TIMEOUT,
                     **extra,
                 )
                 self.last_error = ""

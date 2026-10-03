@@ -10,7 +10,6 @@ import pandas as pd
 from opentelemetry import trace
 
 from . import web
-from .config import LLM_MODEL
 from .llm import LLMClient
 from .data import load_glassdollar, find_startup, web_profile_row, load_siemens_tools
 from .enrich import enrich
@@ -396,7 +395,9 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
         rt.update(decision_research(research, llm))
     _step("ROUTE", "done")
 
-    engine = "openai:" + LLM_MODEL if llm.available else "offline-fallback"
+    # The provider and model that actually ran. This used to be "openai:" + LLM_MODEL whichever
+    # key was set, so every Gemini run was recorded as openai:gpt-5.4.
+    engine = f"{llm.provider}:{llm.model}" if llm.available else "offline-fallback"
     if source == "web":
         engine += " · web-sourced"
     stats = enrichment.get("search_stats") or {}
