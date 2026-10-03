@@ -362,6 +362,18 @@ const PROFILE = ["profile", {
 }];
 
 describe("Profile — progressive render", () => {
+  it("says the run is queued, and where, while other evaluations hold every slot", async () => {
+    await renderStreaming([["queue", { position: 2 }]]);
+    expect(await screen.findByRole("status")).toHaveTextContent(/Queued: Phena is number 2 in line/);
+  });
+
+  it("stops saying queued once the run has started", async () => {
+    await renderStreaming([["queue", { position: 0 }]]);
+    const status = await screen.findByRole("status");
+    expect(status).toHaveTextContent(/Evaluating Phena/);
+    expect(status).not.toHaveTextContent(/Queued/);
+  });
+
   it("holds the skeleton until there is a profile to read", async () => {
     // The company being resolved is not yet something worth showing: a page of em dashes for the
     // seconds before enrichment finishes is worse than the skeleton.

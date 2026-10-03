@@ -185,7 +185,7 @@ CREATE TABLE IF NOT EXISTS searches (
     company_id   INTEGER,                 -- nullable: delete_run does not cascade
     company_name TEXT,                    -- resolved name, denormalized so the list survives deletes
     run_id       INTEGER,                 -- nullable for the same reason
-    served_from  TEXT,                    -- cache | fresh | research (another department's research reused)
+    served_from  TEXT,                    -- cache | fresh | research (another department's research reused) | shared (attached to another reviewer's in-flight run)
     created_at   TEXT NOT NULL
 );
 -- Sign-ins are recorded here rather than counted from Redis: sessions there expire after

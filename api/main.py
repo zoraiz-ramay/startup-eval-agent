@@ -37,6 +37,7 @@ from api.auth import admin_upns as auth_admin_upns, db_admin_upns as auth_db_adm
 from api.auth import router as auth_router
 from api.security import SecurityMiddleware
 from api.telemetry import setup_telemetry
+from api import flight
 from api.routes_evidence import router as evidence_router
 
 log = logging.getLogger(__name__)
@@ -376,13 +377,43 @@ def _evaluation_cached(name, body, user):
 
 
 def _run_evaluation(name: str, body: "EvaluateBody", principal, on_partial=None, user=None) -> dict:
-    """The uncached half of /api/evaluate, shared with the streaming route.
+    """The uncached half of /api/evaluate, shared with the streaming route and the job queue.
 
-    Extracted rather than duplicated: the two endpoints must agree on what a fresh evaluation is,
+    Extracted rather than duplicated: the endpoints must agree on what a fresh evaluation is,
     including which searches get to replay from cache and what is recorded against the reviewer.
+    Every fresh run passes through here, which is why the concurrency cap and the one-run-per-
+    company rule (api/flight.py) live here and not on any one route.
     """
     department = _department(body.department_id, user) if user else None
     tracxn = tracxn_client_for(user, core.LLMClient()) if user else None
+
+    def queued(emit):
+        return lambda position: emit("queue", {"position": position})
+
+    if tracxn:
+        # A Tracxn-backed run is private to its reviewer, so it is never shared — only queued.
+        emit = on_partial or (lambda s, d: None)
+        with flight.slot(queued(emit)):
+            return _fresh_evaluation(name, body, principal, emit, user, department, tracxn)
+    key = flight.flight_key(name, (department or {}).get("id", ""), "refresh" if body.refresh else "")
+
+    led = []
+
+    def lead(emit):
+        led.append(True)
+        with flight.slot(queued(emit)):
+            return _fresh_evaluation(name, body, principal, emit, user, department, None)
+
+    res = flight.single_flight(key, lead, on_partial)
+    if not led:
+        # Attached to another reviewer's run of the same company: the work is theirs, the
+        # search is ours.
+        store.record_search(principal, name, company_name=str(res.get("company", "")),
+                            run_id=res.get("run_id"), served_from="shared")
+    return res
+
+
+def _fresh_evaluation(name, body, principal, on_partial, user, department, tracxn) -> dict:
     if department and not body.refresh and not tracxn:
         # Another department already evaluated this startup recently: its research is reused and
         # only Siemens Fit is scored for this department — as a NEW run, never a rewrite of theirs.

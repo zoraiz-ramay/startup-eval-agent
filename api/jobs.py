@@ -14,8 +14,11 @@ from api.auth import Principal, current_user, sessions
 from api.workspace import locked
 
 router = APIRouter(prefix="/api/jobs", tags=["workspace"])
-_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="evaluation")
+# Threads here only wait: how many evaluations actually run at once is api/flight.slot's job,
+# shared with the other two entry points. This pool used to BE the limit (2 per worker), which
+# queued workspace searches while the stream route ran unbounded.
 _slots = threading.BoundedSemaphore(40)
+_pool = ThreadPoolExecutor(max_workers=40, thread_name_prefix="evaluation")
 TTL = 86400
 
 

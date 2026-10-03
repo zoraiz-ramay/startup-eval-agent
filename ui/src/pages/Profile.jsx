@@ -13,12 +13,20 @@ import MarketTab from "./profile/MarketTab.jsx";
 import EvidenceTab from "./profile/EvidenceTab.jsx";
 import { DEFAULT_VIEW } from "./profile/sections.js";
 
-function SkeletonProfile({ name }) {
+/* `position` is this run's place in the shared evaluation queue (api/flight.py): set while other
+   reviewers' runs hold every slot, 0 once it has started. Waiting in line and running are different
+   states, and a spinner that says "evaluating" while nothing has started yet hides the queue. */
+function SkeletonProfile({ name, position }) {
   return (
     <div>
       <div className="panel">
-        <p style={{ margin: 0 }}><span className="spinner" /> Evaluating <strong>{name}</strong> —
-          running Input → Enrich → Verify → Structure → Score → Review → Route. This can take a minute or two.</p>
+        <p style={{ margin: 0 }} role="status" aria-live="polite"><span className="spinner" aria-hidden="true" />{" "}
+          {position > 0
+            ? <>Queued: <strong>{name}</strong> is {position === 1 ? "next to start" : `number ${position} in line`}.
+                Other evaluations are running; this one starts automatically.</>
+            : <>Evaluating <strong>{name}</strong> —
+                running Input → Enrich → Verify → Structure → Score → Review → Route. This can take a minute or two.</>}
+        </p>
       </div>
       <div className="skel" style={{ height: 84, marginBottom: 12 }} />
       <div className="grid2">
@@ -145,7 +153,7 @@ export default function Profile() {
      skeleton holds until it lands rather than flashing a page of em dashes for the seconds
      between the company being resolved and its profile being assembled. */
   if (!res || (res.streaming && !res.profile)) {
-    return <SkeletonProfile name={res?.company || evalName || `run #${id}`} />;
+    return <SkeletonProfile name={res?.company || evalName || `run #${id}`} position={res?.queue?.position} />;
   }
 
   const rt = res.routing || {};
