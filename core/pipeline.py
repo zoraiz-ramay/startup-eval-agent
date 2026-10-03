@@ -7,6 +7,7 @@ import functools
 import logging
 
 import pandas as pd
+from opentelemetry import trace
 
 from . import web
 from .config import LLM_MODEL
@@ -21,6 +22,25 @@ from .text import format_funding
 from .profile import research_profile
 
 log = logging.getLogger(__name__)
+
+# Spans are no-ops until api/telemetry.py installs an SDK, so scripts and tests are unaffected.
+# Each branch runs inside its own current span so the searches and completions it makes nest
+# under it: the question a trace answers is which branch the 118 seconds went to.
+_tracer = trace.get_tracer(__name__)
+
+
+def _traced(span_name: str, fn):
+    @functools.wraps(fn)
+    def run(*a, **kw):
+        with _tracer.start_as_current_span(span_name):
+            return fn(*a, **kw)
+    return run
+
+
+def _submit(ex, span_name: str, fn, *a):
+    # copy_context(): pool threads start with an EMPTY context, which would drop both the
+    # cache-bypass ContextVar and the current span.
+    return ex.submit(contextvars.copy_context().run, _traced(span_name, fn), *a)
 
 # Headline fields the DB leaves blank but web research can establish, mapped to their key in
 # the researched deep profile.
@@ -137,6 +157,7 @@ def _by_domain(name: str):
         return None
 
 
+@_tracer.start_as_current_span("evaluate")
 def evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = True,
              df: "pd.DataFrame" = None, on_step=None, use_web_cache: bool = True,
              on_partial=None, tracxn=None, department: dict | None = None) -> dict:
@@ -154,6 +175,10 @@ def evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = T
     caller can show the profile while scoring is still running. The return value is unchanged and
     still complete — the callback is an addition, never a replacement.
     """
+    span = trace.get_current_span()
+    span.set_attribute("startup.query", name)
+    span.set_attribute("startup.department", str((department or {}).get("id", "")))
+    span.set_attribute("web_cache.enabled", use_web_cache)
     token = web.set_cache_enabled(use_web_cache)
     try:
         return _evaluate(name, glassdollar_path, tools_path, do_web, df, on_step, on_partial, tracxn,
@@ -242,13 +267,15 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
             except Exception:
                 pass
     _step("INPUT", "done")
+    trace.get_current_span().set_attribute("startup.source", source)
     # The company is resolved and nothing else is known yet. Emitting here is what lets the page
     # put up a header with the real name instead of whatever the reviewer typed.
     _emit("identity", {"company": str(row.get("company_name", "")) or name, "source": source})
 
     tools = load_siemens_tools(tools_path)
     _step("ENRICH", "running")
-    enrichment = enrich(row, do_web=do_web)
+    with _tracer.start_as_current_span("pipeline.enrich"):
+        enrichment = enrich(row, do_web=do_web)
     _step("ENRICH", "done")
     # The profile as the ROW already knows it — name, site, HQ, founded year, funding, stage —
     # before any research runs. Emitted because the deep-profile branch is the slowest thing in
@@ -268,19 +295,19 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
         # the cache-bypass ContextVar set by evaluate() and falls back to its default (True):
         # a forced refresh would keep replaying cached searches and completions for the whole
         # of the profile / trend research, which is most of the run.
-        def _spawn(fn, *a):
-            return ex.submit(contextvars.copy_context().run, functools.partial(fn, *a))
+        def _spawn(section, fn, *a):
+            return _submit(ex, f"pipeline.{section}", fn, *a)
 
         jobs = {
-            "verification": _spawn(verify_facts, row, enrichment, llm),
-            "summary": _spawn(summarize_offering, row, enrichment["pitch_pdf"], llm),
-            "fit": _spawn(match_siemens_tools, row, enrichment["pitch_pdf"], tools, llm),
+            "verification": _spawn("verification", verify_facts, row, enrichment, llm),
+            "summary": _spawn("summary", summarize_offering, row, enrichment["pitch_pdf"], llm),
+            "fit": _spawn("fit", match_siemens_tools, row, enrichment["pitch_pdf"], tools, llm),
             # deep structured profile: founders / advisors / programs / parent group / commercial
-            "profile": _spawn(research_profile, row, llm, do_web, enrichment.get("site"),
+            "profile": _spawn("profile", research_profile, row, llm, do_web, enrichment.get("site"),
                               enrichment.get("web")),
             # trend uses niche keywords derived inside analyze_trend (stage 1); we pass an empty
             # list here and it derives its own terms. Kicked off early so it runs in parallel.
-            "trend": _spawn(analyze_trend, row, "", [], llm, do_web),
+            "trend": _spawn("trend", analyze_trend, row, "", [], llm, do_web),
         }
         # Collected as they land rather than in a fixed order. The five branches differ by tens of
         # seconds — the profile chain alone runs four recall nets — and awaiting them in a written
@@ -341,12 +368,12 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
         from .pillar_match import assess_pillars
         from .market import assess_market
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
-            f_score = ex.submit(contextvars.copy_context().run, score_research, research, llm)
-            f_team = ex.submit(contextvars.copy_context().run, assess_team, research, llm)
-            f_market = ex.submit(contextvars.copy_context().run, assess_market, research, llm)
-            f_pill = ex.submit(contextvars.copy_context().run, assess_pillars,
-                               {**research, "company": str(row.get("company_name", "")) or name},
-                               department, llm, do_web)
+            f_score = _submit(ex, "pipeline.score", score_research, research, llm)
+            f_team = _submit(ex, "pipeline.team_ecosystem", assess_team, research, llm)
+            f_market = _submit(ex, "pipeline.market", assess_market, research, llm)
+            f_pill = _submit(ex, "pipeline.pillars", assess_pillars,
+                             {**research, "company": str(row.get("company_name", "")) or name},
+                             department, llm, do_web)
             sc = apply_traction(f_score.result(), traction)
             _step("SCORE", "done")
             _emit("score", sc)
@@ -407,6 +434,7 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
     return result
 
 
+@_tracer.start_as_current_span("assess_department")
 def assess_department(result: dict, department: dict, llm: "LLMClient | None" = None,
                       do_web: bool = True) -> dict:
     """A new department run from an existing one's research — no enrichment, no profile search.
@@ -435,10 +463,10 @@ def assess_department(result: dict, department: dict, llm: "LLMClient | None" = 
     prior_market = result.get("market") or {}
     reuse_market = prior_market.get("status") == "assessed" and prior_market.get("version") == MARKET_VERSION
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
-        f_pill = ex.submit(contextvars.copy_context().run, assess_pillars, base, department, llm, do_web)
-        f_team = None if reuse_team else ex.submit(contextvars.copy_context().run, assess_team, base, llm)
-        f_score = ex.submit(contextvars.copy_context().run, score_research, base, llm) if rescore else None
-        f_market = None if reuse_market else ex.submit(contextvars.copy_context().run, assess_market, base, llm)
+        f_pill = _submit(ex, "pipeline.pillars", assess_pillars, base, department, llm, do_web)
+        f_team = None if reuse_team else _submit(ex, "pipeline.team_ecosystem", assess_team, base, llm)
+        f_score = _submit(ex, "pipeline.score", score_research, base, llm) if rescore else None
+        f_market = None if reuse_market else _submit(ex, "pipeline.market", assess_market, base, llm)
         market = f_market.result() if f_market else prior_market
         team = f_team.result() if f_team else prior
         if f_score:

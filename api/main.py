@@ -36,6 +36,7 @@ from api.auth import Principal, current_user, require_admin, settings as auth_se
 from api.auth import admin_upns as auth_admin_upns, db_admin_upns as auth_db_admin_upns
 from api.auth import router as auth_router
 from api.security import SecurityMiddleware
+from api.telemetry import setup_telemetry
 from api.routes_evidence import router as evidence_router
 
 log = logging.getLogger(__name__)
@@ -106,6 +107,7 @@ app.add_middleware(SecurityMiddleware)
 app.add_middleware(CORSMiddleware, allow_origins=_origins, allow_credentials=True,
                    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
                    allow_headers=["Authorization", "Content-Type", "X-CSRF-Token"])
+setup_telemetry(app)
 
 # Build and validate auth config here rather than at import of api.auth: this runs after
 # `import core` has loaded .env, and it is where a missing client secret should stop the

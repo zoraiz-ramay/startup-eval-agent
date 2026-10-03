@@ -346,6 +346,20 @@ confirmed storing Tracxn data is permitted.
   through to the model's memory, is shown but not saved — otherwise the gap would be served as the
   answer until someone thought to refresh.
 
+## Telemetry (SigNoz / OpenTelemetry)
+
+`api/telemetry.py` exports traces, metrics and logs over OTLP, and is **off unless
+`OTEL_EXPORTER_OTLP_ENDPOINT` is set** (`tests/conftest.py` blanks it, so pytest never exports).
+`core/` uses only `opentelemetry-api` — spans are no-ops without the SDK — so the engine still runs
+standalone. Each pipeline branch runs inside its own span (`pipeline._submit`), and every DuckDuckGo
+search gets a `web.search` span, because ddgs' own HTTP client is invisible to instrumentation.
+
+Kept out of telemetry on purpose: the `/api/auth/callback` URL (it carries the Entra code), Redis
+(its keys are session ids), and prompt/completion text. Adding a root log handler silences Python's
+last-resort stderr output, which is why `attach_log_handler` adds a WARNING console handler first.
+
+Local SigNoz runs self-hosted through Foundry inside WSL2 Ubuntu; UI on :8080, OTLP on :4318.
+
 ## Authentication
 
 Sign-in is Microsoft Entra ID, as a **backend-for-frontend**: `api/auth.py` is the confidential
