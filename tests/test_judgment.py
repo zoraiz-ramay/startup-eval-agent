@@ -188,3 +188,16 @@ def test_pass_is_a_supported_model_choice_and_not_a_missing_data_fallback():
     assert decision_research(RUN, llm(data))["status"] == "unavailable"
     data["pillar"] = "Defer"
     assert decision_research(RUN, llm(data))["pillar"] == "Defer"
+
+
+def test_the_same_evidence_retrieved_at_another_time_reads_identically():
+    """retrieved_at changes every run. In the records it made every prompt unique, so the LLM cache
+    never hit on a re-evaluation and the model re-answered identical evidence differently — two
+    replays of one company scored Siemens Fit 89 and 100."""
+    from core.judgment import evidence_for
+    fact = {"key": "investor", "value": "UVC Partners", "source_url": "https://press.example/round"}
+    monday = {"company": "Acme", "facts": [{**fact, "retrieved_at": "2026-10-05T09:00:00+00:00"}]}
+    friday = {"company": "Acme", "facts": [{**fact, "retrieved_at": "2026-10-09T17:30:00+00:00",
+                                            "last_confirmed_at": "2026-10-05T09:00:00+00:00"}]}
+    assert evidence_for(monday) == evidence_for(friday)
+    assert any(r["text"] == "UVC Partners" for r in evidence_for(monday))

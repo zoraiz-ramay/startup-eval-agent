@@ -12,6 +12,9 @@ CRITERIA = {"strategic": "Relevant Siemens use case", "complement": "Relevant Si
             "impact": "Demonstrated customer value"}
 
 
+_NOT_RESEARCH = frozenset({"retrieved_at", "freshness_days", "last_confirmed_at"})
+
+
 def evidence_for(run):
     """Include all collected research, excluding previous scores and routing judgments."""
     records = []
@@ -19,6 +22,13 @@ def evidence_for(run):
         if isinstance(value, dict):
             url = value.get("source_url") or value.get("evidence_url") or url
             for key, child in value.items():
+                # When a fact was retrieved is provenance, not research, and it changes every run:
+                # with it in the records, no two evaluations sent the same prompt, so the LLM cache
+                # never hit on a re-run and the model re-answered identical evidence differently
+                # (two replays of one company: Siemens Fit 89 vs 100). It also took ~10% of the
+                # evidence budget on every stored run.
+                if key in _NOT_RESEARCH:
+                    continue
                 visit(child, f"{path}.{key}", url)
         elif isinstance(value, (list, tuple)):
             for i, child in enumerate(value): visit(child, f"{path}[{i}]", url)
