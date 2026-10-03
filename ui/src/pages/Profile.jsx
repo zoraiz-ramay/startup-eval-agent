@@ -6,6 +6,7 @@ import { useResearch } from "../research.jsx";
 import { api, evaluateStream } from "../api.js";
 import { useApp } from "../state.jsx";
 import ErrorBox from "../components/ErrorBox.jsx";
+import DegradedNotice from "../components/DegradedNotice.jsx";
 import ProfileLayout from "./profile/ProfileLayout.jsx";
 import OverviewTab from "./profile/OverviewTab.jsx";
 import ScoringTab from "./profile/scoring/ScoringTab.jsx";
@@ -216,6 +217,7 @@ export default function Profile() {
           </div>
         </div>
       </div>
+      <DegradedNotice degraded={res.degraded} />
 
       {/* Navigation is the rail alone. The pipeline ribbon that used to sit here rendered all
           seven steps as done on every finished run, so it reported nothing a reader could act on

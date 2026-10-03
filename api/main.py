@@ -77,6 +77,12 @@ except Exception:
 
 # Give the engine its result cache. Injected rather than imported by core/ so nothing in core/
 # depends on api/ and the engine still runs (uncached) from tests, scripts.
+# A shared per-minute budget for model requests, set to the provider's quota. Off unless LLM_RPM
+# is set: the right number depends on the gateway or Gemini tier, and a guessed one either throttles
+# for nothing or protects nothing.
+if int(os.getenv("LLM_RPM", "0") or 0) > 0:
+    core.llm.install_rate_limiter(flight.llm_gate(int(os.environ["LLM_RPM"])))
+
 try:
     core.web.install_cache(store.cache_get, store.cache_put, store.cache_get_entry)
     store.cache_purge_expired()

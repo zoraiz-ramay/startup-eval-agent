@@ -10,6 +10,7 @@ import pandas as pd
 from opentelemetry import trace
 
 from . import web
+from . import llm as llm_mod
 from .llm import LLMClient
 from .data import load_glassdollar, find_startup, web_profile_row, load_siemens_tools
 from .enrich import enrich
@@ -29,10 +30,17 @@ _tracer = trace.get_tracer(__name__)
 
 
 def _traced(span_name: str, fn):
+    # The span name doubles as the stage a failed model call is charged to (result["degraded"]).
+    stage = span_name.removeprefix("pipeline.")
+
     @functools.wraps(fn)
     def run(*a, **kw):
-        with _tracer.start_as_current_span(span_name):
-            return fn(*a, **kw)
+        token = llm_mod.set_stage(stage)
+        try:
+            with _tracer.start_as_current_span(span_name):
+                return fn(*a, **kw)
+        finally:
+            llm_mod.reset_stage(token)
     return run
 
 
@@ -179,11 +187,24 @@ def evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = T
     span.set_attribute("startup.department", str((department or {}).get("id", "")))
     span.set_attribute("web_cache.enabled", use_web_cache)
     token = web.set_cache_enabled(use_web_cache)
+    collecting, failures = llm_mod.collect_failures()
     try:
-        return _evaluate(name, glassdollar_path, tools_path, do_web, df, on_step, on_partial, tracxn,
-                         department)
+        return _with_degraded(_evaluate(name, glassdollar_path, tools_path, do_web, df, on_step,
+                                        on_partial, tracxn, department), failures)
     finally:
+        llm_mod.stop_collecting(collecting)
         web.reset_cache_enabled(token)
+
+
+def _with_degraded(result: dict, failures: list) -> dict:
+    """Name every stage whose model call failed for good, so a fallback is never silent.
+
+    Absent when nothing failed. A run with no model configured at all is not "degraded" — it never
+    calls the model, records nothing here, and its engine already reads offline-fallback.
+    """
+    if failures and result.get("found", True):
+        result["degraded"] = llm_mod.summarize_failures(failures)
+    return result
 
 
 def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = True,
@@ -273,8 +294,7 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
 
     tools = load_siemens_tools(tools_path)
     _step("ENRICH", "running")
-    with _tracer.start_as_current_span("pipeline.enrich"):
-        enrichment = enrich(row, do_web=do_web)
+    enrichment = _traced("pipeline.enrich", enrich)(row, do_web=do_web)
     _step("ENRICH", "done")
     # The profile as the ROW already knows it — name, site, HQ, founded year, funding, stage —
     # before any research runs. Emitted because the deep-profile branch is the slowest thing in
@@ -443,11 +463,19 @@ def assess_department(result: dict, department: dict, llm: "LLMClient | None" = 
     Siemens Fit is the only department-specific part of an evaluation. Team & Ecosystem is reused
     when the source run already holds a current one; the startup research itself is not redone.
     """
+    llm = llm or LLMClient()
+    collecting, failures = llm_mod.collect_failures()
+    try:
+        return _with_degraded(_assess_department(result, department, llm, do_web), failures)
+    finally:
+        llm_mod.stop_collecting(collecting)
+
+
+def _assess_department(result: dict, department: dict, llm, do_web: bool) -> dict:
     from .assessment import build
     from .pillar_match import assess_pillars
     from .team_ecosystem import assess_team, VERSION as TEAM_VERSION
     from .market import assess_market, VERSION as MARKET_VERSION
-    llm = llm or LLMClient()
     base = {k: v for k, v in result.items()
             if k not in ("assessment", "department", "run_id", "run_created_at", "cached",
                          "freshness", "private", "department_assessments", "original_score")}

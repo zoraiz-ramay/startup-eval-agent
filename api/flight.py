@@ -315,3 +315,36 @@ def _follow(key, on_partial):
             _drop_if_owner(key, record.get("owner"))
             return None
         time.sleep(_POLL)
+
+
+# ------------------------------------------------------------------------- model request budget
+
+_local_minutes: dict[int, int] = {}
+_local_minutes_lock = threading.Lock()
+
+
+def llm_gate(rpm: int, clock=time.time, sleep=time.sleep):
+    """A gate that admits at most ``rpm`` model requests per wall-clock minute across workers.
+
+    Fixed one-minute windows: simple, and the same shape as the provider's own per-minute quota,
+    so waiting here costs the same seconds a 429 would — minus the failed request and its retry.
+    """
+    def gate():
+        while True:
+            now = clock()
+            window = int(now // 60)
+            client = _redis()
+            if client is None:
+                with _local_minutes_lock:
+                    for old in [w for w in _local_minutes if w < window]:
+                        _local_minutes.pop(old)
+                    _local_minutes[window] = used = _local_minutes.get(window, 0) + 1
+            else:
+                key = f"llm:rpm:{window}"
+                used = client.incr(key)
+                if used == 1:
+                    client.expire(key, 120)
+            if used <= rpm:
+                return
+            sleep(max(0.05, (window + 1) * 60 - now))
+    return gate
