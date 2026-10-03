@@ -17,3 +17,6 @@ os.environ["AUTH_MODE"] = "stub"
 os.environ["SESSION_BACKEND"] = "memory"
 os.environ.setdefault("RUNS_DB", str(pathlib.Path(tempfile.gettempdir()) / "sea_test_runs.db"))
 os.environ.pop("APP_ENV", None)
+# Set (to blank) rather than popped: load_dotenv never overrides a key already in os.environ,
+# so this is what stops a developer's .env from shipping every test request to their SigNoz.
+os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = ""

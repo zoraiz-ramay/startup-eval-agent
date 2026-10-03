@@ -24,7 +24,8 @@ def private_save(oid, name, result):
     result = {**result, "run_id": run_id, "private": True, "retention_days": 30}
     sessions().put(f"private-run:{oid}:{run_id}", result, TTL)
     # Filed under the department too: a private run for one department is not another's result.
-    sessions().put(alias_key(oid, name, (result.get("department") or {}).get("id", "")), {"id": run_id}, TTL)
+    scope = "*" if result.get("departments") else (result.get("department") or {}).get("id", "")
+    sessions().put(alias_key(oid, name, scope), {"id": run_id}, TTL)
     with locked(oid):
         index = sessions().get("private-runs:" + oid) or {"ids": []}
         index["ids"] = [run_id, *index["ids"]][:100]
@@ -40,7 +41,9 @@ def alias_key(oid, name, department_id=""):
 def private_latest(oid, name, department_id="", assessment_key=None):
     ref = sessions().get(alias_key(oid, name, department_id)) or {}
     run = private_get(oid, ref.get("id")) if ref else None
-    if run and assessment_key and (run.get("assessment") or {}).get("assessment_key") != assessment_key:
+    stored = (run or {}).get("departments", {}).get("assessment_key") if department_id == "*" \
+        else ((run or {}).get("assessment") or {}).get("assessment_key")
+    if run and assessment_key and stored != assessment_key:
         return None
     return run
 

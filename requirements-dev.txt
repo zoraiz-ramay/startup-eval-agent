@@ -1,2 +1,4 @@
 pytest
 pytest-asyncio
+# Runs api/flight.py's Redis Lua scripts in tests without a Redis server.
+fakeredis[lua]>=2.20

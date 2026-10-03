@@ -16,6 +16,15 @@ log = logging.getLogger(__name__)
 # Size of the LLM-ranked shortlist sent to the final fit match. Override with FIT_SHORTLIST_SIZE.
 FIT_SHORTLIST_SIZE = int(os.getenv("FIT_SHORTLIST_SIZE", "80"))
 
+# The final match call reasons over an 80-tool catalogue, and on Gemini 2.5 Flash that took 34.5 to
+# 36.2s in each of three runs (Wandelbots, cache off) — always past the 30s LLM_TIMEOUT. So the first
+# attempt was killed and retried every time (a SigNoz trace showed fit at 65s of a 90s evaluation),
+# and when all three attempts died the run fell back to keyword matching without saying why: 11 of
+# 52 stored runs carry method='offline_keyword' despite a working model. Lowering the reasoning
+# effort instead is faster (6s at "low", 2s at "none") but changed the answer — it dropped the
+# substitute finding and compressed confidence to 88-95 — which is a scoring change, not a fix.
+FIT_MATCH_TIMEOUT = float(os.getenv("FIT_MATCH_TIMEOUT", "90"))
+
 
 def _derive_fit_keywords(startup_text: str, llm: LLMClient) -> list[str]:
     """Stage 1 — ask the LLM for the search terms most relevant to matching THIS startup against
@@ -111,7 +120,10 @@ def match_siemens_tools(row: pd.Series, pitch_pdf: str, tools: list[dict], llm: 
                 '[{"tool": "...", "division": "...", "confidence": 0-100, '
                 '"relation": "complement|integration|substitute|adjacent", "rationale": "one sentence"}]}'
             )
-            data = LLMClient.parse_json(llm.complete(prompt, max_tokens=900))
+            # Two attempts, not three: at 90s each, a third would push a hung provider past
+            # gunicorn's 300s worker timeout once the rest of the pipeline is added.
+            data = LLMClient.parse_json(llm.complete(prompt, max_tokens=900,
+                                                     timeout=FIT_MATCH_TIMEOUT, max_attempts=2))
             if isinstance(data, dict) and isinstance(data.get("matches"), list):
                 allowed = {t["product"].casefold(): t for t in shortlist}
                 clean, seen = [], set()

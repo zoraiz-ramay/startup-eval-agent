@@ -1,4 +1,5 @@
 import React from "react";
+import ConfirmedTag from "../../components/ConfirmedTag.jsx";
 import { Spec, ExtLink } from "../../components/widgets.jsx";
 import Section from "./Section.jsx";
 import BusinessFlow from "./BusinessFlow.jsx";
@@ -192,11 +193,11 @@ export default function OverviewTab({ res }) {
           <Spec key={i} k="Founder">
             {f.name} — {f.role || "founder"}
             {f.background && <span className="muted"> · {f.background}</span>}{" "}
-            {f.linkedin && <ExtLink href={f.linkedin}>LinkedIn</ExtLink>}
+            {f.linkedin && <ExtLink href={f.linkedin}>LinkedIn</ExtLink>} <ConfirmedTag item={f} />
           </Spec>
         ))}
         {advisors.map((a, i) => (
-          <Spec key={i} k="Advisor">{a.name} — {a.role || "advisor"}{a.affiliation ? `, ${a.affiliation}` : ""}</Spec>
+          <Spec key={i} k="Advisor">{a.name} — {a.role || "advisor"}{a.affiliation ? `, ${a.affiliation}` : ""} <ConfirmedTag item={a} /></Spec>
         ))}
         {programs.length > 0 && (
           <div style={{ marginTop: 6 }}>
@@ -210,7 +211,7 @@ export default function OverviewTab({ res }) {
                       title={claimed
                         ? `${x.type} — company-claimed, not independently corroborated`
                         : `${x.type} — independently corroborated`}>
-                  {x.name}{claimed && <span className="muted"> · claimed</span>}
+                  {x.name}{claimed && <span className="muted"> · claimed</span>} <ConfirmedTag item={x} />
                 </span>
               );
             })}

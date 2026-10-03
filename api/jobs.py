@@ -14,8 +14,11 @@ from api.auth import Principal, current_user, sessions
 from api.workspace import locked
 
 router = APIRouter(prefix="/api/jobs", tags=["workspace"])
-_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="evaluation")
+# Threads here only wait: how many evaluations actually run at once is api/flight.slot's job,
+# shared with the other two entry points. This pool used to BE the limit (2 per worker), which
+# queued workspace searches while the stream route ran unbounded.
 _slots = threading.BoundedSemaphore(40)
+_pool = ThreadPoolExecutor(max_workers=40, thread_name_prefix="evaluation")
 TTL = 86400
 
 
@@ -24,7 +27,7 @@ class JobBody(BaseModel):
     names: list[str] = Field(default_factory=list, max_length=10)
     problem: str = Field("", max_length=2000)
     refresh: bool = False
-    # Applied to every startup in the batch: one department's search, many startups.
+    # Accepted from older clients and ignored: evaluations cover every department.
     department_id: str | None = Field(None, max_length=60, pattern=r"^[A-Za-z0-9_-]+$")
     request_id: str = Field(..., min_length=8, max_length=100, pattern=r"^[a-zA-Z0-9-]+$")
 
@@ -75,9 +78,6 @@ def start(body: JobBody, user: Principal = Depends(current_user)):
         raise HTTPException(422, "Provide 1–10 startup names (up to 200 characters each) or a problem.")
     if body.kind == "solve" and len(values[0]) < 3:
         raise HTTPException(422, "Describe the problem in at least three characters.")
-    if body.kind == "evaluate":
-        from api.main import _department
-        _department(body.department_id, user)       # 422 before anything is queued
     dedup = f"job-request:{user.oid}:{body.request_id}"
     with locked(dedup):
         prior = sessions().get(dedup)

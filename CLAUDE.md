@@ -207,10 +207,19 @@ department-less engine calls).
   fixing that list is a catalog edit, not code.
 - **Unassessed is not a no-match.** No grounded concept, no catalog, no model or output that fails
   validation → `unassessed`. Only assessed pillars feed Siemens Fit, and Pass needs all three.
-- **A run is one startup for one department.** `runs.department_id` + `runs.assessment_key` (rubric
-  version and the SHA-256 of every catalog, `core/catalogs.py`). Cache hits must match all of it;
-  another department's fresh research is reused but always saved as a new run
-  (`pipeline.assess_department`). Runs with no department are legacy history, never current.
+- **A run is one startup assessed for every department.** Nobody picks a department before
+  searching — that asked the reviewer to guess what the evaluation exists to find. Research,
+  Empower and Connect are department-independent and run once; Collaborate is matched against each
+  department's needs in parallel (`pillar_match.for_department`), and `assessment.build_all` heads
+  the run with the department whose needs it answers best (`departments.recommended`; null, never
+  a default, when no Collaborate could be assessed). The run's own `department` / `assessment` are
+  the recommended one's, so single-department readers keep working; `departments.ranked` holds every
+  department's full assessment, hydrated on read, and the Scoring tab switches between them with
+  `?dept=` and no call. Stored under `runs.department_id = '*'`, with `assessment_key` covering the
+  rubric, the shared catalogs and EVERY department's needs — one department's needs changing makes
+  the run stale. Fresh research from an older run is re-assessed (`pipeline.assess_departments`)
+  and always saved as a new run. One-department runs and runs with no department are history,
+  readable and never rewritten.
 - **Collaborate reads Siemens' stated needs** from `data/Startup_Evaluator_Departmental_Requirements.xlsx`
   (`core/department_needs.py`): one catalog entry per capability, with its category, description and
   keywords; the 15 sharing most concepts with the startup go to the model when a department states
@@ -295,6 +304,28 @@ company; the report leads with coverage and refuses to compute anything until a 
 in, because a precision of 1.00 over three labels is not a result. Once ~30 are labelled, swap the
 advisory line in `scripts/gates.sh` for `--min-f1 <floor>` and make a routing regression fail.
 
+## A refresh adds evidence; it never quietly drops it
+
+Every run is a fresh sample of the web, and the newest used to replace everything shown — Radical
+Dot's investors went 8 → 3 → 0 → 2 → 6 across refreshes. `core/carry_forward.py` folds every stored
+run of the company (`store.prior_runs_for`, oldest first) into the fresh one as each branch lands,
+**before** anything is scored or emitted:
+
+- Lists (people, programmes, investors, competitors, headcount points) are a union. An item only an
+  earlier run found keeps its own `source_url` and gains `last_confirmed_at`; the UI shows "last
+  confirmed {date}" (`ConfirmedTag.jsx`). Carried items must still name an http source — older runs
+  made under weaker gates must not resurrect what today's gates would drop.
+- Single values: a blank or unsourced fresh value never replaces a sourced prior; between two
+  sourced values the newer wins and the loser goes to `deep_profile.history`. GlassDollar facts count
+  as sourced (their `source_url` is "GlassDollar", not a URL). A web value beats an `*_origin="llm"` recall.
+- Market size / CAGR older than 18 months is dropped, fresh or carried; a year-only `as_of` is read
+  as 31 December.
+- Identity first: priors are used only when their own domain matches (a directory page recorded as
+  the website does not count as the company's domain), or, without one, the full normalised name.
+
+It transcribes and never judges, like `core/profile.py`. Model outputs are recomputed over the
+merged evidence. Stored runs are never rewritten.
+
 ## Evidence age is about the evidence, not the run
 
 `Fact.retrieved_at` records when a search actually ran. For a result replayed from `web_cache` that
@@ -345,6 +376,20 @@ confirmed storing Tracxn data is permitted.
 - **A partial result is not stored.** A signals search with a failed domain, or a lookup that fell
   through to the model's memory, is shown but not saved — otherwise the gap would be served as the
   answer until someone thought to refresh.
+
+## Telemetry (SigNoz / OpenTelemetry)
+
+`api/telemetry.py` exports traces, metrics and logs over OTLP, and is **off unless
+`OTEL_EXPORTER_OTLP_ENDPOINT` is set** (`tests/conftest.py` blanks it, so pytest never exports).
+`core/` uses only `opentelemetry-api` — spans are no-ops without the SDK — so the engine still runs
+standalone. Each pipeline branch runs inside its own span (`pipeline._submit`), and every DuckDuckGo
+search gets a `web.search` span, because ddgs' own HTTP client is invisible to instrumentation.
+
+Kept out of telemetry on purpose: the `/api/auth/callback` URL (it carries the Entra code), Redis
+(its keys are session ids), and prompt/completion text. Adding a root log handler silences Python's
+last-resort stderr output, which is why `attach_log_handler` adds a WARNING console handler first.
+
+Local SigNoz runs self-hosted through Foundry inside WSL2 Ubuntu; UI on :8080, OTLP on :4318.
 
 ## Authentication
 

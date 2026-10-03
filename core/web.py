@@ -5,6 +5,12 @@ import contextvars
 import functools
 import hashlib
 
+from opentelemetry import trace
+
+# ddgs speaks HTTP through its own Rust client, which no instrumentation sees, so without this
+# span a trace shows the completions around a search wave and a silent gap where the wave was.
+_tracer = trace.get_tracer(__name__)
+
 # ------------------------------------------------------------------------------- result cache
 # Searches and site fetches are the slow, NON-REPRODUCIBLE part of an evaluation: DuckDuckGo
 # returns a different mix of results run to run, so two evaluations of the same startup used to
@@ -92,6 +98,7 @@ def _store(kind: str, key: str, payload) -> None:
         pass
 
 
+@_tracer.start_as_current_span("web.search")
 def ddg_search(query: str, max_results: int = 5,
                attempts: int = 3, base_delay: float = 0.6,
                meta: dict | None = None) -> list[dict]:
@@ -109,6 +116,9 @@ def ddg_search(query: str, max_results: int = 5,
     import random
     key = _cache_key("ddg", query, max_results)
     hit = _cached("ddg", key, meta)
+    span = trace.get_current_span()
+    span.set_attribute("web.search.query", query)
+    span.set_attribute("web.search.cache_hit", hit is not None)
     if hit is not None:
         return hit
     try:
@@ -121,6 +131,7 @@ def ddg_search(query: str, max_results: int = 5,
     hits: list[dict] = []
     failed = False
     for i in range(max(1, attempts)):
+        span.set_attribute("web.search.attempts", i + 1)   # >1 means DuckDuckGo throttled us
         try:
             with DDGS() as ddgs:
                 hits = list(ddgs.text(query, max_results=max_results))

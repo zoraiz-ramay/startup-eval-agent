@@ -46,6 +46,17 @@ describe("FundingLookup", () => {
     await waitFor(() => expect(api.runLookup).toHaveBeenLastCalledWith(502, "funding", true));
   });
 
+  it("marks an investor only an earlier evaluation found, and leaves re-confirmed ones plain", async () => {
+    api.runLookup.mockResolvedValue({ ...FUNDING, rounds: [], investors: [] });
+    render(<FundingLookup runId={506} known={[
+      { name: "Rockstart", source_url: "https://rock.test" },
+      { name: "UVC Partners", source_url: "https://uvc.test", last_confirmed_at: "2026-08-22T03:00:00+00:00" },
+    ]} />);
+    const list = await screen.findByRole("list", { name: "Investors on record" });
+    expect(within(list).getByText("UVC Partners").closest("li")).toHaveTextContent("last confirmed 22 Aug 2026");
+    expect(within(list).getByText("Rockstart").closest("li")).not.toHaveTextContent(/last confirmed/);
+  });
+
   it("says when a result served from the database was fetched", async () => {
     api.runLookup.mockResolvedValue({ ...FUNDING, from_store: true, stored_at: "2026-09-30T12:00:00+00:00" });
     render(<FundingLookup runId={505} />);

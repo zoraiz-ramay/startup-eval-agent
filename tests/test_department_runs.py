@@ -1,8 +1,8 @@
-"""One saved run per startup AND department — the storage and API contract.
+"""Department runs — the storage and API contract.
 
-Switching department must never overwrite, or be served, another department's result; a cache
-hit must match company, department, rubric and catalog versions; a department that has no run
-yet may reuse another's research but always gets a new run of its own.
+A new evaluation is assessed for EVERY department and filed under department "*"; a cache hit must
+match company, rubric and every department's catalog. Older one-department runs stay readable, are
+never overwritten, and their research may seed a new all-departments run — always a new run.
 """
 import uuid
 
@@ -61,40 +61,57 @@ def test_the_database_list_has_one_row_per_company_and_department_and_labels_leg
     assert sorted(r["department_id"] for r in mine) == ["", "di", "si"]
 
 
-def test_every_evaluate_path_requires_a_known_department():
-    body = main.EvaluateBody(name="Acme")
-    with pytest.raises(HTTPException) as exc:
-        main._evaluation_cached("Acme", body, user())
-    assert exc.value.status_code == 422 and "department" in exc.value.detail
-    with pytest.raises(HTTPException) as exc:
+def all_run(company, key):
+    """An all-departments run as core.assessment.build_all shapes it, headed by DI."""
+    return {**dept_run(company, "di"), "departments": {"scope": "all", "recommended": "di",
+                                                        "assessment_key": key, "ranked": []}}
+
+
+def test_an_evaluation_needs_no_department_and_an_old_clients_id_is_ignored():
+    body = main.EvaluateBody(name=f"Nobody-{uuid.uuid4().hex[:6]}", department_id="not-a-department")
+    assert main._evaluation_cached(body.name, body, user()) is None        # a miss, not a 422
+    with pytest.raises(HTTPException) as exc:                              # legacy per-department routes
         main._department("not-a-department", user())
     assert exc.value.status_code == 422
 
 
-def test_the_cached_evaluation_is_the_current_run_for_that_department_only(monkeypatch):
+def test_the_cached_evaluation_is_an_all_departments_run_at_the_current_key():
     name = f"Cache-{uuid.uuid4().hex[:6]}"
-    dep = main._department("di", user())
-    run_id = store.save_run(dept_run(name, "di", key=main._current_key(dep)), aliases=[name])
-    hit = main._evaluation_cached(name, main.EvaluateBody(name=name, department_id="di"), user())
+    key = main._all_key(main._all_departments(user()))
+    store.save_run(dept_run(name, "di", key=main._current_key(main._department("di", user()))), aliases=[name])
+    assert main._evaluation_cached(name, main.EvaluateBody(name=name), user()) is None   # one department only
+    run_id = store.save_run(all_run(name, key), aliases=[name])
+    hit = main._evaluation_cached(name, main.EvaluateBody(name=name), user())
     assert hit["run_id"] == run_id and hit["cached"] is True
-    assert main._evaluation_cached(name, main.EvaluateBody(name=name, department_id="si"), user()) is None
-    assert main._evaluation_cached(name, main.EvaluateBody(name=name, department_id="di", refresh=True), user()) is None
+    assert main._evaluation_cached(name, main.EvaluateBody(name=name, refresh=True), user()) is None
 
 
-def test_another_departments_fresh_research_is_reused_as_a_new_run(monkeypatch):
+def test_a_change_to_any_departments_needs_makes_the_cached_run_stale(monkeypatch):
+    name = f"Stale-{uuid.uuid4().hex[:6]}"
+    store.save_run(all_run(name, main._all_key(main._all_departments(user()))), aliases=[name])
+    from core import catalogs
+    real = catalogs.department_catalog
+    monkeypatch.setattr(catalogs, "department_catalog",
+                        lambda d: {**real(d), "checksum": "changed"} if d["id"] == "mobility" else real(d))
+    assert main._evaluation_cached(name, main.EvaluateBody(name=name), user()) is None
+
+
+def test_fresh_research_is_reassessed_for_every_department_as_a_new_run(monkeypatch):
     name = f"Reuse-{uuid.uuid4().hex[:6]}"
     source = store.save_run(dept_run(name, "di"), aliases=[name])
     seen = {}
 
-    def fake_assess(result, department, llm=None, do_web=True):
-        seen["from"] = result.get("run_id")
-        return dept_run(name, department["id"], key="k-si")
+    def fake_assess(result, departments, llm=None, do_web=True):
+        seen.update(source=result.get("run_id"), departments=[d["id"] for d in departments])
+        return all_run(name, "k-all")
     import core.pipeline
-    monkeypatch.setattr(core.pipeline, "assess_department", fake_assess)
+    monkeypatch.setattr(core.pipeline, "assess_departments", fake_assess)
     monkeypatch.setattr(main, "tracxn_client_for", lambda *a, **k: None)
-    res = main._run_evaluation(name, main.EvaluateBody(name=name, department_id="si"), user().as_reviewer(), user=user())
-    assert seen["from"] == source and res["run_id"] != source and res["department"]["id"] == "si"
+    res = main._run_evaluation(name, main.EvaluateBody(name=name), user().as_reviewer(), user=user())
+    assert seen["source"] == source and res["run_id"] != source
+    assert seen["departments"] == [d["id"] for d in main._all_departments(user())]
     assert store.get_run(source)["department"]["id"] == "di"          # the source is untouched
+    assert store.latest_department_run(name, "*", "k-all")["run_id"] == res["run_id"]
 
 
 def test_switching_department_offers_a_run_or_creates_one_and_never_rewrites(monkeypatch):

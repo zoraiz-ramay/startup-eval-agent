@@ -5,11 +5,12 @@ DB lives at DATA_DIR/runs.db (override with RUNS_DB).
 
 On first connection the DB is restored from S3 if a remote copy exists and no
 local file is present. After every write (save_run, delete_run, add_override)
-the DB is uploaded back to S3 in a background thread so it survives container
+the DB is uploaded back to S3 (debounced, see _upload_to_s3) so it survives container
 restarts and redeployments.
 """
 from __future__ import annotations
 
+import atexit
 import json
 import logging
 import os
@@ -79,20 +80,75 @@ def _restore_from_s3() -> None:
             os.remove(DB_PATH + ".s3tmp")
 
 
+# Writes within this many seconds share one upload. Every write used to start its own thread
+# uploading the whole file, so a single evaluation (run row, children, search, aliases, cache)
+# shipped the database to S3 several times over.
+S3_UPLOAD_DELAY = float(os.getenv("S3_UPLOAD_DELAY", "5"))
+_upload_state = threading.Lock()
+_upload_scheduled = False
+
+
 def _upload_to_s3() -> None:
-    """Upload the current runs.db to S3 in a background thread."""
+    """Schedule an upload of runs.db to S3; writes in the next S3_UPLOAD_DELAY seconds join it."""
+    global _upload_scheduled
     if not _s3_available():
         return
+    with _upload_state:
+        if _upload_scheduled:
+            return
+        _upload_scheduled = True
+    timer = threading.Timer(S3_UPLOAD_DELAY, _upload_now)
+    timer.daemon = True
+    timer.start()
 
-    def _do_upload():
-        with _s3_lock:
+
+def _snapshot(dest: str) -> None:
+    """A consistent copy of the database, including what is still only in the WAL.
+
+    The database runs in WAL mode (_cache_conn sets it, and the mode is a property of the file),
+    so a commit sits in runs.db-wal until a checkpoint folds it into runs.db. Uploading runs.db
+    itself therefore shipped a copy that could lack the newest runs, and a container restored from
+    it would come back without them. The backup API reads through the WAL.
+    """
+    src = sqlite3.connect(DB_PATH, timeout=30)
+    try:
+        out = sqlite3.connect(dest)
+        try:
+            src.backup(out)
+        finally:
+            out.close()
+    finally:
+        src.close()
+
+
+def _upload_now() -> None:
+    global _upload_scheduled
+    with _upload_state:
+        # Cleared before the snapshot, not after: a write landing during the upload schedules
+        # another one rather than being silently left out of S3.
+        _upload_scheduled = False
+    with _s3_lock:
+        tmp = DB_PATH + ".upload"
+        try:
+            _snapshot(tmp)
+            _s3_client().upload_file(tmp, _s3_bucket(), _S3_DB_KEY)
+            log.debug("[store] Synced DB to s3://%s/%s", _s3_bucket(), _S3_DB_KEY)
+        except Exception as exc:
+            log.warning("[store] S3 upload failed: %s", exc)
+        finally:
             try:
-                _s3_client().upload_file(DB_PATH, _s3_bucket(), _S3_DB_KEY)
-                log.debug("[store] Synced DB to s3://%s/%s", _s3_bucket(), _S3_DB_KEY)
-            except Exception as exc:
-                log.warning("[store] S3 upload failed: %s", exc)
+                os.remove(tmp)
+            except OSError:
+                pass
 
-    threading.Thread(target=_do_upload, daemon=True).start()
+
+def _flush_pending_upload() -> None:
+    """At shutdown, upload a scheduled write now instead of losing it with the timer thread."""
+    if _upload_scheduled:
+        _upload_now()
+
+
+atexit.register(_flush_pending_upload)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
@@ -185,7 +241,7 @@ CREATE TABLE IF NOT EXISTS searches (
     company_id   INTEGER,                 -- nullable: delete_run does not cascade
     company_name TEXT,                    -- resolved name, denormalized so the list survives deletes
     run_id       INTEGER,                 -- nullable for the same reason
-    served_from  TEXT,                    -- cache | fresh | research (another department's research reused)
+    served_from  TEXT,                    -- cache | fresh | research (another department's research reused) | shared (attached to another reviewer's in-flight run)
     created_at   TEXT NOT NULL
 );
 -- Sign-ins are recorded here rather than counted from Redis: sessions there expire after
@@ -613,8 +669,11 @@ def save_run(result: dict, aliases: Iterable[str] = ()) -> int:
              datetime.now(timezone.utc).isoformat(timespec="seconds"),
              json.dumps(result, default=str),
              str(result.get("summary", ""))[:300], str(dp.get("parent_group", ""))[:120],
-             (result.get("department") or {}).get("id") or None,
-             (result.get("assessment") or {}).get("assessment_key") or None))
+             # An all-departments run is filed under "*", with the key covering every department;
+             # result["department"] is only its recommended one.
+             "*" if result.get("departments") else (result.get("department") or {}).get("id") or None,
+             (result.get("departments") or {}).get("assessment_key")
+             or (result.get("assessment") or {}).get("assessment_key") or None))
         run_id = int(cur.lastrowid)
         cid = _upsert_company(con, result, run_id)
         con.execute("UPDATE runs SET company_id=? WHERE id=?", (cid, run_id))
@@ -915,6 +974,29 @@ def latest_run_for_company(company: str) -> dict | None:
     res["run_id"] = row[0]
     res["run_created_at"] = row[1]
     return res
+
+
+def prior_runs_for(name: str, limit: int = 50) -> list[dict]:
+    """Every stored run of the company ``name`` resolves to, oldest first — the evidence a fresh
+    evaluation carries forward (core/carry_forward.py). Not hydrated: only research is read.
+
+    Resolved through aliases like the cache lookup, plus an exact-name match for runs written
+    before company ids existed. Whether each run really is the same company is decided in the
+    engine on domain, not here on name.
+    """
+    cid = _company_id_for(name)
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT id, created_at, result_json FROM runs WHERE company_id=? OR LOWER(company)=LOWER(?) "
+            "ORDER BY created_at DESC, id DESC LIMIT ?", (cid if cid is not None else -1, str(name).strip(), limit)).fetchall()
+    out = []
+    for run_id, created_at, raw in reversed(rows):
+        try:
+            res = json.loads(raw)
+        except (TypeError, ValueError):
+            continue
+        out.append({**res, "run_id": run_id, "run_created_at": created_at})
+    return out
 
 
 def _company_id_for(name: str) -> int | None:

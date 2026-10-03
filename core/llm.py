@@ -7,7 +7,9 @@ gateway access.
 """
 from __future__ import annotations
 
+import contextvars
 import os
+import random
 import re
 import json
 import time
@@ -44,6 +46,81 @@ MAX_RETRIES = 3
 # timeout cut the longer ones off mid-search.
 WEB_SEARCH_TIMEOUT = max(LLM_TIMEOUT, int(os.getenv("WEB_SEARCH_TIMEOUT", "90")))
 RETRY_BACKOFF = 2
+# A rate-limited call waits for the quota window instead of retrying at 2s and 4s: against a
+# per-minute quota those retries fail too, and the caller's offline fallback then hands the
+# reviewer a weaker result with no sign anything went wrong.
+RATE_LIMIT_MAX_WAIT = float(os.getenv("RATE_LIMIT_MAX_WAIT", "60"))
+_RETRY_DELAY = re.compile(r"""(?:retryDelay["']?\s*[:=]\s*["']?|retry in\s+)(\d+(?:\.\d+)?)s""", re.I)
+
+# Optional shared throttle, called before every uncached request. Injected by api/main.py (Redis,
+# so both gunicorn workers share one budget) the same way the web cache is: core/ never imports
+# api/, and scripts and tests run unthrottled.
+_rate_gate = None
+
+
+def install_rate_limiter(gate) -> None:
+    global _rate_gate
+    _rate_gate = gate
+
+
+# Which pipeline stage is calling, and where to record a call that failed for good. Set by the
+# pipeline; a ContextVar so it follows each branch into its worker thread (copy_context). The list
+# is shared by reference across those copies, which is what lets every branch report into one run.
+_stage: contextvars.ContextVar = contextvars.ContextVar("llm_stage", default="")
+_failures: contextvars.ContextVar = contextvars.ContextVar("llm_failures", default=None)
+
+
+def set_stage(stage: str):
+    return _stage.set(stage)
+
+
+def reset_stage(token) -> None:
+    _stage.reset(token)
+
+
+def collect_failures():
+    """Start recording failed calls for one run. Returns (token, list)."""
+    failures: list = []
+    return _failures.set(failures), failures
+
+
+def stop_collecting(token) -> None:
+    _failures.reset(token)
+
+
+def summarize_failures(failures: list) -> list:
+    """[{stage, reason, calls}] — one row per stage and reason, in first-seen order."""
+    rows: dict = {}
+    for f in failures:
+        row = rows.setdefault((f["stage"], f["reason"]), {**f, "calls": 0})
+        row["calls"] += 1
+    return list(rows.values())
+
+
+def _rate_limit_wait(exc: Exception, attempt: int) -> float | None:
+    """Seconds to wait before retrying a rate-limited call, or None if this is not a rate limit."""
+    msg = str(exc)
+    rate_limited = (getattr(exc, "status_code", None) == 429 or "RESOURCE_EXHAUSTED" in msg
+                    or re.search(r"\b429\b", msg) is not None)
+    if not rate_limited:
+        return None
+    hinted = None
+    response = getattr(exc, "response", None)
+    try:
+        hinted = float(response.headers.get("retry-after")) if response is not None else None
+    except (TypeError, ValueError):
+        hinted = None
+    if hinted is None:
+        m = _RETRY_DELAY.search(msg + " " + json.dumps(getattr(exc, "body", None), default=str))
+        hinted = float(m.group(1)) if m else None
+    wait = hinted if hinted is not None else RETRY_BACKOFF * (2 ** attempt)
+    return min(RATE_LIMIT_MAX_WAIT, wait) + random.uniform(0, 1.0)
+
+
+def _failure_reason(exc: Exception) -> str:
+    if _rate_limit_wait(exc, 1) is not None:
+        return "rate_limited"
+    return "timeout" if "timed out" in str(exc).lower() or "timeout" in type(exc).__name__.lower() else "error"
 
 
 def _unsupported_param(exc: Exception, sent: dict) -> str:
@@ -110,8 +187,14 @@ class LLMClient:
 
     def complete(self, prompt: str, system: str = "", max_tokens: int = 1200,
                  model: str = "", temperature: float = LLM_TEMPERATURE,
-                 reasoning: str = "", max_attempts: int | None = None) -> str:
+                 reasoning: str = "", max_attempts: int | None = None,
+                 timeout: float | None = None) -> str:
         """Run one completion; '' on failure.
+
+        ``timeout`` overrides LLM_TIMEOUT for a call measured to need longer. The default is sized
+        for a hung request, not a slow one: a call that reliably takes longer than it is killed
+        and retried from scratch every time, which costs the whole budget again and, when every
+        attempt dies the same way, ends in the caller's offline fallback.
 
         ``temperature`` defaults to 0 so repeated runs agree: left unset, Gemini defaults to 1.0
         and four identical extraction calls returned three different JSON spellings, which is
@@ -156,13 +239,16 @@ class LLMClient:
                 self.last_error = ""
                 return cached
         attempts = MAX_RETRIES if max_attempts is None else max(1, int(max_attempts))
+        reason = "error"
         for attempt in range(1, attempts + 1):
             try:
+                if _rate_gate is not None:
+                    _rate_gate()
                 resp = self._client.chat.completions.create(
                     model=use_model,
                     messages=msgs,
                     max_completion_tokens=budget,
-                    timeout=LLM_TIMEOUT,
+                    timeout=timeout or LLM_TIMEOUT,
                     **extra,
                 )
                 self.last_error = ""
@@ -180,9 +266,14 @@ class LLMClient:
                     extra.pop(dropped, None)
                     continue
                 self.last_error = str(e)
-                log.warning("LLM attempt %d/%d failed: %s", attempt, attempts, e)
+                reason = _failure_reason(e)
+                wait = _rate_limit_wait(e, attempt)
+                log.warning("LLM attempt %d/%d failed (%s): %s", attempt, attempts, reason, e)
                 if attempt < attempts:
-                    time.sleep(RETRY_BACKOFF * attempt)
+                    time.sleep(wait if wait is not None else RETRY_BACKOFF * attempt)
+        failures = _failures.get()
+        if failures is not None:
+            failures.append({"stage": _stage.get() or "input", "reason": reason})
         return ""
 
     def web_answer(self, prompt: str, system: str = "", max_tokens: int = 1200) -> Optional[dict]:

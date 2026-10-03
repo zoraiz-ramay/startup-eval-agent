@@ -1,4 +1,5 @@
 import React from "react";
+import ConfirmedTag from "../../components/ConfirmedTag.jsx";
 import { Spec, ExtLink } from "../../components/widgets.jsx";
 import Section from "./Section.jsx";
 
@@ -21,7 +22,7 @@ function SourcedList({ items, empty, render }) {
         {render(item)}
         {/^https?:\/\//.test(item.source_url || "") && (
           <> <ExtLink href={item.source_url}>source</ExtLink></>
-        )}
+        )} <ConfirmedTag item={item} />
       </div>
     </div>
   ));

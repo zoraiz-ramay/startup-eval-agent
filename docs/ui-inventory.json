@@ -413,14 +413,37 @@
       "css_classes": []
     },
     {
-      "path": "ui/src/components/DepartmentChooser.jsx",
-      "lines": 42,
+      "path": "ui/src/components/ConfirmedTag.jsx",
+      "lines": 26,
       "exports": [
-        "DepartmentChooser"
+        "ConfirmedTag",
+        "confirmedLabel"
       ],
       "css_classes": [
-        "dept-segment-dot"
+        "confirmed-tag"
       ]
+    },
+    {
+      "path": "ui/src/components/ConfirmedTag.test.jsx",
+      "lines": 18,
+      "exports": [],
+      "css_classes": []
+    },
+    {
+      "path": "ui/src/components/DegradedNotice.jsx",
+      "lines": 39,
+      "exports": [
+        "DegradedNotice"
+      ],
+      "css_classes": [
+        "degraded-notice"
+      ]
+    },
+    {
+      "path": "ui/src/components/DegradedNotice.test.jsx",
+      "lines": 23,
+      "exports": [],
+      "css_classes": []
     },
     {
       "path": "ui/src/components/DepartmentPicker.jsx",
@@ -808,7 +831,7 @@
     },
     {
       "path": "ui/src/pages/profile/MarketTab.jsx",
-      "lines": 167,
+      "lines": 168,
       "exports": [
         "MarketTab"
       ],
@@ -829,7 +852,7 @@
     },
     {
       "path": "ui/src/pages/profile/OverviewTab.jsx",
-      "lines": 232,
+      "lines": 233,
       "exports": [
         "OverviewTab"
       ],
@@ -920,6 +943,30 @@
         "fit-context-row",
         "muted"
       ]
+    },
+    {
+      "path": "ui/src/pages/profile/scoring/DepartmentRanking.jsx",
+      "lines": 58,
+      "exports": [
+        "DepartmentRanking",
+        "viewAs"
+      ],
+      "css_classes": [
+        "dept-ranking",
+        "dept-ranking-lead",
+        "dept-ranking-list",
+        "dept-ranking-name",
+        "dept-ranking-score",
+        "fit-context",
+        "pill",
+        "pill-ok"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/scoring/DepartmentRanking.test.jsx",
+      "lines": 59,
+      "exports": [],
+      "css_classes": []
     },
     {
       "path": "ui/src/pages/profile/scoring/DetailToggle.jsx",
@@ -1065,7 +1112,7 @@
     },
     {
       "path": "ui/src/pages/profile/scoring/ScoringTab.jsx",
-      "lines": 68,
+      "lines": 74,
       "exports": [
         "ScoringTab",
         "VIEW_KEY"
@@ -1243,7 +1290,7 @@
     },
     {
       "path": "ui/src/pages/profile/scoring/TractionLookup.jsx",
-      "lines": 146,
+      "lines": 147,
       "exports": [
         "FundingLookup",
         "HeadcountLookup",
@@ -1278,7 +1325,7 @@
     },
     {
       "path": "ui/src/pages/profile/scoring/TractionLookup.test.jsx",
-      "lines": 115,
+      "lines": 126,
       "exports": [],
       "css_classes": []
     },
@@ -1326,7 +1373,7 @@
     },
     {
       "path": "ui/src/pages/Profile.jsx",
-      "lines": 245,
+      "lines": 255,
       "exports": [
         "Profile"
       ],
@@ -1359,7 +1406,7 @@
     },
     {
       "path": "ui/src/pages/Profile.test.jsx",
-      "lines": 412,
+      "lines": 424,
       "exports": [],
       "css_classes": []
     },
@@ -1386,7 +1433,7 @@
     },
     {
       "path": "ui/src/pages/SearchHome.jsx",
-      "lines": 106,
+      "lines": 85,
       "exports": [
         "SearchHome",
         "parseStartups"
@@ -1402,18 +1449,15 @@
         "research-list",
         "research-session",
         "search-assess",
-        "search-department",
         "search-hero",
         "search-hero-sub",
         "search-hero-title",
-        "search-step",
-        "search-step-num",
         "startup-home"
       ]
     },
     {
       "path": "ui/src/pages/SearchHome.test.jsx",
-      "lines": 80,
+      "lines": 64,
       "exports": [],
       "css_classes": []
     },
@@ -1482,7 +1526,7 @@
     "routes": 9,
     "api_methods": 36,
     "design_tokens": 70,
-    "jsx_files": 77,
-    "jsx_lines": 8603
+    "jsx_files": 82,
+    "jsx_lines": 8789
   }
 }

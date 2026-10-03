@@ -146,22 +146,6 @@ ix-menu:not(.expanded) .acct-name { display: none; }
 .search-hero-title { font-size: 34px; font-weight: 800; margin: 0 0 6px; letter-spacing: -.4px; }
 .search-hero-sub { margin: 0 0 28px; color: var(--text-2); font-size: 15px; }
 .search-hero-field { position: relative; width: 100%; max-width: 600px; }
-/* The search page's two steps, numbered so their order is visible, not just enforced. Step 1 is a
-   segmented control (DepartmentChooser). */
-.search-department { display: flex; flex-direction: column; align-items: center; gap: 10px; width: 100%; max-width: 600px; margin-bottom: 26px; }
-.search-department ix-select { width: min(100%, 320px); }
-.search-step { display: flex; align-items: center; gap: 8px; margin: 0 0 4px; font-size: var(--fs-meta); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
-.search-step-num { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: var(--accent-soft); border: 1px solid var(--accent); color: var(--accent); font-weight: 700; letter-spacing: 0; }
-.dept-segments { display: inline-flex; flex-wrap: wrap; justify-content: center; gap: 4px; padding: 4px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); max-width: 100%; }
-.dept-segments.invalid { border-color: var(--warning); }
-/* Too narrow for one row: stack the segments, with corners that suit a block rather than a pill. */
-@media (max-width: 560px) { .dept-segments { display: grid; width: 100%; border-radius: var(--radius); } .dept-segment { justify-content: center; border-radius: calc(var(--radius) - 2px); } }
-.dept-segment { display: inline-flex; align-items: center; gap: 8px; font: inherit; font-size: 13.5px; font-weight: 600; color: var(--text-2); background: transparent; border: 1px solid transparent; border-radius: 999px; padding: 8px 16px; cursor: pointer; white-space: nowrap; transition: background .12s, color .12s; }
-.dept-segment:hover:not(:disabled) { color: var(--text-1); background: var(--surface-2); }
-.dept-segment.on { color: var(--text-1); background: var(--surface-2); border-color: var(--accent); }
-.dept-segment:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.dept-segment-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border-2); flex-shrink: 0; }
-.dept-segment.on .dept-segment-dot { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .search-hero-field input {
   width: 100%; height: 52px; background: var(--surface-2); color: var(--text-1);
   border: 1px solid var(--border); border-radius: 999px;
@@ -879,6 +863,24 @@ ix-menu:not(.expanded) .acct-name { display: none; }
 .key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
 .pill-ok { background: var(--success-soft); color: var(--success); border-color: var(--success); }
 .pill-warn { background: var(--warning-soft); color: var(--warning); border-color: var(--warning); }
+/* Every department ranked by Collaborate fit; the selected one drives the panels (DepartmentRanking.jsx). */
+.dept-ranking-lead { margin: 0 0 8px; }
+.dept-ranking-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.dept-ranking-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; font: inherit;
+  text-align: left; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); color: var(--text-1); cursor: pointer; }
+.dept-ranking-item:hover { background: var(--surface-2); }
+.dept-ranking-item.on { border-color: var(--accent); background: var(--surface-2); }
+.dept-ranking-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.dept-ranking-name { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
+.dept-ranking-score { font-size: 12px; color: var(--text-2); }
+/* Evidence an earlier evaluation found and this refresh did not re-confirm (ConfirmedTag.jsx). */
+.confirmed-tag { font-size: 11px; color: var(--text-3); white-space: nowrap; }
+.confirmed-tag::before { content: "· "; }
+/* A run part of which fell back because the model failed (DegradedNotice.jsx). */
+.degraded-notice { margin: 8px 0 12px; padding: 10px 14px; border: 1px solid var(--warning);
+  border-left-width: 4px; border-radius: 6px; background: var(--warning-soft); color: var(--text-1); }
+.degraded-notice ul { margin: 6px 0 0; padding-left: 18px; }
 .pill-neutral { background: var(--surface-2); color: var(--text-2); border-color: var(--border); }
 
 /* Toolbar and notices */
