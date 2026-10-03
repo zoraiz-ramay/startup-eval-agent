@@ -5,11 +5,12 @@ DB lives at DATA_DIR/runs.db (override with RUNS_DB).
 
 On first connection the DB is restored from S3 if a remote copy exists and no
 local file is present. After every write (save_run, delete_run, add_override)
-the DB is uploaded back to S3 in a background thread so it survives container
+the DB is uploaded back to S3 (debounced, see _upload_to_s3) so it survives container
 restarts and redeployments.
 """
 from __future__ import annotations
 
+import atexit
 import json
 import logging
 import os
@@ -79,20 +80,75 @@ def _restore_from_s3() -> None:
             os.remove(DB_PATH + ".s3tmp")
 
 
+# Writes within this many seconds share one upload. Every write used to start its own thread
+# uploading the whole file, so a single evaluation (run row, children, search, aliases, cache)
+# shipped the database to S3 several times over.
+S3_UPLOAD_DELAY = float(os.getenv("S3_UPLOAD_DELAY", "5"))
+_upload_state = threading.Lock()
+_upload_scheduled = False
+
+
 def _upload_to_s3() -> None:
-    """Upload the current runs.db to S3 in a background thread."""
+    """Schedule an upload of runs.db to S3; writes in the next S3_UPLOAD_DELAY seconds join it."""
+    global _upload_scheduled
     if not _s3_available():
         return
+    with _upload_state:
+        if _upload_scheduled:
+            return
+        _upload_scheduled = True
+    timer = threading.Timer(S3_UPLOAD_DELAY, _upload_now)
+    timer.daemon = True
+    timer.start()
 
-    def _do_upload():
-        with _s3_lock:
+
+def _snapshot(dest: str) -> None:
+    """A consistent copy of the database, including what is still only in the WAL.
+
+    The database runs in WAL mode (_cache_conn sets it, and the mode is a property of the file),
+    so a commit sits in runs.db-wal until a checkpoint folds it into runs.db. Uploading runs.db
+    itself therefore shipped a copy that could lack the newest runs, and a container restored from
+    it would come back without them. The backup API reads through the WAL.
+    """
+    src = sqlite3.connect(DB_PATH, timeout=30)
+    try:
+        out = sqlite3.connect(dest)
+        try:
+            src.backup(out)
+        finally:
+            out.close()
+    finally:
+        src.close()
+
+
+def _upload_now() -> None:
+    global _upload_scheduled
+    with _upload_state:
+        # Cleared before the snapshot, not after: a write landing during the upload schedules
+        # another one rather than being silently left out of S3.
+        _upload_scheduled = False
+    with _s3_lock:
+        tmp = DB_PATH + ".upload"
+        try:
+            _snapshot(tmp)
+            _s3_client().upload_file(tmp, _s3_bucket(), _S3_DB_KEY)
+            log.debug("[store] Synced DB to s3://%s/%s", _s3_bucket(), _S3_DB_KEY)
+        except Exception as exc:
+            log.warning("[store] S3 upload failed: %s", exc)
+        finally:
             try:
-                _s3_client().upload_file(DB_PATH, _s3_bucket(), _S3_DB_KEY)
-                log.debug("[store] Synced DB to s3://%s/%s", _s3_bucket(), _S3_DB_KEY)
-            except Exception as exc:
-                log.warning("[store] S3 upload failed: %s", exc)
+                os.remove(tmp)
+            except OSError:
+                pass
 
-    threading.Thread(target=_do_upload, daemon=True).start()
+
+def _flush_pending_upload() -> None:
+    """At shutdown, upload a scheduled write now instead of losing it with the timer thread."""
+    if _upload_scheduled:
+        _upload_now()
+
+
+atexit.register(_flush_pending_upload)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
