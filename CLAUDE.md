@@ -295,6 +295,28 @@ company; the report leads with coverage and refuses to compute anything until a 
 in, because a precision of 1.00 over three labels is not a result. Once ~30 are labelled, swap the
 advisory line in `scripts/gates.sh` for `--min-f1 <floor>` and make a routing regression fail.
 
+## A refresh adds evidence; it never quietly drops it
+
+Every run is a fresh sample of the web, and the newest used to replace everything shown — Radical
+Dot's investors went 8 → 3 → 0 → 2 → 6 across refreshes. `core/carry_forward.py` folds every stored
+run of the company (`store.prior_runs_for`, oldest first) into the fresh one as each branch lands,
+**before** anything is scored or emitted:
+
+- Lists (people, programmes, investors, competitors, headcount points) are a union. An item only an
+  earlier run found keeps its own `source_url` and gains `last_confirmed_at`; the UI shows "last
+  confirmed {date}" (`ConfirmedTag.jsx`). Carried items must still name an http source — older runs
+  made under weaker gates must not resurrect what today's gates would drop.
+- Single values: a blank or unsourced fresh value never replaces a sourced prior; between two
+  sourced values the newer wins and the loser goes to `deep_profile.history`. GlassDollar facts count
+  as sourced (their `source_url` is "GlassDollar", not a URL). A web value beats an `*_origin="llm"` recall.
+- Market size / CAGR older than 18 months is dropped, fresh or carried; a year-only `as_of` is read
+  as 31 December.
+- Identity first: priors are used only when their own domain matches (a directory page recorded as
+  the website does not count as the company's domain), or, without one, the full normalised name.
+
+It transcribes and never judges, like `core/profile.py`. Model outputs are recomputed over the
+merged evidence. Stored runs are never rewritten.
+
 ## Evidence age is about the evidence, not the run
 
 `Fact.retrieved_at` records when a search actually ran. For a result replayed from `web_cache` that

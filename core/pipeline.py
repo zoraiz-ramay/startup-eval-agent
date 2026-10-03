@@ -167,8 +167,13 @@ def _by_domain(name: str):
 @_tracer.start_as_current_span("evaluate")
 def evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = True,
              df: "pd.DataFrame" = None, on_step=None, use_web_cache: bool = True,
-             on_partial=None, tracxn=None, department: dict | None = None) -> dict:
+             on_partial=None, tracxn=None, department: dict | None = None,
+             prior_runs: list | None = None) -> dict:
     """Run the full pipeline for one startup.
+
+    ``prior_runs`` are earlier stored runs of the same company. Their sourced evidence is carried
+    into this one (core/carry_forward.py), so a refresh adds what it finds and never quietly drops
+    what an earlier run found. Runs that resolve to a different company are ignored.
 
     ``department`` ({id, label, interests, demo}) scores Siemens Fit as the three pillar
     assessments for that department and routes from them (core/assessment.py). Without one the
@@ -190,7 +195,7 @@ def evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = T
     collecting, failures = llm_mod.collect_failures()
     try:
         return _with_degraded(_evaluate(name, glassdollar_path, tools_path, do_web, df, on_step,
-                                        on_partial, tracxn, department), failures)
+                                        on_partial, tracxn, department, prior_runs), failures)
     finally:
         llm_mod.stop_collecting(collecting)
         web.reset_cache_enabled(token)
@@ -209,7 +214,7 @@ def _with_degraded(result: dict, failures: list) -> dict:
 
 def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = True,
               df: "pd.DataFrame" = None, on_step=None, on_partial=None, tracxn=None,
-              department: dict | None = None) -> dict:
+              department: dict | None = None, prior_runs: list | None = None) -> dict:
     # Optional progress callback: on_step(step_label, status) where status is one of
     # "running" | "done" | "error". Reporting must never break the evaluation itself.
     def _step(label: str, status: str = "running") -> None:
@@ -291,6 +296,12 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
     # The company is resolved and nothing else is known yet. Emitting here is what lets the page
     # put up a header with the real name instead of whatever the reviewer typed.
     _emit("identity", {"company": str(row.get("company_name", "")) or name, "source": source})
+    from . import carry_forward
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    priors = carry_forward.usable_priors(prior_runs, carry_forward.identity(
+        str(row.get("company_name", "")) or name, row.get("website", ""), row.get("domain", "")))
+    carried: dict = {}
 
     tools = load_siemens_tools(tools_path)
     _step("ENRICH", "running")
@@ -354,6 +365,12 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
         for fut in concurrent.futures.as_completed(pending):
             section = pending[fut]
             done[section] = fut.result()
+            if section == "profile":
+                done[section] = carry_forward.merge_profile(
+                    done[section], priors, now.isoformat(timespec="seconds"), carried)
+            elif section == "trend":
+                done[section] = carry_forward.merge_trend(
+                    done[section], priors, now.isoformat(timespec="seconds"), now.date(), carried)
             if section == "verification":
                 _step("VERIFY", "done")
             elif section == "fit":
@@ -442,6 +459,8 @@ def _evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = 
         "traction": traction,
         "traction_inputs": traction_inputs,
     }
+    if priors or carried:
+        result["carry_forward"] = {"prior_runs": len(priors), **carried}
     if department:
         from .assessment import build
         result = build(result, department, pillar_result, team, market)

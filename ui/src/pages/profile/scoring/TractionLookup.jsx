@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import ConfirmedTag from "../../../components/ConfirmedTag.jsx";
 import { api } from "../../../api.js";
 import ErrorBox from "../../../components/ErrorBox.jsx";
 import { Loading } from "../../../components/widgets.jsx";
@@ -121,7 +122,7 @@ export function FundingLookup({ runId, known = [] }) {
         </> : known.length > 0 && <>
           <h5>Investors on record</h5>
           <ul className="fd-investors" aria-label="Investors on record">{known.map((i) => (
-            <li key={i.name} className="fd-investor"><div className="fd-investor-head"><strong>{i.name}</strong></div>
+            <li key={i.name} className="fd-investor"><div className="fd-investor-head"><strong>{i.name}</strong> <ConfirmedTag item={i} /></div>
               <Sources items={i.source_url ? [{ title: "", url: i.source_url }] : []} /></li>))}</ul>
         </>}
       </>}

@@ -435,7 +435,7 @@ def _fresh_evaluation(name, body, principal, on_partial, user, department, tracx
     try:
         res = core.evaluate(name, None, core.DEFAULT_TOOLS_CSV, do_web=body.do_web, df=df,
                             use_web_cache=not body.refresh, on_partial=on_partial, tracxn=tracxn,
-                            department=department)
+                            department=department, prior_runs=store.prior_runs_for(name))
     finally:
         if token is not None:
             core.web.reset_cache_private(token)

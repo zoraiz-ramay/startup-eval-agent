@@ -973,6 +973,29 @@ def latest_run_for_company(company: str) -> dict | None:
     return res
 
 
+def prior_runs_for(name: str, limit: int = 50) -> list[dict]:
+    """Every stored run of the company ``name`` resolves to, oldest first — the evidence a fresh
+    evaluation carries forward (core/carry_forward.py). Not hydrated: only research is read.
+
+    Resolved through aliases like the cache lookup, plus an exact-name match for runs written
+    before company ids existed. Whether each run really is the same company is decided in the
+    engine on domain, not here on name.
+    """
+    cid = _company_id_for(name)
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT id, created_at, result_json FROM runs WHERE company_id=? OR LOWER(company)=LOWER(?) "
+            "ORDER BY created_at DESC, id DESC LIMIT ?", (cid if cid is not None else -1, str(name).strip(), limit)).fetchall()
+    out = []
+    for run_id, created_at, raw in reversed(rows):
+        try:
+            res = json.loads(raw)
+        except (TypeError, ValueError):
+            continue
+        out.append({**res, "run_id": run_id, "run_created_at": created_at})
+    return out
+
+
 def _company_id_for(name: str) -> int | None:
     key = _norm_alias(name)
     with _conn() as con:
