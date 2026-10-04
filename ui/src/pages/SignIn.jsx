@@ -19,7 +19,7 @@ import Icon from "../components/Icon.jsx";
 const MESSAGES = {
   device_not_compliant: {
     title: "This device isn't compliant",
-    body: "ScoutGrid requires a Siemens-managed device that passes a compliance check. Open Company Portal, run a sync, then try again.",
+    body: "Venture Lens requires a Siemens-managed device that passes a compliance check. Open Company Portal, run a sync, then try again.",
   },
   device_not_trusted: {
     title: "This device isn't registered",
@@ -30,7 +30,7 @@ const MESSAGES = {
   // send everyone whose device was the real problem down the wrong path.
   access_blocked: {
     title: "Sign-in was blocked by policy",
-    body: "A Siemens Conditional Access policy blocked this sign-in. ScoutGrid needs a compliant Siemens device on the corporate network or VPN. If you're already on VPN, disconnect and reconnect so your location is recognised.",
+    body: "A Siemens Conditional Access policy blocked this sign-in. Venture Lens needs a compliant Siemens device on the corporate network or VPN. If you're already on VPN, disconnect and reconnect so your location is recognised.",
   },
   mfa_required: {
     title: "Multifactor setup is incomplete",
@@ -38,7 +38,7 @@ const MESSAGES = {
   },
   not_assigned: {
     title: "Your account isn't approved yet",
-    body: "Your Siemens account isn't approved for ScoutGrid. Request access from the app owner.",
+    body: "Your Siemens account isn't approved for Venture Lens. Request access from the app owner.",
   },
   tenant_mismatch: {
     title: "Wrong account",
@@ -46,7 +46,7 @@ const MESSAGES = {
   },
   missing_oid: {
     title: "Wrong account",
-    body: "That account is missing the directory details ScoutGrid needs. Sign in with your standard Siemens account.",
+    body: "That account is missing the directory details Venture Lens needs. Sign in with your standard Siemens account.",
   },
   cancelled: { title: "Sign-in cancelled", body: "You closed the sign-in before it finished." },
   expired: { title: "Sign-in timed out", body: "The sign-in took too long to complete. Please try again." },
@@ -54,7 +54,7 @@ const MESSAGES = {
   // hour over an expired client secret.
   config_error: {
     title: "Sign-in is misconfigured",
-    body: "ScoutGrid's sign-in configuration is wrong or its credentials have expired. This is not something you can fix — please contact the app owner.",
+    body: "Venture Lens's sign-in configuration is wrong or its credentials have expired. This is not something you can fix — please contact the app owner.",
   },
   unknown: { title: "Sign-in failed", body: "Something went wrong signing you in. Please try again." },
 };
@@ -82,7 +82,7 @@ export default function SignIn() {
       <main className="signin-card" aria-labelledby="signin-title">
         <div className="signin-brand">
           <span className="signin-mark" aria-hidden="true">SI</span>
-          <h1 id="signin-title" className="signin-title">ScoutGrid</h1>
+          <h1 id="signin-title" className="signin-title">Venture Lens</h1>
         </div>
         <p className="signin-lede">Startup evaluation for Siemens partnership decisions.</p>
         <p className="signin-sub">Sign in with your official Siemens account to access the grid.</p>
