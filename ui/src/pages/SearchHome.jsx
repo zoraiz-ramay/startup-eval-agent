@@ -44,7 +44,7 @@ export default function SearchHome() {
   };
   return <div className="startup-home search-hero">
     <h1 className="search-hero-title">Explore a startup</h1>
-    <p className="search-hero-sub">Find and evaluate companies against Siemens strategic needs — assessed for every department, with the best fit recommended.</p>
+    <p className="search-hero-sub">Find and evaluate companies against Siemens strategic needs, assessed for every department, with the best fit recommended.</p>
     {/* The Assess button appears once there is something to assess: an always-present button
         beside an empty field is a control that can only fail. Batch mode has its own below. */}
     <div className={`search-hero-field${!batch && text.trim() ? " has-assess" : ""}`}>

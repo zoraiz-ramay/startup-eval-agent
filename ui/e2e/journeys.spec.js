@@ -137,6 +137,25 @@ test.describe("profile", () => {
     await expect(badge).toHaveAttribute("href", "https://www.cbinsights.com/company/phena");
   });
 
+  test("PROF-16: a long business model wraps onto further lines instead of being cut off", async ({ page }) => {
+    // IxKeyValue's shadow CSS sets nowrap + ellipsis on its value; only a real browser applies it.
+    const model = "Software licence per production line, plus a usage-based fee per inspected part, "
+      + "plus paid integration projects for plants that need the system wired into their existing MES, "
+      + "with a premium support tier for multi-site customers and a revenue share on defect-detection models "
+      + "that partners train on the platform and resell to their own customers in adjacent industries.";
+    const run = { ...RUN_FIXTURE, profile: { ...RUN_FIXTURE.profile, "Business model": model } };
+    await stubEvaluation(page);
+    await page.route("**/api/runs/1", (route) => route.fulfill({ json: run }));
+    await page.goto("/startup/1");
+    const value = page.locator(".spec-value", { hasText: "usage-based fee" });
+    await expect(value).toBeVisible();
+    const fits = await value.evaluate((el) => ({
+      wraps: el.getBoundingClientRect().height > 2 * parseFloat(getComputedStyle(el).fontSize),
+      clipped: el.scrollWidth > el.clientWidth + 1,
+    }));
+    expect(fits).toEqual({ wraps: true, clipped: false });
+  });
+
   test("PROF-05: a company-claimed membership is labelled as such", async ({ page }) => {
     await stubEvaluation(page);
     await page.goto("/startup/1");

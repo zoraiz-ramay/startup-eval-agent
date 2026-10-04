@@ -84,6 +84,97 @@ def test_no_model_says_so():
     assert out["provider"] == "none"
 
 
+# ------------------------------------------------------------------ the evaluation in focus
+
+RUN = {"company": "Radical Dot", "summary": "Chemical recycling of mixed plastic waste.",
+       "profile": {"hq": "Munich, DE", "funding": "€2.8M"},
+       "profile_sources": {"hq": {"origin": "web", "url": "https://radicaldot.com/about"}},
+       "deep_profile": {"commercial": {"investors": [{"name": "UVC Partners", "source_url": "https://uvc.test/news"},
+                                                     {"name": "None", "source_url": "https://x.test"}]},
+                        "founders": [{"name": "Andreas Wagner", "role": "CEO", "source_url": "https://radicaldot.com/team"}]},
+       "trend": {"landscape": {"competitors": [{"name": "BlueAlp", "note": "Plastic upcycling", "source_url": "https://bluealp.test"}],
+                               "market_size": {"value": "$15B", "cagr": "None", "as_of": "2030", "source_url": "https://m.test"}}}}
+
+
+def test_the_brief_is_the_runs_sourced_facts_each_with_its_source_and_no_placeholder_values():
+    text, facts = chat.run_brief(RUN)
+    by_text = {f["text"]: f for f in facts}
+    assert by_text["Investor: UVC Partners"]["url"] == "https://uvc.test/news"
+    assert by_text["Headquarters: Munich, DE"]["url"] == "https://radicaldot.com/about"
+    assert by_text["Market size $15B (as of 2030)"]["url"] == "https://m.test"     # "None" CAGR left out
+    assert "Investor: None" not in by_text
+    assert text.startswith("R1: Radical Dot: Chemical recycling") and all(f["id"] in text for f in facts)
+
+
+def test_a_question_the_evaluation_answers_is_answered_from_it_without_any_search():
+    _, facts = chat.run_brief(RUN)
+    rid = next(f["id"] for f in facts if f["text"] == "Investor: UVC Partners")
+    llm = model(WEB, text=f"Radical Dot is backed by UVC Partners [{rid}].\n- Its HQ is Munich [R2].")
+    tracxn = Mock()
+    out = chat.chat_assistant("Who funds it?", llm=llm, tracxn=tracxn, context_company="Radical Dot", run_facts=facts)
+    assert out["provider"] == "run" and out["source"] == "This evaluation"
+    assert out["answer"] == "Radical Dot is backed by UVC Partners [1].\n- Its HQ is Munich [2]."   # renumbered like a web answer
+    assert [e["url"] for e in out["evidence"]] == ["https://uvc.test/news", "https://radicaldot.com/about"]
+    llm.web_answer.assert_not_called()
+    tracxn.research.assert_not_called()
+    assert llm.complete.call_args.kwargs["reasoning"] == "none"
+
+
+def test_grouped_citations_are_split_and_linked_like_single_ones():
+    _, facts = chat.run_brief(RUN)
+    llm = model(WEB, text="Backed by UVC Partners and led by Andreas Wagner [R7, R6].")
+    out = chat.chat_assistant("Who funds and runs it?", llm=llm, run_facts=facts)
+    assert out["answer"] == "Backed by UVC Partners and led by Andreas Wagner [1][2]."
+    assert len(out["evidence"]) == 2
+
+
+def test_when_the_facts_do_not_answer_the_model_names_a_better_search_and_it_is_used():
+    _, facts = chat.run_brief(RUN)
+    llm = model(WEB, text="SEARCH: Radical Dot Oxolysis pilot plant news 2026")
+    out = chat.chat_assistant("Any news this month?", llm=llm, context_company="Radical Dot", run_facts=facts)
+    assert out["provider"] == "web"
+    prompt = llm.web_answer.call_args.args[0]
+    assert "Suggested search: Radical Dot Oxolysis pilot plant news 2026" in prompt
+    assert "Investor: UVC Partners" not in prompt               # only the headline facts travel to the search
+    assert llm.web_answer.call_args.kwargs["thinking_budget"] == chat.CHAT_SEARCH_THINKING
+
+
+def test_the_suggested_search_always_names_the_startup():
+    _, facts = chat.run_brief(RUN)
+    llm = model(WEB, text="SEARCH: top risks chemical recycling startups")
+    chat.chat_assistant("What are the top risks?", llm=llm, context_company="Radical Dot", run_facts=facts)
+    assert "Suggested search: Radical Dot top risks chemical recycling startups" in llm.web_answer.call_args.args[0]
+
+
+def test_a_half_answer_searches_for_what_it_says_is_missing():
+    _, facts = chat.run_brief(RUN)
+    llm = model(WEB, text="The market is $15B [R4].\nNot covered: the market's growth rate.")
+    out = chat.chat_assistant("How big is its market and how fast is it growing?", llm=llm,
+                              context_company="Radical Dot", run_facts=facts)
+    assert out["provider"] == "web"
+    assert "Suggested search: Radical Dot the market's growth rate." in llm.web_answer.call_args.args[0]
+
+
+def test_a_grounded_answer_written_twice_is_shown_once():
+    from core.llm import _drop_repeat
+    once = "No specific risks for Radical Dot were found in the results. General risks:\n- Feedstock [1]."
+    assert _drop_repeat(once + "\n\nNot covered: x." + once) == once + "\n\nNot covered: x."
+    assert _drop_repeat(once) == once
+
+
+def test_an_answer_that_cites_no_fact_is_not_shown_as_the_evaluations():
+    _, facts = chat.run_brief(RUN)
+    out = chat.chat_assistant("Who funds it?", llm=model(WEB, text="Probably some VCs."), run_facts=facts)
+    assert out["provider"] == "web"                                   # fell through to a sourced search
+
+
+def test_the_history_resent_with_each_question_is_short():
+    history = [{"role": "assistant" if i % 2 else "user", "text": "x" * 2000} for i in range(10)]
+    ctx = chat._conversation(history)
+    assert ctx.count("Reviewer:") + ctx.count("Assistant:") == 4
+    assert len(ctx) < 2200
+
+
 # ------------------------------------------------------------------ Tracxn research planning
 
 def rpc_script(tools, results):

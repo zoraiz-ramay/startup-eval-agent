@@ -2,6 +2,7 @@ import React from "react";
 import ConfirmedTag from "../../components/ConfirmedTag.jsx";
 import { Spec, ExtLink } from "../../components/widgets.jsx";
 import Section from "./Section.jsx";
+import { dedupePeople } from "./people.js";
 import BusinessFlow from "./BusinessFlow.jsx";
 import MarketSignals from "./MarketSignals.jsx";
 import ReferenceCustomers from "./ReferenceCustomers.jsx";
@@ -128,8 +129,8 @@ function RevenueMetric({ division: d }) {
 export default function OverviewTab({ res }) {
   const p = res.profile || {}, sc = res.score || {}, dp = res.deep_profile || {};
   const psrc = res.profile_sources || {};
-  const founders = (dp.founders || []).filter((f) => f?.name);
-  const advisors = (dp.advisors || []).filter((a) => a?.name);
+  const founders = dedupePeople((dp.founders || []).filter((f) => f?.name));
+  const advisors = dedupePeople((dp.advisors || []).filter((a) => a?.name));
   const programs = (dp.programs || []).filter((x) => x?.name);
   const headcount = dp.employees || p.employees_count || p.employee_band || "";
   const asOf = reportedAsOf(headcount, dp.employees_over_time);

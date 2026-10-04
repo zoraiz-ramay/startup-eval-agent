@@ -105,7 +105,7 @@ function CommandBar() {
  * rail; this is just the launcher.
  */
 function MobileHeader() {
-  return <IxApplicationHeader slot="application-header" name="ScoutGrid" />;
+  return <IxApplicationHeader slot="application-header" name="Venture Lens" />;
 }
 
 /* ------------------------------------------------ icon rail + secondary nav */
@@ -173,9 +173,9 @@ function Rail() {
           separate from this visible mark. Collapsed rail shows just the scouting icon; the name
           appears when the menu is expanded (styles.css keys off ix-menu.expanded). */}
       <a slot="ix-menu-avatar" className="menu-brand" href="/" onClick={routeClick(nav, "/")}
-        aria-label="ScoutGrid — Home">
+        aria-label="Venture Lens — Home">
         <span className="brand-mark" aria-hidden="true"><Icon icon={iconExplore} size={22} /></span>
-        <span className="brand-text">ScoutGrid</span>
+        <span className="brand-text">Venture Lens</span>
       </a>
       {items.map((n) => (
         n.action === "dock" ? (

@@ -352,6 +352,25 @@ CREATE TABLE IF NOT EXISTS tool_checks (
     last_run_id INTEGER,
     times_recommended INTEGER NOT NULL DEFAULT 0
 );
+-- Every model call an evaluation made, for the admin dashboard's per-run token log. Written from
+-- result["token_usage"] by save_run; runs saved before the log existed have no rows.
+CREATE TABLE IF NOT EXISTS llm_calls (
+    run_id      INTEGER NOT NULL,
+    seq         INTEGER NOT NULL,
+    stage       TEXT NOT NULL,
+    kind        TEXT NOT NULL,            -- completion | web_search
+    model       TEXT, provider TEXT,
+    cached      INTEGER NOT NULL DEFAULT 0,
+    ok          INTEGER NOT NULL DEFAULT 1,
+    reason      TEXT,
+    attempts    INTEGER NOT NULL DEFAULT 1,
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+    total_tokens INTEGER NOT NULL DEFAULT 0,
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (run_id, seq)
+);
 CREATE INDEX IF NOT EXISTS idx_enrichments ON enrichments(company_id, kind, fetched_at);
 CREATE INDEX IF NOT EXISTS idx_enrichments_run ON enrichments(run_id, kind);
 CREATE INDEX IF NOT EXISTS idx_criteria_run ON assessment_criteria(run_id);
@@ -581,6 +600,62 @@ def _replace_children(con: sqlite3.Connection, cid: int, run_id: int, result: di
                         (cid, str(x["name"])[:160], str(x.get("source_url", ""))[:500], "research", ts))
     _record_criteria(con, cid, run_id, result)
     _record_tool_checks(con, run_id, result)
+    _record_llm_calls(con, run_id, result)
+
+
+def _record_llm_calls(con: sqlite3.Connection, run_id: int, result: dict) -> None:
+    """The run's token log, one row per model call. Replaced, so a re-backfill never doubles it."""
+    con.execute("DELETE FROM llm_calls WHERE run_id=?", (run_id,))
+    for seq, c in enumerate((result.get("token_usage") or {}).get("log") or []):
+        if not isinstance(c, dict):
+            continue
+        con.execute(
+            "INSERT INTO llm_calls (run_id, seq, stage, kind, model, provider, cached, ok, reason, attempts, "
+            "input_tokens, output_tokens, reasoning_tokens, total_tokens, duration_ms) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (run_id, seq, str(c.get("stage", ""))[:40], str(c.get("kind", "completion"))[:20],
+             str(c.get("model", ""))[:80], str(c.get("provider", ""))[:20], int(bool(c.get("cached"))),
+             int(bool(c.get("ok", True))), str(c.get("reason", ""))[:40], int(c.get("attempts") or 1),
+             *(int(c.get(k) or 0) for k in ("input_tokens", "output_tokens", "reasoning_tokens",
+                                             "total_tokens", "duration_ms"))))
+
+
+_TOKEN_SUMS = ("COUNT(c.seq), SUM(c.cached), SUM(1 - c.ok), SUM(c.input_tokens), SUM(c.output_tokens), "
+               "SUM(c.reasoning_tokens), SUM(c.total_tokens), SUM(c.duration_ms)")
+_TOKEN_KEYS = ("calls", "cached_calls", "failed_calls", "input_tokens", "output_tokens",
+               "reasoning_tokens", "total_tokens", "duration_ms")
+
+
+def token_usage_runs(limit: int = 100) -> dict:
+    """Per-run token totals, newest first, with who asked for each run and the overall sums."""
+    with _conn() as con:
+        rows = con.execute(
+            f"SELECT r.id, r.company, r.created_at, r.engine, r.department_id, {_TOKEN_SUMS}, "
+            "(SELECT s.user_upn FROM searches s WHERE s.run_id = r.id AND s.served_from IN ('fresh','research') "
+            " ORDER BY s.id LIMIT 1) "
+            "FROM runs r JOIN llm_calls c ON c.run_id = r.id GROUP BY r.id ORDER BY r.id DESC LIMIT ?",
+            (int(limit),)).fetchall()
+        totals = con.execute(f"SELECT COUNT(DISTINCT c.run_id), {_TOKEN_SUMS} FROM llm_calls c").fetchone()
+        unlogged = con.execute("SELECT COUNT(*) FROM runs r WHERE NOT EXISTS "
+                               "(SELECT 1 FROM llm_calls c WHERE c.run_id = r.id)").fetchone()[0]
+    runs = [{"run_id": r[0], "company": r[1], "created_at": r[2], "engine": r[3] or "",
+             "scope": "all departments" if r[4] == "*" else (r[4] or "no department"),
+             **{k: int(v or 0) for k, v in zip(_TOKEN_KEYS, r[5:13])}, "requested_by": r[13] or ""}
+            for r in rows]
+    return {"runs": runs, "unlogged_runs": int(unlogged),
+            "totals": {"runs": int(totals[0] or 0), **{k: int(v or 0) for k, v in zip(_TOKEN_KEYS, totals[1:])}}}
+
+
+def token_usage_log(run_id: int) -> list[dict]:
+    """One run's model calls in the order they finished."""
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT seq, stage, kind, model, provider, cached, ok, reason, attempts, input_tokens, output_tokens, "
+            "reasoning_tokens, total_tokens, duration_ms FROM llm_calls WHERE run_id=? ORDER BY seq",
+            (int(run_id),)).fetchall()
+    keys = ("seq", "stage", "kind", "model", "provider", "cached", "ok", "reason", "attempts", "input_tokens",
+            "output_tokens", "reasoning_tokens", "total_tokens", "duration_ms")
+    return [{**dict(zip(keys, r)), "cached": bool(r[5]), "ok": bool(r[6])} for r in rows]
 
 
 def _record_criteria(con: sqlite3.Connection, cid: int, run_id: int, result: dict) -> None:

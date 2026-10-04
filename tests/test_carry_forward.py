@@ -60,6 +60,27 @@ def test_an_ungrounded_item_from_an_older_run_is_not_resurrected():
     assert out["profile"]["commercial"]["investors"] == []
 
 
+def test_a_founder_spelled_with_a_title_or_accent_is_one_founder_not_two():
+    # Radical Dot's stored runs held "Andreas Wagner" and "Dr. Andreas Wagner" side by side.
+    src = "https://acme.example/team"
+    fresh = {"founders": [{"name": "Andreas Wagner", "role": "", "source_url": src},
+                          {"name": "Alexandre Kremer", "source_url": src}]}
+    older = prior("2026-08-01T00:00:00+00:00", founders=[
+        {"name": "Dr. Andreas Wagner", "role": "CEO", "source_url": src},
+        {"name": "Alexandre Krémer (CTO)", "source_url": src}])
+    out, report = merge(fresh, [older])
+    assert [f["name"] for f in out["profile"]["founders"]] == ["Andreas Wagner", "Alexandre Kremer"]
+    assert report["founders"]["reconfirmed"] == 2
+
+
+def test_duplicates_within_one_run_collapse_and_fill_each_others_blanks():
+    src = "https://acme.example/team"
+    out, _ = merge({"founders": [{"name": "Andreas Wagner", "role": "", "source_url": src},
+                                 {"name": "Dr. Andreas Wagner", "role": "CEO", "source_url": src}]},
+                   [prior("2026-08-01T00:00:00+00:00")])
+    assert out["profile"]["founders"] == [{"name": "Andreas Wagner", "role": "CEO", "source_url": src}]
+
+
 def test_a_namesake_with_another_domain_contributes_nothing():
     other = prior("2026-08-01T00:00:00+00:00", investors=[UVC], website="https://acme-other.example")
     out, _ = merge({"commercial": {"investors": []}}, [other])
@@ -169,3 +190,61 @@ def test_an_evaluation_carries_an_earlier_runs_investor_into_its_result(offline)
 def test_a_first_evaluation_is_unchanged(offline):
     df, tools = offline
     assert "carry_forward" not in _run(df, tools)
+
+
+# ---------------------------------------------------------------------------------- customers
+
+GRADE = {"level": 1, "quote": "serves chemical manufacturers", "source_url": "https://preqin.example/radical-dot"}
+
+
+def test_a_sourced_customer_base_statement_is_kept_when_a_refresh_misses_it():
+    """Radical Dot's Customers division went evidenced → unknown → evidenced across three runs
+    because this one statement was found, missed, then found again."""
+    out, report = merge({"customer_segment_grade": {}},
+                        [prior("2026-10-01T00:00:00+00:00", customer_segment_grade=GRADE)])
+    assert out["profile"]["customer_segment_grade"] == GRADE
+    assert "customer_segment_grade" in report["fields_carried"]
+
+
+def test_a_quoted_revenue_figure_and_a_certification_are_kept():
+    revenue = {"status": "amount", "quote": "EUR 2M revenue", "source_url": "https://news.example/rev"}
+    cert = {"name": "ISO 27001", "source_url": "https://trust.example"}
+    out, _ = merge({"commercial": {"investors": [], "revenue": {}, "certifications": []}},
+                   [prior("2026-08-01T00:00:00+00:00", commercial={"investors": [], "revenue": revenue,
+                                                                   "certifications": [cert]})])
+    assert out["profile"]["commercial"]["revenue"] == revenue
+    assert [c["name"] for c in out["profile"]["commercial"]["certifications"]] == ["ISO 27001"]
+
+
+def _customer_run(created, name, status="verified", url="https://lanxess.example/case"):
+    run = prior(created, reference_customers=[name],
+                customer_classes=[{"name": name, "relation": "customer", "size": "large_enterprise"}])
+    run["verification"] = {"claims": [{"field": "reference_customer", "value": name, "status": status,
+                                       "evidence_url": url}]}
+    return run
+
+
+def test_a_named_customer_an_earlier_fact_check_sourced_is_carried_with_that_source_and_label():
+    out, report = merge({"reference_customers": []}, [_customer_run("2026-09-01T00:00:00+00:00", "LANXESS")])
+    dp = out["profile"]
+    assert dp["reference_customers"] == ["LANXESS"]
+    assert dp["customer_evidence"]["LANXESS"] == {"source_url": "https://lanxess.example/case",
+                                                  "last_confirmed_at": "2026-09-01T00:00:00+00:00"}
+    assert dp["customer_classes"][0]["relation"] == "customer"        # so the rubric can count it
+    assert report["reference_customers"]["carried"] == 1
+
+
+def test_an_unsourced_or_contradicted_customer_is_not_carried():
+    for run in (_customer_run("2026-09-01T00:00:00+00:00", "LANXESS", url=""),
+                _customer_run("2026-09-01T00:00:00+00:00", "LANXESS", status="contradicted")):
+        out, _ = merge({"reference_customers": []}, [run])
+        assert out["profile"].get("reference_customers") == []
+
+
+def test_traction_scores_a_carried_customer_with_its_earlier_source():
+    from core.traction import gather_traction_inputs
+    out, _ = merge({"reference_customers": []}, [_customer_run("2026-09-01T00:00:00+00:00", "LANXESS")])
+    inputs = gather_traction_inputs({"company": "Acme Vision", "deep_profile": out["profile"], "verification": {}})
+    (customer,) = inputs["customers"]
+    assert (customer["name"], customer["source_url"], customer["origin"]) == \
+        ("LANXESS", "https://lanxess.example/case", "carried")

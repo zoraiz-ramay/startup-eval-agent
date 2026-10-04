@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 
 _STOP = set("""a an the and or of for to in on with from your you our we it is are be as by at this that solution
 platform software company startup using use uses based help helps enable enables provide provides product products
@@ -312,3 +313,44 @@ def _clean_source_url(value) -> str:
     """
     url = str(value or "").strip()
     return url if url.lower().startswith(("http://", "https://")) else ""
+
+
+# Honorifics and post-nominals research sources attach to a name. "Dr. Andreas Wagner" and
+# "Andreas Wagner" are one founder, and keeping both showed the same person twice on a profile.
+# Only tokens that are never a name on their own: "Ma" is a surname, so no "MA" degree.
+_PERSON_AFFIXES = frozenset("dr prof professor mr mrs ms dipl ing phd mba msc bsc jr sr dott".split())
+
+
+def person_key(name) -> str:
+    """The identity of a person's name: diacritics folded, case dropped, a parenthetical role
+    ("Jane Doe (CEO)") and honorifics/post-nominals removed. Empty when nothing identifying is left."""
+    text = unicodedata.normalize("NFKD", str(name or ""))
+    text = "".join(c for c in text if not unicodedata.combining(c)).casefold()
+    text = re.sub(r"\([^)]*\)|\[[^\]]*\]", " ", text)
+    text = text.split(",")[0]                       # "Jane Doe, PhD" / "Jane Doe, CEO"
+    words = [w for w in re.split(r"[^a-z0-9]+", text) if w and w not in _PERSON_AFFIXES]
+    return " ".join(words)
+
+
+def dedupe_people(people) -> list:
+    """One entry per person, in first-seen order; a later duplicate only fills blank fields.
+
+    Nothing is invented: the merged entry holds only values one of the duplicates already had.
+    """
+    out, by_key = [], {}
+    for item in people or []:
+        if not isinstance(item, dict):
+            out.append(item)
+            continue
+        key = person_key(item.get("name"))
+        kept = by_key.get(key) if key else None
+        if kept is None:
+            entry = dict(item)
+            if key:
+                by_key[key] = entry
+            out.append(entry)
+            continue
+        for field, value in item.items():
+            if field != "name" and str(value or "").strip() and not str(kept.get(field) or "").strip():
+                kept[field] = value
+    return out

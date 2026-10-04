@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import contextlib
 import contextvars
 import functools
 import logging
@@ -196,13 +197,35 @@ def evaluate(name: str, glassdollar_path: str, tools_path: str, do_web: bool = T
     span.set_attribute("startup.department", str((department or {}).get("id", "")))
     span.set_attribute("web_cache.enabled", use_web_cache)
     token = web.set_cache_enabled(use_web_cache)
-    collecting, failures = llm_mod.collect_failures()
     try:
-        return _with_degraded(_evaluate(name, glassdollar_path, tools_path, do_web, df, on_step,
-                                        on_partial, tracxn, department, prior_runs, departments), failures)
+        with _run_records() as records:
+            return records(_evaluate(name, glassdollar_path, tools_path, do_web, df, on_step,
+                                     on_partial, tracxn, department, prior_runs, departments))
     finally:
-        llm_mod.stop_collecting(collecting)
         web.reset_cache_enabled(token)
+
+
+@contextlib.contextmanager
+def _run_records():
+    """Collect a run's failed model calls and its token log; yields a function that attaches both.
+
+    ``result["token_usage"]`` is every model call the run made — stage, model, tokens, time,
+    attempts, cache hits — for the admin dashboard's per-run log. Absent when the run made no call
+    (no model configured), so an offline run is unchanged.
+    """
+    collecting, failures = llm_mod.collect_failures()
+    counting, calls = llm_mod.collect_usage()
+
+    def attach(result: dict) -> dict:
+        result = _with_degraded(result, failures)
+        if calls and result.get("found", True):
+            result["token_usage"] = llm_mod.summarize_usage(list(calls))
+        return result
+    try:
+        yield attach
+    finally:
+        llm_mod.stop_collecting_usage(counting)
+        llm_mod.stop_collecting(collecting)
 
 
 def _with_degraded(result: dict, failures: list) -> dict:
@@ -557,11 +580,8 @@ def assess_department(result: dict, department: dict, llm: "LLMClient | None" = 
     when the source run already holds a current one; the startup research itself is not redone.
     """
     llm = llm or LLMClient()
-    collecting, failures = llm_mod.collect_failures()
-    try:
-        return _with_degraded(_assess_department(result, department, llm, do_web), failures)
-    finally:
-        llm_mod.stop_collecting(collecting)
+    with _run_records() as records:
+        return records(_assess_department(result, department, llm, do_web))
 
 
 @_tracer.start_as_current_span("assess_departments")
@@ -573,11 +593,8 @@ def assess_departments(result: dict, departments: list, llm: "LLMClient | None" 
     per department, headed by the department whose needs the startup answers best.
     """
     llm = llm or LLMClient()
-    collecting, failures = llm_mod.collect_failures()
-    try:
-        return _with_degraded(_assess_department(result, departments, llm, do_web), failures)
-    finally:
-        llm_mod.stop_collecting(collecting)
+    with _run_records() as records:
+        return records(_assess_department(result, departments, llm, do_web))
 
 
 def _pillars_for_all(run: dict, departments: list, llm, do_web: bool) -> dict:
@@ -615,7 +632,8 @@ def _assess_department(result: dict, department, llm, do_web: bool) -> dict:
     many = isinstance(department, list)
     base = {k: v for k, v in result.items()
             if k not in ("assessment", "department", "departments", "run_id", "run_created_at", "cached",
-                         "freshness", "private", "department_assessments", "original_score")}
+                         "freshness", "private", "department_assessments", "original_score",
+                         "token_usage", "degraded")}
     from .judgment import score_research, VERSION as JUDGMENT_VERSION
     from .traction import apply_traction, with_traction
     base = with_traction(base)

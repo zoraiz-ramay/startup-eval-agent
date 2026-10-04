@@ -51,6 +51,14 @@ describe("DepartmentRanking", () => {
     expect(screen.queryByText("Recommended")).toBeNull();
   });
 
+  it("says Collaborate is not recommended when every department scored 0/9", () => {
+    const zero = { ...RUN, departments: { ...RUN.departments, recommended: null, basis: "no_collaborate_match",
+      ranked: [entry("mobility", "Siemens Mobility", 0, 40), entry("di", "Digital Industries", 0, 40)] } };
+    render(<Harness run={zero} />);
+    expect(screen.getByText(/0\/9 for every department/)).toHaveTextContent("Collaborate is not recommended");
+    expect(screen.queryByText("Recommended")).toBeNull();
+  });
+
   it("leaves a one-department run exactly as it was", () => {
     const legacy = { company: "Acme", department: { id: "di" }, score: { final_score: 60 } };
     expect(viewAs(legacy, "si")).toBe(legacy);

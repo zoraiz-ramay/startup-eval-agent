@@ -34,15 +34,19 @@ import datetime as _dt
 import re
 from urllib.parse import urlparse
 
+from .text import dedupe_people, person_key
+
 MARKET_MAX_AGE_DAYS = 548                    # 18 months
 
 # (container path in the profile result, key fields that identify an item)
 _PROFILE_LISTS = (
-    (("founders",), ("name",)),
-    (("key_team",), ("name",)),
-    (("advisors",), ("name",)),
+    # People are matched on the person, not the spelling: "Dr. Andreas Wagner" is "Andreas Wagner".
+    (("founders",), ("person",)),
+    (("key_team",), ("person",)),
+    (("advisors",), ("person",)),
     (("programs",), ("name",)),
     (("commercial", "investors"), ("name",)),
+    (("commercial", "certifications"), ("name",)),
     (("employees_over_time",), ("date", "source_url")),
 )
 _TREND_LISTS = (
@@ -68,6 +72,10 @@ _SCALARS = (
     (("commercial", "sells_hardware"), {"source": "hardware_source"}),
     (("commercial", "revenue_signal"), {"source": "revenue_source", "facts": ("revenue_signal",)}),
     (("commercial", "funding_stage"), {"facts": ("funding_stage",)}),
+    # Values that carry their own source: a statement about the customer base (it scores the
+    # traction Customers division when no customer is named) and a quoted revenue figure.
+    (("customer_segment_grade",), {"self": True}),
+    (("commercial", "revenue"), {"self": True}),
 )
 
 
@@ -146,8 +154,9 @@ def _when(run: dict) -> str:
 def _item_key(item, fields) -> tuple:
     if not isinstance(item, dict):
         return ()
-    return tuple(_norm(item.get(f)) if f != "source_url" else str(item.get(f) or "").strip()
-                 for f in fields)
+    return tuple(person_key(item.get("name")) if f == "person"
+                 else str(item.get(f) or "").strip() if f == "source_url"
+                 else _norm(item.get(f)) for f in fields)
 
 
 def _grounded(item) -> bool:
@@ -156,6 +165,9 @@ def _grounded(item) -> bool:
 
 
 def _sourced(container: dict, path, spec: dict, facts: list) -> bool:
+    if spec.get("self"):
+        value = _get(container, path)
+        return isinstance(value, dict) and _http(value.get("source_url"))
     parent = _get(container, path[:-1]) if len(path) > 1 else container
     parent = parent if isinstance(parent, dict) else {}
     if spec.get("origin") and parent.get(spec["origin"]) == "web":
@@ -186,7 +198,7 @@ def _facts_of(run_like: dict) -> list:
 
 def _merge_list(fresh_items, prior_runs, path, fields, getter, now: str, report: dict, label: str):
     """Fresh items first (current), then every grounded item only earlier runs found."""
-    fresh_items = list(fresh_items or [])
+    fresh_items = dedupe_people(fresh_items) if fields == ("person",) else list(fresh_items or [])
     seen = {_item_key(i, fields) for i in fresh_items if _item_key(i, fields)}
     carried: dict = {}
     for run in prior_runs:                                  # oldest → newest: later runs win
@@ -263,9 +275,55 @@ def merge_profile(fresh: dict, prior_runs: list, now: str, report: dict) -> dict
         report.setdefault("fields_carried", []).append(name)
     if history:
         dp["history"] = history
+    _merge_customers(dp, prior_runs, report)
     out["profile"] = dp
     out["facts"] = list(fresh.get("facts") or []) + _carried_facts(fresh_facts, prior_runs, dp)
     return out
+
+
+def _merge_customers(dp: dict, prior_runs: list, report: dict) -> None:
+    """Named reference customers an earlier run found and its fact-check sourced.
+
+    A reference customer is a bare name — the source that establishes it lives in that run's
+    verification claim. Only a name whose claim carries an http source and was not contradicted is
+    carried, with that source in ``customer_evidence`` (traction reads it when this run's own
+    verification has no claim for the name) and its customer-type label in ``customer_classes``,
+    without which the traction rubric would not count it.
+    """
+    fresh = list(dp.get("reference_customers") or [])
+    have = {_norm(n) for n in fresh}
+    evidence = dict(dp.get("customer_evidence") or {})
+    classes = list(dp.get("customer_classes") or [])
+    classed = {_norm(c.get("name")) for c in classes if isinstance(c, dict)}
+    carried: dict = {}
+    for run in prior_runs:
+        claims = {_norm(c.get("value")): c for c in (run.get("verification") or {}).get("claims") or []
+                  if isinstance(c, dict) and c.get("field") == "reference_customer"}
+        pdp = _profile_of(run)
+        run_classes = {_norm(c.get("name")): c for c in pdp.get("customer_classes") or [] if isinstance(c, dict)}
+        prior_evidence = pdp.get("customer_evidence") or {}
+        for name in pdp.get("reference_customers") or []:
+            key = _norm(name)
+            if not key or key in have:
+                continue
+            claim = claims.get(key) or {}
+            url = claim.get("evidence_url") or (prior_evidence.get(name) or {}).get("source_url")
+            if not _http(url) or claim.get("status") == "contradicted":
+                continue
+            when = (prior_evidence.get(name) or {}).get("last_confirmed_at") or _when(run)
+            carried[key] = (name, {"source_url": url, "last_confirmed_at": when}, run_classes.get(key))
+    for key, (name, ev, cls) in carried.items():
+        fresh.append(name)
+        evidence[name] = ev
+        if cls and key not in classed:
+            classes.append(cls)
+    reconfirmed = sum(1 for n in fresh[:len(dp.get("reference_customers") or [])]
+                      if any(_norm(n) in {_norm(x) for x in _profile_of(r).get("reference_customers") or []}
+                             for r in prior_runs))
+    report["reference_customers"] = {"new": len(dp.get("reference_customers") or []) - reconfirmed,
+                                     "reconfirmed": reconfirmed, "carried": len(carried)}
+    if carried:
+        dp["reference_customers"], dp["customer_evidence"], dp["customer_classes"] = fresh, evidence, classes
 
 
 def _carried_facts(fresh_facts: list, prior_runs: list, dp: dict) -> list:

@@ -30,7 +30,9 @@ export default function DepartmentRanking({ res, selected, onSelect }) {
       <p className="dept-ranking-lead">
         {block.recommended
           ? <>Best fit for Collaborate: <strong>{res.departments.ranked[0].department.label}</strong>, the department whose stated needs this startup answers best.</>
-          : <>No department's needs could be assessed for Collaborate, so none is recommended. Empower and Connect are scored the same for every department.</>}
+          : block.basis === "no_collaborate_match"
+            ? <>No department's stated needs matched this startup (0/9 for every department), so Collaborate is not recommended. Siemens Fit comes from Empower and Connect.</>
+            : <>No department's needs could be assessed for Collaborate, so none is recommended. Empower and Connect are scored the same for every department.</>}
       </p>
       <ol className="dept-ranking-list" aria-label="Departments, best Collaborate fit first">
         {block.ranked.map((entry) => {

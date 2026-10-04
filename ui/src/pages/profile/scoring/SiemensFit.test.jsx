@@ -160,6 +160,48 @@ describe("FitComparison", () => {
     expect(need).toHaveFocus();
   });
 
+  it("shows Connect's ecosystem gap as the nearest sellers, not as matches, and keeps them out of the audience", async () => {
+    const user = userEvent.setup();
+    const seller = (id, name, overlap, differentiator = "") => ({ id: `seller:${id}`, name, url: `https://${id}.test`, overlap, differentiator, evidence: [] });
+    const gap = { id: "ecosystem_gap", label: "Ecosystem gap", score: 1, basis: "derived", anchor: "Partially represented",
+      rationale: "1 seller(s) already offer this", evidence: [], catalog: [{ id: "seller:plas", name: "PlasCo" }],
+      neighbours: [seller("dist", "Elsewhere", "distinct"), seller("plas", "PlasCo", "equivalent"),
+        seller("chem", "ChemLoop", "equivalent", "Runs at ambient pressure")] };
+    const connect = { ...CONNECT, criteria: [gap, ...CONNECT.criteria.slice(1)] };
+    withRouter(<FitComparison res={{ ...RUN, assessment: { ...RUN.assessment, pillars: { ...RUN.assessment.pillars, Connect: connect } } }} />);
+    await user.click(screen.getByRole("button", { name: /^Ecosystem gap: 1 of 3/ }));
+    const region = screen.getByRole("region", { name: /Ecosystem gap/ });
+    expect(within(region).getByText("Nearest Xcelerator sellers")).toBeInTheDocument();
+    const names = within(region).getAllByRole("link").map((a) => a.textContent);
+    expect(names.slice(0, 3)).toEqual(["PlasCo", "ChemLoop", "Elsewhere"]);          // same offering first
+    expect(within(region).getByText("Differs: Runs at ambient pressure")).toBeInTheDocument();
+    expect(within(region).getByText("Nothing evidenced sets the startup apart.")).toBeInTheDocument();
+    expect(within(region).queryByText(/^Matched/)).toBeNull();
+  });
+
+  it("says in Connect's third step whether connecting makes sense, point by point, with sources", async () => {
+    const user = userEvent.setup();
+    const value = { id: "ecosystem_value", label: "Ecosystem value", score: 2, basis: "derived", path: "open_space",
+      anchor: "An audience with a clear fit or a good market, or open space with both", rationale: "Open space.",
+      signals: { audience: false, industry_topic: true, market: true }, audience: [], evidence: [], catalog: [] };
+    const connect = { ...CONNECT, criteria: [...CONNECT.criteria.slice(0, 2), value],
+      case: { verdict: "worth_exploring", title: "Worth exploring, with open questions", summary: "Nobody in the ecosystem uses it yet.",
+        points: [{ tone: "plus", text: "Good market signals: growth 12% CAGR.", sources: ["https://m.test/report"] },
+          { tone: "minus", text: "No Xcelerator seller was found who would use, integrate or resell it.", sources: [] }] } };
+    withRouter(<FitComparison res={{ ...RUN, assessment: { ...RUN.assessment, pillars: { ...RUN.assessment.pillars, Connect: connect } } }} />, "/startup/1?pillar=Connect");
+    const map = screen.getByRole("group", { name: "Connect opportunity map" });
+    expect(within(map).getByText("Worth exploring, with open questions")).toBeInTheDocument();
+    const points = within(map).getByRole("list", { name: "Why" });
+    expect(within(points).getByText(/Good market signals/).closest("li")).toHaveTextContent("In favour:");
+    expect(within(points).getByRole("link", { name: "m.test" })).toHaveAttribute("href", "https://m.test/report");
+    expect(within(points).getByText(/No Xcelerator seller/).closest("li")).toHaveTextContent("Against:");
+    await user.click(screen.getByRole("button", { name: /^Ecosystem value: 2 of 3/ }));
+    const region = screen.getByRole("region", { name: /Ecosystem value/ });
+    expect(within(region).getByText("Open space: no ecosystem audience")).toBeInTheDocument();
+    const signals = within(region).getAllByRole("listitem").filter((li) => li.closest(".value-signals")).map((li) => li.textContent);
+    expect(signals).toEqual(["No An ecosystem audience", "Yes A clear industry & topic fit", "Yes A good market signal"]);
+  });
+
   it("opens a criterion from Scoring method too", async () => {
     const user = userEvent.setup();
     withRouter(<FitComparison res={RUN} detailed />);

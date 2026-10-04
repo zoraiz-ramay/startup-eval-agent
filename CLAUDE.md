@@ -205,14 +205,67 @@ department-less engine calls).
   search is not evidence of absence. Checks are cached only when conclusive, stored in
   `tool_checks`, and the `not_found` ones are the admin page's "could not be verified" list:
   fixing that list is a catalog edit, not code.
+- **Tool shortlists are semantic + word search** (`core/tool_search.py`), for both the fit stage
+  (80) and Empower (20). Word overlap alone showed Wandelbots a shortlist without Tecnomatix or
+  Process Simulate but with a cybersecurity certification that shared the word "industrial". The
+  catalog is embedded once into `data/tool_index/` (`scripts/build_tool_index.py`, ~30s; rerun
+  after any change to `siemens_tools.csv`), the startup once per run, and the two rankings are
+  fused by reciprocal rank over the top 20 of each (`FUSE_DEPTH`, measured by
+  `scripts/compare_tool_retrieval.py`). The index is used only when catalog checksum, model and
+  size all match; otherwise — or when the provider cannot embed — it is words alone and the pillar
+  says so (`retrieval.method == "words"`). Gemini's `gemini-embedding-001` is verified; the Siemens
+  gateway embeds only if `EMBEDDING_MODEL` names a model it serves, and the index must then be
+  rebuilt with that model.
+- **Empower ranks up to 5 tools** (`recommended_tools`), held to the criteria's bar by
+  `pillars._recommended_tools` (shortlisted, relation, reason, a real citation) and existence-checked;
+  one that cannot be found is dropped without a re-match. They never move the score. Fit also lists
+  up to 5, but everything that decides from `fit.matches` reads the first one or three.
+- **Connect asks whether the offering is already in the ecosystem** (rubric v2+). Its criteria are
+  Ecosystem gap · Industry & topic fit · Ecosystem value. The gap is **derived, never scored by the
+  model**: the Xcelerator sellers are embedded into `data/xcelerator_index/`
+  (`scripts/build_tool_index.py --catalog xcelerator`, ~10s; rerun after any change to the
+  workbook), the 10 nearest the startup's offering are fused with word overlap, the model labels
+  each `equivalent | overlapping | distinct` in the Connect call it already makes, and
+  `pillars.gap_level` counts only equivalents with **no cited differentiator** — a raw count
+  punished a startup for working in a busy area even when it was evidently different. A skipped
+  seller counts as overlapping, never as absent. Bands are `config.CONNECT_GAP_*`; tune them from
+  `connect.ecosystem_gap` in `scripts/dimension_variance.py`, not by argument. A saturated offering
+  (gap 0) tops out at 6/9 and can never be Strong. **Absence is a gap only where the ecosystem
+  is**: with Industry & topic fit below 2 the gap is capped at 1 — an offering nobody sells because
+  it is unrelated is distant, not new, and scoring that 3/3 lifted weak startups to Review.
+- **Connect's Ecosystem value is derived too, on two paths** (rubric v3; the model now scores only
+  Industry & topic fit, which at 2+ must cite both an industry and a topic). Its three signals:
+  an ecosystem **audience** (sellers the model names as would use / integrate / resell / partner,
+  each with a reason and a citation, never one it labelled equivalent — drawn from the nearest
+  sellers or from `audience_candidates`, sellers in the startup's industries and topics), a clear
+  **fit**, and a good **market** signal — a `market:` record `pillar_match.market_records` builds in
+  Python from the trend stage's cited figures (`config.CONNECT_GOOD_MARKET`), so "good" is never
+  the model's call. With an audience: 1, +1 for fit or market, +1 for both. Without one — open
+  space — fit and market alone: 0, 1 or 2 (`pillars.value_level`). So an open-space startup that
+  fits and has a strong market can still be Strong (3+3+2); one that does neither cannot.
+  `pillars.connect_case` turns the same rows into the verdict the opportunity map's third step
+  shows — "Connecting makes sense" / "Worth exploring" / "does not make sense", from the band —
+  with each point for or against and its source: templated, never generated. The equivalent
+  sellers are competitors: `catalogGroups` keeps them out of the "Ecosystem audience" node.
+- **Collaborate ranks a department's needs by meaning** (`data/needs_index/`, all ~50 needs of the
+  requirements workbook, `scripts/build_tool_index.py --catalog needs`; rerun after any change to
+  it). Ranked once per evaluation in `prepare_pillars`, filtered per department. Not fused with
+  words as tools are: needs have no product name to quote, and on Radical Dot words put "Defect
+  Detection" above "Advanced Recycling". The top three are kept as `closest_needs`, which the map
+  lists first when nothing matched; they never move the score.
 - **Unassessed is not a no-match.** No grounded concept, no catalog, no model or output that fails
   validation → `unassessed`. Only assessed pillars feed Siemens Fit, and Pass needs all three.
+- **A Collaborate at 0/9 is not a route.** When every department scores 0, `build_all` sets
+  `recommended: null` with `basis: "no_collaborate_match"` (distinct from
+  `no_collaborate_assessment`), and `pillars.siemens_fit` leaves a 0/9 Collaborate out, so the fit
+  comes from Empower or Connect — or stays pending, never 0, if neither was assessed. It still
+  counts as assessed for Pass. Both are re-derived on read, so stored runs follow the rule.
 - **A run is one startup assessed for every department.** Nobody picks a department before
   searching — that asked the reviewer to guess what the evaluation exists to find. Research,
   Empower and Connect are department-independent and run once; Collaborate is matched against each
   department's needs in parallel (`pillar_match.for_department`), and `assessment.build_all` heads
   the run with the department whose needs it answers best (`departments.recommended`; null, never
-  a default, when no Collaborate could be assessed). The run's own `department` / `assessment` are
+  a default, when no Collaborate could be assessed or every department scored 0/9). The run's own `department` / `assessment` are
   the recommended one's, so single-department readers keep working; `departments.ranked` holds every
   department's full assessment, hydrated on read, and the Scoring tab switches between them with
   `?dept=` and no call. Stored under `runs.department_id = '*'`, with `assessment_key` covering the
@@ -318,8 +371,17 @@ run of the company (`store.prior_runs_for`, oldest first) into the fresh one as 
 - Single values: a blank or unsourced fresh value never replaces a sourced prior; between two
   sourced values the newer wins and the loser goes to `deep_profile.history`. GlassDollar facts count
   as sourced (their `source_url` is "GlassDollar", not a URL). A web value beats an `*_origin="llm"` recall.
+- Values that carry their own source are carried the same way: `customer_segment_grade` (it scores
+  traction's Customers division when no customer is named — missing it flipped Radical Dot's
+  Customers between evidenced and unknown across refreshes), `commercial.revenue`, certifications.
+- Named reference customers have no URL of their own; one is carried only when an earlier run's
+  verification claim sourced it and did not contradict it, with that source in
+  `deep_profile.customer_evidence` (traction reads it) and its label in `customer_classes`.
 - Market size / CAGR older than 18 months is dropped, fresh or carried; a year-only `as_of` is read
   as 31 December.
+- The Team & Ecosystem panel lists every entity of a cited kind on record, cited ones first and
+  marked. Showing only the model's citations made carried investors look lost: it cited a
+  different two of fifteen each run.
 - Identity first: priors are used only when their own domain matches (a directory page recorded as
   the website does not count as the company's domain), or, without one, the full normalised name.
 
@@ -345,9 +407,25 @@ approved challenge recorded, that taxed every startup ~30% of its tool fit and a
 **all eight** `Pass` verdicts in the corpus. A demand-side match is now a bonus that can only
 raise fit. `tests/test_siemens_fit_scoring.py` pins it.
 
-## The assistant: Tracxn first, the model's own web search second
+## The assistant: the evaluation first, Tracxn second, the model's own web search third
 
-`POST /api/ask` → `core/chat.py::chat_assistant`. With the reviewer's Tracxn account connected,
+`POST /api/ask` → `core/chat.py::chat_assistant`. With a run in focus, `run_brief` turns what the
+evaluation already researched into ≤ ~700 tokens of numbered facts (`R1…`), each with its source —
+profile, scores, pillars, market, competitors, claim checks, then founders/investors/programmes —
+and one **non-thinking** call answers from them, citing `[R#]` (renumbered to `[1]…`, the same
+scheme as a web answer, so the dock links both alike). Measured on Radical Dot's four suggestion
+chips, two were answered there with no search at all. Python, not the prompt, decides what falls
+through: an answer citing no fact, or one that says `Not covered:`, goes to search, and a
+`SEARCH: <query>` reply hands the search a sharper query (always naming the company — without
+it "top risks" came back as generic industry risks). The search then gets only the headline
+facts, not the whole brief, and a capped thinking budget (`CHAT_SEARCH_THINKING`, 512): a
+grounded Gemini answer spent up to ~3,900 thinking tokens otherwise. History is the last four
+turns, assistant turns cut to 400 chars. Answers follow one shape (`_CHAT_STYLES`): a sentence
+that answers, cited bullets, a table only for comparisons, a `Not covered:` line — rendered by
+`ui/src/components/AnswerText.jsx`, never as HTML. A grounded answer the model writes twice is
+cut to its first copy (`llm._drop_repeat`).
+
+With the reviewer's Tracxn account connected,
 `TracxnClient.research` plans up to three calls over the MCP server's **read-only** tools (schemas
 discovered, arguments validated against them, anything named for a write refused) and the answer
 is written from that data only. Without a connection — or when Tracxn fails or has nothing — the

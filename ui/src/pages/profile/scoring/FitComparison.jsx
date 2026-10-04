@@ -8,7 +8,9 @@ import { HeatStrip, RingGauge } from "../../../components/charts.jsx";
 import { CRITERION_QUESTIONS, PILLAR_ORDER, criterionNotes, pillarRows } from "./presentation.js";
 
 const SHORT = { tool_fit: "Tool", benefit_fit: "Benefit", actionability: "Action", capability_fit: "Capability",
-  need_fit: "Need", industry_fit: "Industry", topic_fit: "Topic", ecosystem_value: "Ecosystem" };
+  need_fit: "Need", ecosystem_gap: "Gap", industry_topic_fit: "Fit", ecosystem_value: "Ecosystem",
+  // Connect's criteria before rubric v2, for stored runs.
+  industry_fit: "Industry", topic_fit: "Topic" };
 const ROLE_PILL = { Recommended: "pill-ok", Alternative: "pill-ok", Review: "pill-warn" };
 const cellId = (pillar, id) => `fit-cell-${pillar}-${id}`;
 const CATALOG_LABEL = { Empower: "Siemens tools", Connect: "Xcelerator catalog entries", Collaborate: "department needs" };

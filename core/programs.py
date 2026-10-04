@@ -170,7 +170,9 @@ def _startup_text(row: pd.Series, profile: dict, fit: dict) -> str:
               "Differentiation", "Development stage of your solution", "about_enriched")]
     parts.append(_txt(profile.get("customer_segment", "")))
     parts.extend(str(k) for k in (fit.get("keywords") or []))
-    parts.extend(str(m.get("rationale", "")) for m in (fit.get("matches") or []))
+    # The first three only: fit now lists up to five tools for the reviewer, and the extra two
+    # must not add words that flip an SFS rule.
+    parts.extend(str(m.get("rationale", "")) for m in (fit.get("matches") or [])[:3])
     return " ".join(p for p in parts if p).lower()
 
 

@@ -147,6 +147,18 @@
       "args": []
     },
     {
+      "method": "adminTokenUsage",
+      "args": [
+        "limit = 100"
+      ]
+    },
+    {
+      "method": "adminTokenUsageRun",
+      "args": [
+        "runId"
+      ]
+    },
+    {
       "method": "adminToolChecks",
       "args": [
         "status = \"not_found\""
@@ -347,8 +359,21 @@
       "css_classes": []
     },
     {
+      "path": "ui/src/components/AnswerText.jsx",
+      "lines": 73,
+      "exports": [
+        "AnswerText"
+      ],
+      "css_classes": [
+        "dock-cite",
+        "dock-gap",
+        "dock-table",
+        "dock-table-wrap"
+      ]
+    },
+    {
       "path": "ui/src/components/AssistantDock.jsx",
-      "lines": 183,
+      "lines": 189,
       "exports": [
         "AssistantDock"
       ],
@@ -360,6 +385,7 @@
         "dock-actions",
         "dock-body",
         "dock-field",
+        "dock-follow",
         "dock-input",
         "dock-intro",
         "dock-msg",
@@ -375,7 +401,7 @@
     },
     {
       "path": "ui/src/components/AssistantDock.test.jsx",
-      "lines": 87,
+      "lines": 116,
       "exports": [],
       "css_classes": []
     },
@@ -546,6 +572,28 @@
       "css_classes": []
     },
     {
+      "path": "ui/src/components/TokenUsage.jsx",
+      "lines": 124,
+      "exports": [
+        "TokenUsage"
+      ],
+      "css_classes": [
+        "dense",
+        "dtable",
+        "link-btn",
+        "muted",
+        "panel",
+        "sr-only",
+        "token-totals"
+      ]
+    },
+    {
+      "path": "ui/src/components/TokenUsage.test.jsx",
+      "lines": 66,
+      "exports": [],
+      "css_classes": []
+    },
+    {
       "path": "ui/src/components/TracxnConnection.jsx",
       "lines": 29,
       "exports": [
@@ -594,7 +642,8 @@
         "bar-track",
         "muted",
         "pill",
-        "sfs"
+        "sfs",
+        "spec-value"
       ]
     },
     {
@@ -611,7 +660,7 @@
     },
     {
       "path": "ui/src/pages/Admin.jsx",
-      "lines": 359,
+      "lines": 361,
       "exports": [
         "Admin"
       ],
@@ -852,7 +901,7 @@
     },
     {
       "path": "ui/src/pages/profile/OverviewTab.jsx",
-      "lines": 233,
+      "lines": 234,
       "exports": [
         "OverviewTab"
       ],
@@ -868,6 +917,12 @@
         "unverified",
         "v"
       ]
+    },
+    {
+      "path": "ui/src/pages/profile/people.test.jsx",
+      "lines": 38,
+      "exports": [],
+      "css_classes": []
     },
     {
       "path": "ui/src/pages/profile/ProfileLayout.jsx",
@@ -908,7 +963,7 @@
     },
     {
       "path": "ui/src/pages/profile/scoring/CriterionDetail.jsx",
-      "lines": 106,
+      "lines": 164,
       "exports": [
         "CriterionDetail",
         "DetailPanel"
@@ -929,7 +984,8 @@
         "eyebrow",
         "kind-tag",
         "link-btn",
-        "muted"
+        "muted",
+        "value-signals"
       ]
     },
     {
@@ -946,7 +1002,7 @@
     },
     {
       "path": "ui/src/pages/profile/scoring/DepartmentRanking.jsx",
-      "lines": 58,
+      "lines": 60,
       "exports": [
         "DepartmentRanking",
         "viewAs"
@@ -964,7 +1020,7 @@
     },
     {
       "path": "ui/src/pages/profile/scoring/DepartmentRanking.test.jsx",
-      "lines": 59,
+      "lines": 67,
       "exports": [],
       "css_classes": []
     },
@@ -994,7 +1050,7 @@
     },
     {
       "path": "ui/src/pages/profile/scoring/FitComparison.jsx",
-      "lines": 99,
+      "lines": 101,
       "exports": [
         "FitComparison"
       ],
@@ -1054,11 +1110,15 @@
     },
     {
       "path": "ui/src/pages/profile/scoring/OpportunityDetail.jsx",
-      "lines": 118,
+      "lines": 171,
       "exports": [
-        "OpportunityDetail"
+        "OpportunityDetail",
+        "RecommendedTools"
       ],
       "css_classes": [
+        "connect-case",
+        "connect-case-points",
+        "connect-case-summary",
         "eyebrow",
         "fit-next",
         "kind-tag",
@@ -1081,9 +1141,12 @@
         "opp-skeleton",
         "opp-statement",
         "opp-step",
+        "ranked",
+        "sr-only",
         "tool-card",
         "tool-card-head",
         "tool-cards",
+        "tool-rank",
         "tool-verified",
         "unassessed",
         "verdict"
@@ -1109,6 +1172,12 @@
         "strength-meter",
         "three"
       ]
+    },
+    {
+      "path": "ui/src/pages/profile/scoring/RecommendedTools.test.jsx",
+      "lines": 37,
+      "exports": [],
+      "css_classes": []
     },
     {
       "path": "ui/src/pages/profile/scoring/ScoringTab.jsx",
@@ -1147,7 +1216,7 @@
     },
     {
       "path": "ui/src/pages/profile/scoring/SiemensFit.test.jsx",
-      "lines": 292,
+      "lines": 334,
       "exports": [],
       "css_classes": []
     },
@@ -1179,15 +1248,20 @@
     },
     {
       "path": "ui/src/pages/profile/scoring/TeamEvidence.jsx",
-      "lines": 150,
+      "lines": 247,
       "exports": [
         "EvidencePreview",
         "TeamEvidence",
+        "layout",
+        "onRecord",
         "resolveEvidence"
       ],
       "css_classes": [
+        "cited",
         "claimed",
         "kind-tag",
+        "link-btn",
+        "muted",
         "org-card",
         "org-claim",
         "org-mark",
@@ -1203,12 +1277,13 @@
         "team-avatar",
         "team-box-preview",
         "team-evidence-group",
+        "team-shared",
         "top"
       ]
     },
     {
       "path": "ui/src/pages/profile/scoring/TeamEvidence.test.jsx",
-      "lines": 71,
+      "lines": 136,
       "exports": [],
       "css_classes": []
     },
@@ -1373,7 +1448,7 @@
     },
     {
       "path": "ui/src/pages/Profile.jsx",
-      "lines": 255,
+      "lines": 256,
       "exports": [
         "Profile"
       ],
@@ -1524,9 +1599,9 @@
   ],
   "totals": {
     "routes": 9,
-    "api_methods": 36,
+    "api_methods": 38,
     "design_tokens": 70,
-    "jsx_files": 82,
-    "jsx_lines": 8789
+    "jsx_files": 87,
+    "jsx_lines": 9493
   }
 }

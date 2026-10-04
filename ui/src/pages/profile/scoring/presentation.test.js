@@ -20,6 +20,18 @@ describe("pillarRows", () => {
     expect(rows.find((r) => r.name === "Empower").role).toBe("Alternative");
   });
 
+  it("says Collaborate is not recommended when every department scored 0/9", () => {
+    const res = { ...run({ Empower: p(5, "review", 2), Collaborate: p(0, "no_match", 0) }, "Defer"),
+      departments: { recommended: null, basis: "no_collaborate_match" } };
+    expect(pillarRows(res).find((r) => r.name === "Collaborate").role).toBe("Not recommended · 0/9 for every department");
+  });
+
+  it("never offers a seller the startup duplicates as an ecosystem audience", () => {
+    const pillar = { criteria: [{ id: "ecosystem_gap", basis: "derived", catalog: [{ id: "seller:rival", name: "Rival" }] },
+      { id: "ecosystem_value", catalog: [{ id: "seller:oem", name: "OEM" }] }] };
+    expect(catalogGroups(pillar).sellers.map((s) => s.name)).toEqual(["OEM"]);
+  });
+
   it("keeps the backend band: a high total with low actionability is Review and flagged", () => {
     const [empower] = pillarRows(run({ Empower: p(7, "review", 1) }, "Defer"));
     expect(empower).toMatchObject({ value: 78, role: "Review", lowActionability: true });
@@ -103,6 +115,23 @@ describe("opportunity", () => {
     expect(o.nodes[1].items.map((i) => [i.text, i.detail || ""])).toEqual([
       ["Process Automation", "Automating repetitive tasks."], ["Data Cleansing", ""]]);
     expect(o.nextStep).toBe("None of Smart Infrastructure's stated needs is addressed; consider assessing it for another department.");
+  });
+
+  it("puts the needs closest to the startup first when nothing was matched, and says so", () => {
+    const collab = p(0, "no_match", 0, { needs: ["Asset Tracking", "Defect Detection", "Cybersecurity"], statement: "",
+      closest_needs: ["Defect Detection", "Not this department's"] });
+    const o = opportunity(run({ Collaborate: collab }), "Collaborate");
+    expect(o.nodes[1].items.map((i) => [i.text, i.tag])).toEqual([
+      ["Defect Detection", "Closest to the startup"], ["Asset Tracking", "Department need"], ["Cybersecurity", "Department need"]]);
+  });
+
+  it("gives Connect's third step the audience with its role and the case for connecting", () => {
+    const connect = p(8, "strong", 2, { third: "ecosystem_value", statement: "s",
+      case: { verdict: "makes_sense", title: "Connecting makes sense", summary: "x", points: [] } });
+    connect.criteria[2].audience = [{ id: "seller:oem", name: "OEM", role: "integrate", reason: "Wires it into lines.", url: "https://oem.test" }];
+    const node = opportunity(run({ Connect: connect }, "Connect"), "Connect").nodes[2];
+    expect(node.case.verdict).toBe("makes_sense");
+    expect(node.items).toEqual([{ text: "OEM", tag: "Would integrate it", detail: "Wires it into lines.", url: "https://oem.test" }]);
   });
 
   it("tags each startup term with its kind and the sentence it was grounded in", () => {

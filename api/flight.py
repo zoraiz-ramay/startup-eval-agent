@@ -286,22 +286,31 @@ def _lead(key, record, run, on_partial):
         while not stop.wait(HEARTBEAT):
             save()
     threading.Thread(target=beat, daemon=True).start()
+    def finish(**outcome):
+        # The outcome goes under a key only this flight's followers know (they read the owner while
+        # it ran), and the flight key itself is released. Leaving the finished record on the flight
+        # key handed it to the NEXT request too: a refresh pressed a minute after another finished
+        # got that run back instead of a new one.
+        stop.set()
+        with lock:
+            record.update(outcome, beat=time.time())
+            _write(_done_key(key, record["owner"]), record, _DONE_TTL)
+        _drop_if_owner(key, record["owner"])
+
     try:
         result = run(emit)
     except HTTPException as exc:
-        stop.set()
-        record.update(status="error", status_code=exc.status_code, detail=exc.detail)
-        save(_DONE_TTL)
+        finish(status="error", status_code=exc.status_code, detail=exc.detail)
         raise
     except Exception:
-        stop.set()
-        record.update(status="error", status_code=500, detail="Research failed. Please retry this startup.")
-        save(_DONE_TTL)
+        finish(status="error", status_code=500, detail="Research failed. Please retry this startup.")
         raise
-    stop.set()
-    record.update(status="done", result=result)
-    save(_DONE_TTL)
+    finish(status="done", result=result)
     return result
+
+
+def _done_key(key: str, owner: str) -> str:
+    return f"{key}:done:{owner}"
 
 
 # Delete only the dead leader's record: between reading it and deleting it, another follower may
@@ -324,11 +333,11 @@ def _drop_if_owner(key: str, owner) -> None:
 
 
 def _follow(key, on_partial):
-    seen = 0
-    while True:
-        record = _read(key)
-        if record is None:
-            return None
+    """Attach to the running flight; None when there is none to attach to (the caller claims)."""
+    seen, owner = 0, None
+
+    def replay(record):
+        nonlocal seen
         partials = record.get("partials") or []
         for section, data in partials[seen:]:
             if on_partial:
@@ -337,14 +346,26 @@ def _follow(key, on_partial):
                 except Exception:
                     pass
         seen = len(partials)
-        if record.get("status") == "done":
-            return record.get("result")
-        if record.get("status") == "error":
-            raise HTTPException(record.get("status_code") or 500, record.get("detail") or "Research failed.")
-        if time.time() - float(record.get("beat") or 0) > LEASE:
-            _drop_if_owner(key, record.get("owner"))
-            return None
-        time.sleep(_POLL)
+
+    while True:
+        record = _read(key)
+        if record is not None and owner in (None, record.get("owner")):
+            owner = record.get("owner")
+            replay(record)
+            if time.time() - float(record.get("beat") or 0) > LEASE:
+                _drop_if_owner(key, owner)
+                return None
+            time.sleep(_POLL)
+            continue
+        if owner is None:
+            return None                       # nothing was running: start a run of our own
+        done = _read(_done_key(key, owner))   # the flight we followed has finished
+        if done is None:
+            return None                       # its process died before recording an outcome
+        replay(done)
+        if done.get("status") == "error":
+            raise HTTPException(done.get("status_code") or 500, done.get("detail") or "Research failed.")
+        return done.get("result")
 
 
 # ------------------------------------------------------------------------- model request budget

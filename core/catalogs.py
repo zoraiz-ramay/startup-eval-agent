@@ -152,6 +152,25 @@ def xcelerator_catalog(path: str = XCELERATOR_XLSX) -> dict:
     return _xcelerator(path, os.path.getmtime(path))
 
 
+def needs_index_catalog() -> dict:
+    """Every department's stated needs from the requirements workbook, as one catalog to embed.
+
+    One index for all departments, keyed on the workbook's bytes; each department's Collaborate
+    ranks only its own needs out of it. An entry's ``name`` is its catalog id, the one unique key a
+    ranking can hand back. Needs an admin overrode are not in it and are ranked by words.
+    """
+    from .department_needs import _XLSX_PATH, load_department_requirements
+    reqs = load_department_requirements()
+    if not reqs or not os.path.exists(_XLSX_PATH):
+        return _unavailable("department_needs_index", "no departmental requirements workbook")
+    entries = [{"id": f"need:{_slug(n['id'])}", "name": f"need:{_slug(n['id'])}", "department": d["label"],
+                "category": n.get("category", ""), "capability": n.get("capability", ""),
+                "description": n.get("description", ""), "keywords": n.get("keywords", [])}
+               for d in reqs.values() for n in d["needs"]]
+    return {"name": "department_needs_index", "available": bool(entries), "checksum": _sha256(str(_XLSX_PATH)),
+            "entries": entries, "reason": "" if entries else "the requirements workbook states no needs"}
+
+
 def department_catalog(department: dict | None) -> dict:
     """The selected department's needs, snapshotted with a checksum of exactly what was read.
 

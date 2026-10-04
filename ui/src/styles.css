@@ -483,6 +483,10 @@ ix-menu:not(.expanded) .acct-name { display: none; }
 .spec:last-child { border-bottom: none; }
 .spec .k { width: 150px; flex-shrink: 0; color: var(--text-2); }
 .spec .v { flex: 1; overflow-wrap: anywhere; }
+/* IxKeyValue's shadow CSS sets `white-space: nowrap` + ellipsis on its value, and the slotted
+   value inherits it, so a business model or a founder's background was cut off mid-sentence.
+   Set on the slotted element itself, it beats the inherited value: long text wraps. */
+.spec-value { white-space: normal; overflow-wrap: anywhere; }
 .reason { border-left: 3px solid var(--success); padding: 5px 10px; margin: 6px 0; background: var(--success-soft); border-radius: 0 4px 4px 0; font-size: var(--fs-body); }
 .risk { border-left: 3px solid var(--warning); padding: 5px 10px; margin: 6px 0; background: var(--warning-soft); border-radius: 0 4px 4px 0; font-size: var(--fs-body); }
 
@@ -532,6 +536,16 @@ ix-menu:not(.expanded) .acct-name { display: none; }
 .dock-text { overflow-wrap: anywhere; }
 .dock-text p { margin: 0 0 8px; } .dock-text p:last-child { margin-bottom: 0; }
 .dock-text ul { margin: 0 0 8px; padding-left: 18px; }
+.dock-text li { margin: 2px 0; }
+.dock-lead { font-weight: 600; }
+.dock-cite { font-size: 10px; line-height: 0; margin-left: 1px; }
+.dock-cite a { text-decoration: none; padding: 0 2px; border-radius: 3px; background: var(--surface-2); }
+.dock-gap { margin: 6px 0 0; font-size: 12px; color: var(--text-2); font-style: italic; }
+.dock-table-wrap { overflow-x: auto; margin: 0 0 8px; }
+.dock-table { border-collapse: collapse; font-size: 12px; width: 100%; }
+.dock-table th, .dock-table td { border: 1px solid var(--border); padding: 3px 6px; text-align: left; vertical-align: top; }
+.dock-table th { background: var(--surface-2); font-weight: 600; }
+.dock-follow { margin-top: 4px; }
 .dock-note { margin: 6px 0 0; font-size: 12px; color: var(--warning); }
 .dock-sources { margin: 8px 0 0; padding-left: 20px; font-size: 12px; border-top: 1px solid var(--border); padding-top: 6px; }
 .dock-sources li { margin: 2px 0; overflow-wrap: anywhere; }
@@ -874,6 +888,10 @@ ix-menu:not(.expanded) .acct-name { display: none; }
 .dept-ranking-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .dept-ranking-name { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
 .dept-ranking-score { font-size: 12px; color: var(--text-2); }
+/* An entity the Team & Ecosystem assessment cited, among everything on record (TeamEvidence.jsx). */
+.org-claim.cited { border-color: var(--accent); color: var(--accent); }
+/* Admin token usage (TokenUsage.jsx). */
+.token-totals { margin: 0 0 8px; font-size: 13px; color: var(--text-2); }
 /* Evidence an earlier evaluation found and this refresh did not re-confirm (ConfirmedTag.jsx). */
 .confirmed-tag { font-size: 11px; color: var(--text-3); white-space: nowrap; }
 .confirmed-tag::before { content: "· "; }
@@ -958,6 +976,13 @@ details.blind > summary { cursor: pointer; padding: 10px 14px; font-weight: 600;
 .kind-tag { flex-shrink: 0; font-size: 10.5px; letter-spacing: .04em; text-transform: uppercase; color: var(--text-2); border: 1px solid var(--border-2); border-radius: 3px; padding: 1px 5px; white-space: nowrap; font-weight: 400; }
 .opp-statement { margin: 4px 0 0; line-height: 1.5; border-left: 3px solid var(--accent); padding-left: 10px; }
 .opp-empty { margin: 4px 0 0; color: var(--text-3); font-style: italic; }
+.connect-case { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.connect-case-summary { margin: 0; line-height: 1.45; }
+.connect-case-points { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.connect-case-point { padding-left: 10px; border-left: 3px solid var(--border); line-height: 1.4; font-size: 12.5px; }
+.connect-case-point.plus { border-left-color: var(--success); }
+.connect-case-point.minus { border-left-color: var(--warning); }
+.value-signals { margin: 0 0 8px; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
 .list-more { align-self: flex-start; font-size: var(--fs-table); }
 .opp-flow.gap .opp-node:last-child { border-style: dashed; background: transparent; }
 .opp-connector { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--text-2); text-align: center; }
@@ -981,6 +1006,9 @@ details.blind > summary { cursor: pointer; padding: 10px 14px; font-weight: 600;
 .band-bar-marker { position: absolute; top: -4px; bottom: -4px; width: 3px; margin-left: -1.5px; background: var(--text-1); border-radius: 2px; }
 .opp-other { margin-top: 20px; }
 .tool-cards { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
+/* Empower's ranked list (RecommendedTools): the rank is visible, the order is the model's ranking. */
+.tool-cards.ranked { counter-reset: none; }
+.tool-rank { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--accent); color: var(--accent); font-size: 11px; font-weight: 700; margin-right: 6px; }
 .tool-card { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; background: var(--surface-2); display: flex; flex-direction: column; gap: 6px; }
 .tool-card-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; }
 .tool-card p { margin: 0; font-size: var(--fs-table); color: var(--text-2); line-height: 1.45; }
@@ -1222,6 +1250,8 @@ details.blind > summary { cursor: pointer; padding: 10px 14px; font-weight: 600;
    programmes and investors as organisation cards with their corroboration; and a one-line
    preview of the same in each criterion box. */
 .team-evidence-group + .team-evidence-group { margin-top: 12px; }
+.team-shared { margin: 0 0 10px; }
+.team-shared .link-btn { padding: 0; }
 .person-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
 .person-card { display: flex; gap: 12px; align-items: flex-start; min-width: 0; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
 .team-avatar { flex-shrink: 0; width: 48px; height: 48px; border-radius: 50%; object-fit: cover; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; font-size: 15px; letter-spacing: .02em; color: var(--text-1); background: color-mix(in srgb, var(--chart-team) 45%, var(--surface-2)); border: 2px solid color-mix(in srgb, var(--chart-team) 70%, transparent); }

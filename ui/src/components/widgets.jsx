@@ -123,7 +123,7 @@ export function Radar({ dimensions, overlay = null, overlayLabel = "", size = 26
 export function Spec({ k, children }) {
   return (
     <IxKeyValue label={k}>
-      <div slot="custom-value">{children || <span className="muted">—</span>}</div>
+      <div slot="custom-value" className="spec-value">{children || <span className="muted">—</span>}</div>
     </IxKeyValue>
   );
 }

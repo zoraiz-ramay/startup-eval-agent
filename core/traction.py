@@ -314,11 +314,17 @@ def gather_traction_inputs(result: dict) -> dict:
     # of a prose "Reference customers" box ("In parallel") must not score as a named account.
     names = [n for n in (deep.get("reference_customers") or [
         n.strip() for n in re.split(r"[,\n;·|]+", str(raw.get("customers") or "")) if n.strip()]) if is_named_org(n)]
+    # A customer carried from an earlier run (core/carry_forward.py) brings the source that run's
+    # fact-check found; this run's own claim, when it has one, still wins.
+    carried = deep.get("customer_evidence") or {}
     customers = []
     for n in names:
         claim = by_value.get(_norm_org(n), {})
-        customers.append({"name": str(n), "source_url": _clean_source_url(claim.get("evidence_url")),
-                          "origin": "verified" if claim.get("status") == "verified" else "research"})
+        earlier = carried.get(n) or {}
+        customers.append({"name": str(n),
+                          "source_url": _clean_source_url(claim.get("evidence_url") or earlier.get("source_url")),
+                          "origin": "verified" if claim.get("status") == "verified"
+                          else "carried" if earlier and not claim else "research"})
     return {
         "company": result.get("company", ""),
         "parent_group": deep.get("parent_group", ""),
