@@ -30,6 +30,7 @@ import pandas as pd
 
 import core
 from core.solve import solve_problem, load_challenges, set_challenge_status
+from core.chat import run_brief
 from core import s3 as _s3
 from api import store
 from api.auth import Principal, current_user, require_admin, settings as auth_settings
@@ -780,6 +781,18 @@ def run_lookup(run_id: int, kind: Literal["funding", "headcount", "signals"], re
     return out
 
 
+@app.get("/api/admin/token-usage")
+def admin_token_usage(limit: int = 100, user: Principal = Depends(require_admin)) -> dict:
+    """Tokens per evaluation, newest first: the cost side of every research run."""
+    return store.token_usage_runs(max(1, min(int(limit), 500)))
+
+
+@app.get("/api/admin/token-usage/{run_id}")
+def admin_token_usage_run(run_id: int, user: Principal = Depends(require_admin)) -> dict:
+    """One run's model calls — stage, model, tokens, time, attempts — in the order they finished."""
+    return {"run_id": run_id, "calls": store.token_usage_log(run_id)}
+
+
 @app.get("/api/admin/tool-checks")
 def admin_tool_checks(status: str | None = "not_found", user: Principal = Depends(require_admin)) -> dict:
     """Siemens catalog tools Empower recommended and a web search checked — by default the ones it
@@ -885,21 +898,17 @@ def challenge_status(index: int, body: ChallengeStatusBody,
 
 @app.post("/api/ask")
 def ask(body: AskBody, user: Principal = Depends(current_user)) -> dict:
-    """The assistant: the reviewer's own Tracxn connection first, the model's web search when
-    there is none (core.chat.chat_assistant). Optionally grounded in a stored evaluation."""
-    company, brief = "", ""
+    """The assistant: the evaluation in focus first, then the reviewer's own Tracxn connection,
+    then the model's web search (core.chat.chat_assistant)."""
+    company, brief, facts = "", "", None
     if body.run_id is not None:
         res = workspace.private_get(user.oid, body.run_id) if body.run_id < 0 else store.get_run(body.run_id)
         if res is None:
             raise HTTPException(status_code=404, detail=f"Run {body.run_id} not found.")
         company = str(res.get("company", ""))
-        sc, rt, fit = res.get("score", {}) or {}, res.get("routing", {}) or {}, res.get("fit", {}) or {}
-        p = res.get("profile", {}) or {}
-        tools = ", ".join(m.get("tool", "") for m in (fit.get("matches") or [])[:5]) or "none"
-        brief = (f"Company: {company}\nSummary: {res.get('summary','')}\n"
-                 f"HQ: {p.get('hq','—')} | Funding: {p.get('funding','—')}\n"
-                 f"Final score: {sc.get('final_score','—')} | Routing: {rt.get('pillar','—')} "
-                 f"(+{', '.join(rt.get('secondary', []) or [])})\nSiemens fit tools: {tools}")
+        # What the evaluation already researched, as citable facts: the assistant answers from
+        # these first and searches only for what they do not cover.
+        brief, facts = run_brief(res)
     llm = core.LLMClient()
     tracxn = tracxn_client_for(user, llm)
     # Tracxn answers are licensed to this reviewer, and a private run is theirs alone; neither
@@ -908,7 +917,8 @@ def ask(body: AskBody, user: Principal = Depends(current_user)) -> dict:
     token = core.web.set_cache_private(True) if private else None
     try:
         return core.chat_assistant(body.question, llm=llm, tracxn=tracxn, context_company=company,
-                                   context_brief=brief, history=[t.model_dump() for t in body.history])
+                                   context_brief=brief, history=[t.model_dump() for t in body.history],
+                                   run_facts=facts)
     finally:
         if token is not None:
             core.web.reset_cache_private(token)

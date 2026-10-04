@@ -161,3 +161,24 @@ GLASSDOLLAR_API_BASE = os.getenv("GLASSDOLLAR_API_BASE", "https://actions-api.gl
 GLASSDOLLAR_API_KEY = os.getenv("GLASSDOLLAR_API_KEY", "").strip()
 # Per-request timeout (seconds) for GlassDollar API calls.
 GLASSDOLLAR_API_TIMEOUT = float(os.getenv("GLASSDOLLAR_API_TIMEOUT", "60"))
+
+
+# --- Connect: ecosystem gap and market signals (core/pillars.py, core/pillar_match.py) ---------
+# How many Xcelerator sellers nearest the startup's offering the Connect match labels.
+CONNECT_NEIGHBOURS = 10
+# Ecosystem gap counts only equivalents WITHOUT an evidenced differentiator: a startup in a crowded
+# area is not penalised for its neighbourhood when it can show what sets it apart.
+#   3 · no equivalent, and at most ABSENT_MAX_OVERLAP sellers overlapping
+#   2 · every equivalent differentiated (or only overlaps)
+#   1 · 1..PARTIAL_MAX undifferentiated equivalents
+#   0 · more than PARTIAL_MAX — the ecosystem already offers this
+CONNECT_GAP_ABSENT_MAX_OVERLAP = 2
+CONNECT_GAP_PARTIAL_MAX = 2
+# "Good market signals" for Ecosystem value 3: a cited size or CAGR at or above these core/market.py
+# levels (3 = ≥ €5B / ≥ 5% CAGR), or this many grounded funded peers.
+CONNECT_GOOD_MARKET = {"size_level": 3, "growth_level": 3, "funded_peers": 2}
+
+# Sellers serving the startup's Xcelerator industries and topics, offered to the Connect match as
+# a possible audience — who would use, integrate or resell it. Not its nearest neighbours: those
+# answer "does someone already sell this?", these answer "who would want it?".
+CONNECT_AUDIENCE_CANDIDATES = 10

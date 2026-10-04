@@ -28,6 +28,29 @@ function Item({ item, detailed }) {
   );
 }
 
+/* Connect's answer to "does connecting this startup make sense?": a verdict from the pillar's band
+   and the facts behind it, each for or against, built by core/pillars.connect_case from the
+   criteria — sentences the run's evidence already supports, never a model's opinion. */
+const VERDICT_PILL = { makes_sense: "pill-ok", worth_exploring: "pill-warn", not_yet: "pill-neutral" };
+const site = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return u; } };
+
+function ConnectCase({ c }) {
+  return (
+    <div className="connect-case">
+      <span className={`pill ${VERDICT_PILL[c.verdict] || "pill-neutral"}`}>{c.title}</span>
+      <p className="connect-case-summary">{c.summary}</p>
+      <ul className="connect-case-points" aria-label="Why">
+        {c.points.map((pt) => (
+          <li key={pt.text} className={`connect-case-point ${pt.tone}`}>
+            <span className="sr-only">{pt.tone === "plus" ? "In favour: " : "Against: "}</span>{pt.text}
+            {pt.sources.map((u) => <span key={u}> <ExtLink href={u}>{site(u)}</ExtLink></span>)}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function Node({ node, step, detailed }) {
   const items = node.items || [];
   return (
@@ -37,10 +60,11 @@ function Node({ node, step, detailed }) {
         <span><span className="opp-step">Step {step}</span><strong>{node.label}</strong></span>
       </span>
       <p className="opp-hint">{node.hint}</p>
+      {node.case && <ConnectCase c={node.case} />}
       <ExpandableList items={items} max={MAX_ITEMS} className="opp-items" itemKey={(t) => t.text}
         renderItem={(t) => <Item item={t} detailed={detailed} />} />
       {node.statement && <p className="opp-statement">{node.statement}</p>}
-      {!items.length && !node.statement && <p className="opp-empty">{node.empty}</p>}
+      {!items.length && !node.statement && !node.case && <p className="opp-empty">{node.empty}</p>}
     </div>
   );
 }
@@ -56,6 +80,34 @@ function Connector({ gap, text }) {
       </svg>
       <small>{text}</small>
     </span>
+  );
+}
+
+/* Empower's ranked tool list: up to five Siemens tools the startup relates to, strongest first,
+   each with its relation, the reason, and whether a web search confirmed the product exists. The
+   criteria above cite the one or two tools the score rests on; this is the wider answer to "which
+   Siemens tools fit?", and it cannot move the score. Which tools the model could choose from came
+   from semantic + word search (core/tool_search.py); a run that fell back to word matching says so. */
+const CHECK = { verified: "Confirmed as a Siemens offering", unchecked: "Existence not checked" };
+
+export function RecommendedTools({ pillar }) {
+  const tools = pillar?.recommended_tools || [];
+  const wordsOnly = pillar?.retrieval?.method === "words";
+  if (!tools.length && !wordsOnly) return null;
+  return (
+    <section className="opp-other" aria-labelledby="recommended-tools">
+      <h4 id="recommended-tools">Recommended Siemens tools{tools.length ? ` (${tools.length})` : ""}</h4>
+      {wordsOnly && <p className="muted" role="note">Tools were shortlisted by word matching only
+        {pillar.retrieval.reason ? ` (${pillar.retrieval.reason})` : ""}, so a relevant tool described in other words may be missing.</p>}
+      {tools.length > 0 && <ol className="tool-cards ranked" aria-label="Recommended Siemens tools, strongest first">{tools.map((t) => (
+        <li key={t.id} className="tool-card">
+          <span className="tool-card-head"><span className="tool-rank" aria-hidden="true">{t.rank}</span><strong>{t.name}</strong>
+            {t.division && <span className="kind-tag">{t.division}</span>}
+            <span className={`pill ${RELATION_PILL[t.relation] || "pill-neutral"}`}>{t.relation}</span></span>
+          <p>{t.reason}</p>
+          <small className="muted">{CHECK[t.check] || CHECK.unchecked}{t.url && <> · <ExtLink href={t.url}>siemens.com</ExtLink></>}</small>
+        </li>))}</ol>}
+    </section>
   );
 }
 
@@ -106,6 +158,7 @@ export default function OpportunityDetail({ res, name, row, detailed = false, on
         <Connector gap={opp.gap} text={opp.connector} />
         <Node key={`${name}-3`} node={opp.nodes[2]} step={3} detailed={detailed} />
       </div>
+      {name === "Empower" && <RecommendedTools pillar={pillar} />}
       {/* The recommended route's next step is already the hero's; repeating it here adds nothing. */}
       {opp.nextStep && name !== res.routing?.pillar && <p className="fit-next"><span className="eyebrow">{opp.gap ? "Review action" : "Next step"}</span>{opp.nextStep}</p>}
       {detailed && <>

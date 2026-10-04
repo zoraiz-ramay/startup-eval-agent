@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextvars
 import os
+import threading
 import random
 import re
 import json
@@ -50,6 +51,9 @@ RETRY_BACKOFF = 2
 # per-minute quota those retries fail too, and the caller's offline fallback then hands the
 # reviewer a weaker result with no sign anything went wrong.
 RATE_LIMIT_MAX_WAIT = float(os.getenv("RATE_LIMIT_MAX_WAIT", "60"))
+# Vector size for semantic tool search (core/tool_search.py). gemini-embedding-001 is trained so a
+# shorter prefix keeps its meaning; 768 keeps the stored catalog index at ~4.5 MB.
+EMBEDDING_DIMS = int(os.getenv("EMBEDDING_DIMS", "768"))
 _RETRY_DELAY = re.compile(r"""(?:retryDelay["']?\s*[:=]\s*["']?|retry in\s+)(\d+(?:\.\d+)?)s""", re.I)
 
 # Optional shared throttle, called before every uncached request. Injected by api/main.py (Redis,
@@ -86,6 +90,67 @@ def collect_failures():
 
 def stop_collecting(token) -> None:
     _failures.reset(token)
+
+
+# Every model call of one evaluation, for the token log the admin dashboard shows per run. Same
+# mechanism as _failures: a list shared by reference into each branch's copied context.
+_usage: contextvars.ContextVar = contextvars.ContextVar("llm_usage", default=None)
+# A web search's token counts, handed from the provider helper to web_answer on the same thread.
+_tls = threading.local()
+
+
+def collect_usage():
+    """Start recording model calls for one run. Returns (token, list)."""
+    calls: list = []
+    return _usage.set(calls), calls
+
+
+def stop_collecting_usage(token) -> None:
+    _usage.reset(token)
+
+
+def _num(value) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _record_call(*, kind: str, model: str, provider: str, started: float, cached: bool = False,
+                 ok: bool = True, reason: str = "", attempts: int = 1, input_tokens=0, output_tokens=0,
+                 reasoning_tokens=0, total_tokens=0) -> None:
+    calls = _usage.get()
+    if calls is None:
+        return
+    inp, out, think = _num(input_tokens), _num(output_tokens), _num(reasoning_tokens)
+    total = _num(total_tokens) or inp + out + think
+    # Gemini reports thinking only inside total_tokens; what total has beyond input + output is it.
+    think = think or max(0, total - inp - out)
+    calls.append({"stage": _stage.get() or "input", "kind": kind, "model": model, "provider": provider,
+                  "cached": cached, "ok": ok, "reason": reason, "attempts": attempts,
+                  "input_tokens": inp, "output_tokens": out, "reasoning_tokens": think,
+                  "total_tokens": max(total, inp + out + think),
+                  "duration_ms": int((time.time() - started) * 1000)})
+
+
+def summarize_usage(calls: list) -> dict:
+    """Totals, a per-stage breakdown and the call log, as stored on the run."""
+    keys = ("input_tokens", "output_tokens", "reasoning_tokens", "total_tokens")
+    totals = {k: sum(c[k] for c in calls) for k in keys}
+    stages: dict = {}
+    for c in calls:
+        row = stages.setdefault(c["stage"], {"stage": c["stage"], "calls": 0, "cached_calls": 0,
+                                             "failed_calls": 0, **{k: 0 for k in keys}})
+        row["calls"] += 1
+        row["cached_calls"] += c["cached"]
+        row["failed_calls"] += not c["ok"]
+        for k in keys:
+            row[k] += c[k]
+    return {"calls": len(calls), "cached_calls": sum(c["cached"] for c in calls),
+            "failed_calls": sum(not c["ok"] for c in calls), **totals,
+            "models": sorted({c["model"] for c in calls if c["model"]}),
+            "by_stage": sorted(stages.values(), key=lambda r: -r["total_tokens"]),
+            "log": calls}
 
 
 def summarize_failures(failures: list) -> list:
@@ -233,10 +298,15 @@ class LLMClient:
         # edits can never be masked by a stale entry. LLM_CACHE=0 disables.
         ckey = _web._cache_key("llm", use_model, system, prompt, budget,
                                extra.get("temperature"), extra.get("reasoning_effort"))
+        started = time.time()
         if LLM_CACHE:
             cached = _web._cached("llm", ckey)
             if isinstance(cached, str):
                 self.last_error = ""
+                # Logged at zero tokens: a cache hit cost nothing, and counting it shows how much
+                # of a run the cache answered.
+                _record_call(kind="completion", model=use_model, provider=self.provider,
+                             started=started, cached=True)
                 return cached
         attempts = MAX_RETRIES if max_attempts is None else max(1, int(max_attempts))
         reason = "error"
@@ -255,6 +325,13 @@ class LLMClient:
                 text = resp.choices[0].message.content or ""
                 if LLM_CACHE and text:
                     _web._store("llm", ckey, text)
+                usage = getattr(resp, "usage", None)
+                details = getattr(usage, "completion_tokens_details", None)
+                _record_call(kind="completion", model=use_model, provider=self.provider, started=started,
+                             attempts=attempt, input_tokens=getattr(usage, "prompt_tokens", 0),
+                             output_tokens=getattr(usage, "completion_tokens", 0),
+                             reasoning_tokens=getattr(details, "reasoning_tokens", 0),
+                             total_tokens=getattr(usage, "total_tokens", 0))
                 return text
             except Exception as e:
                 # A gateway that rejects one of the tuning parameters fails every call with a
@@ -274,9 +351,14 @@ class LLMClient:
         failures = _failures.get()
         if failures is not None:
             failures.append({"stage": _stage.get() or "input", "reason": reason})
+        # A failed call is billed for nothing the run used, but its time and attempts belong in
+        # the log: three 30s timeouts are where a slow run went.
+        _record_call(kind="completion", model=use_model, provider=self.provider, started=started,
+                     ok=False, reason=reason, attempts=attempts)
         return ""
 
-    def web_answer(self, prompt: str, system: str = "", max_tokens: int = 1200) -> Optional[dict]:
+    def web_answer(self, prompt: str, system: str = "", max_tokens: int = 1200,
+                   thinking_budget: Optional[int] = None) -> Optional[dict]:
         """One completion that searches the internet itself, with the sources it actually used.
 
         Gemini grounds with Google Search; the OpenAI-compatible gateway uses the Responses API's
@@ -284,13 +366,72 @@ class LLMClient:
         no result list to adjudicate: the sources are the ones the provider says it cited.
         Returns {"text", "sources": [{"title", "url"}], "queries"} or None when this provider or
         gateway cannot search — the caller says so rather than passing memory off as search.
-        Never cached: an internet answer is only worth having fresh.
+        Never cached: an internet answer is only worth having fresh. ``thinking_budget`` caps a
+        thinking model's reasoning tokens (Gemini's ``thinkingBudget``); None leaves the default.
         """
         if not self.available:
             return None
+        _tls.web_usage = {}
+        started = time.time()
+        out = None
+        try:
+            out = self._web_answer(prompt, system, max_tokens, thinking_budget)
+        finally:
+            _record_call(kind="web_search", model=self.model, provider=self.provider, started=started,
+                         ok=out is not None, reason="" if out is not None else "no_answer",
+                         **getattr(_tls, "web_usage", {}))
+        return out
+
+    def embedding_model(self) -> str:
+        """The embedding model this provider serves, or '' when none is known.
+
+        Gemini's is verified (gemini-embedding-001 through the same OpenAI-compatible endpoint and
+        key). Whether the Siemens gateway serves one cannot be checked from outside its network, so
+        it embeds only when EMBEDDING_MODEL names a model; otherwise callers use word matching.
+        """
+        configured = os.getenv("EMBEDDING_MODEL", "").strip()
+        if configured:
+            return configured
+        return "gemini-embedding-001" if self.provider == "gemini" else ""
+
+    def embed(self, texts: list[str], dims: int = EMBEDDING_DIMS, cache: bool = True) -> Optional[list]:
+        """Embedding vectors for ``texts`` (one per text), or None when this provider cannot embed.
+
+        A single text is cached like a completion (same store, same refresh bypass), so a re-run of
+        a startup does not pay for its query again; catalog batches are built once into a file by
+        core/tool_search.py and are not cached here.
+        """
+        model = self.embedding_model()
+        if not self.available or not model or not texts:
+            return None
+        key = _web._cache_key("embed", model, dims, *texts) if cache and len(texts) == 1 else ""
+        started = time.time()
+        if key:
+            hit = _web._cached("embed", key)
+            if isinstance(hit, list):
+                _record_call(kind="embedding", model=model, provider=self.provider, started=started, cached=True)
+                return hit
+        try:
+            resp = self._client.embeddings.create(model=model, input=list(texts), dimensions=dims,
+                                                  timeout=LLM_TIMEOUT)
+            vectors = [list(d.embedding) for d in resp.data]
+        except Exception as e:                                  # noqa: BLE001 — any failure means "no vectors"
+            self.last_error = str(e)
+            log.warning("Embedding failed (%s): %s", model, e)
+            _record_call(kind="embedding", model=model, provider=self.provider, started=started,
+                         ok=False, reason=_failure_reason(e))
+            return None
+        usage = getattr(resp, "usage", None)
+        _record_call(kind="embedding", model=model, provider=self.provider, started=started,
+                     input_tokens=getattr(usage, "prompt_tokens", 0), total_tokens=getattr(usage, "total_tokens", 0))
+        if key:
+            _web._store("embed", key, vectors)
+        return vectors
+
+    def _web_answer(self, prompt: str, system: str, max_tokens: int, thinking_budget: Optional[int] = None) -> Optional[dict]:
         try:
             if self.provider == "gemini":
-                return _gemini_grounded(self, prompt, system, max_tokens)
+                return _gemini_grounded(self, prompt, system, max_tokens, thinking_budget)
             if self.provider == "openai":
                 return _openai_web_search(self, prompt, system, max_tokens)
         except Exception as e:                              # noqa: BLE001 — any failure means "no search"
@@ -349,7 +490,22 @@ def _cite(text: str, supports: list, chunks: list) -> tuple[str, list]:
     return raw.decode("utf-8", errors="ignore"), sources
 
 
-def _gemini_grounded(client: "LLMClient", prompt: str, system: str, max_tokens: int) -> Optional[dict]:
+def _drop_repeat(text: str) -> str:
+    """Keep the first copy of a grounded answer the model wrote twice in a row.
+
+    Gemini's search-grounded reply intermittently repeats itself whole — the same opening sentence,
+    then a lightly reworded second copy — and the dock showed both. Cut at the opening's second
+    appearance; an answer that merely mentions its subject twice does not repeat 60 characters.
+    """
+    head = text.strip()[:60]
+    if len(head) < 40:
+        return text
+    at = text.find(head, len(head))
+    return text[:at].rstrip() if at > 0 else text
+
+
+def _gemini_grounded(client: "LLMClient", prompt: str, system: str, max_tokens: int,
+                     thinking_budget: Optional[int] = None) -> Optional[dict]:
     import requests
     base = os.getenv("GEMINI_NATIVE_URL", "https://generativelanguage.googleapis.com/v1beta").rstrip("/")
     body = {"contents": [{"role": "user", "parts": [{"text": prompt}]}],
@@ -358,17 +514,23 @@ def _gemini_grounded(client: "LLMClient", prompt: str, system: str, max_tokens: 
                                  "maxOutputTokens": max(max_tokens, LLM_MIN_BUDGET) + LLM_THINKING_HEADROOM}}
     if system:
         body["systemInstruction"] = {"parts": [{"text": system}]}
+    if thinking_budget is not None:
+        body["generationConfig"]["thinkingConfig"] = {"thinkingBudget": int(thinking_budget)}
     resp = requests.post(f"{base}/models/{client.model}:generateContent", headers={"x-goog-api-key": client.key},
                          json=body, timeout=WEB_SEARCH_TIMEOUT)
     resp.raise_for_status()
-    cand = (resp.json().get("candidates") or [{}])[0]
+    body = resp.json()
+    meta = body.get("usageMetadata") or {}
+    _tls.web_usage = {"input_tokens": meta.get("promptTokenCount"), "output_tokens": meta.get("candidatesTokenCount"),
+                         "reasoning_tokens": meta.get("thoughtsTokenCount"), "total_tokens": meta.get("totalTokenCount")}
+    cand = (body.get("candidates") or [{}])[0]
     text = "".join(p.get("text", "") for p in (cand.get("content") or {}).get("parts", []) if isinstance(p, dict))
     if not text.strip():
         return None
     meta = cand.get("groundingMetadata") or {}
     chunks = [c for c in meta.get("groundingChunks") or [] if isinstance(c, dict)]
     text, sources = _cite(text, meta.get("groundingSupports") or [], chunks)
-    return {"text": text.strip(), "sources": [s for s in sources if s["url"]],
+    return {"text": _drop_repeat(text).strip(), "sources": [s for s in sources if s["url"]],
             "queries": [q for q in meta.get("webSearchQueries") or [] if isinstance(q, str)]}
 
 
@@ -376,6 +538,11 @@ def _openai_web_search(client: "LLMClient", prompt: str, system: str, max_tokens
     resp = client._client.responses.create(
         model=client.model, tools=[{"type": "web_search"}], instructions=system or None,
         input=prompt, max_output_tokens=max(max_tokens, LLM_MIN_BUDGET), timeout=WEB_SEARCH_TIMEOUT)
+    usage = getattr(resp, "usage", None)
+    _tls.web_usage = {"input_tokens": getattr(usage, "input_tokens", 0),
+                         "output_tokens": getattr(usage, "output_tokens", 0),
+                         "reasoning_tokens": getattr(getattr(usage, "output_tokens_details", None), "reasoning_tokens", 0),
+                         "total_tokens": getattr(usage, "total_tokens", 0)}
     text, sources, index, marks, searched = "", [], {}, {}, False
     for item in getattr(resp, "output", None) or []:
         if getattr(item, "type", "") == "web_search_call":

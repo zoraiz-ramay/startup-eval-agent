@@ -5,6 +5,7 @@ import { iconLock } from "@siemens/ix-icons/icons";
 import { api } from "../api.js";
 import ErrorBox from "../components/ErrorBox.jsx";
 import UnverifiedTools from "../components/UnverifiedTools.jsx";
+import TokenUsage from "../components/TokenUsage.jsx";
 import { Loading } from "../components/widgets.jsx";
 
 /**
@@ -221,6 +222,7 @@ export default function Admin() {
 
       {admins && <Administrators data={admins} onChange={reloadAdmins} />}
       {admins && <UnverifiedTools />}
+      {admins && <TokenUsage />}
 
       {overview && (
         <>

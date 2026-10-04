@@ -70,6 +70,23 @@ def test_no_collaborate_assessment_recommends_nothing_rather_than_the_first_depa
     assert out["departments"]["basis"] == "no_collaborate_assessment"
 
 
+def test_every_department_at_zero_recommends_none_and_fit_comes_from_the_other_pillars():
+    zero = {d["id"]: _pillar("Collaborate", 0, ["a"]) for d in DEPS}
+    out = assessment.build_all(BASE, DEPS, _results(zero), TEAM)
+    assert out["departments"]["recommended"] is None
+    assert out["departments"]["basis"] == "no_collaborate_match"
+    fit = out["assessment"]["siemens_fit"]
+    assert fit["winner"] == "Empower" and fit["score"] == round(100 * 5 / 9)
+
+
+def test_a_stored_run_that_named_a_zero_department_reads_as_no_match():
+    zero = {d["id"]: _pillar("Collaborate", 0) for d in DEPS}
+    out = assessment.build_all(BASE, DEPS, _results(zero), TEAM)
+    stored = {**out, "departments": {**out["departments"], "recommended": "di", "basis": "collaborate"}}
+    block = assessment.hydrate(stored)["departments"]
+    assert block["recommended"] is None and block["basis"] == "no_collaborate_match"
+
+
 def test_every_department_carries_its_own_total_and_they_differ_only_by_collaborate():
     out = assessment.build_all(BASE, DEPS, _results({"di": _pillar("Collaborate", 9, ["a"])}), TEAM, MARKET)
     by_id = {e["department"]["id"]: e for e in out["departments"]["ranked"]}

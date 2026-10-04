@@ -167,7 +167,8 @@ export default function Profile() {
   const stage = String(p["Development stage of your solution"] || "").replace(/\s*\(.*$/s, "").trim();
   // An all-departments run names the department it recommends; a one-department run names the
   // department it was assessed for.
-  const deptFact = res.departments ? (res.departments.recommended ? `Best fit: ${res.department?.label}` : "All departments")
+  const deptFact = res.departments ? (res.departments.recommended ? `Best fit: ${res.department?.label}`
+    : res.departments.basis === "no_collaborate_match" ? "No Collaborate match" : "All departments")
     : res.department?.label || "No department (legacy run)";
   const facts = [deptFact, stage, p.hq].filter(Boolean);
   const longSummary = String(res.summary || "").length > 180;

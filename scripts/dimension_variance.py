@@ -69,6 +69,13 @@ def _load(db_path: str) -> list[dict]:
         for d in (result.get("traction") or {}).get("divisions") or []:
             if d.get("points") is not None:
                 dims[f"traction.{d['id']}"] = d["points"]
+        # Connect's criteria, so the Ecosystem gap bands (config.CONNECT_GAP_*) are tuned from the
+        # distribution rather than argued: a gap that is 3 for everyone means the neighbours are
+        # never labelled equivalent, and 0 for everyone means the bands are too strict.
+        connect = (((result.get("assessment") or {}).get("pillars") or {}).get("Connect") or {})
+        if connect.get("status") == "assessed":
+            for c in connect.get("criteria") or []:
+                dims[f"connect.{c['id']}"] = c["score"]
         if dims:
             out.append({"id": rid, "company": company, "dimensions": dims})
     return out

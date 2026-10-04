@@ -47,6 +47,62 @@ function CatalogMatches({ items, what, matched }) {
   );
 }
 
+const OVERLAP = { equivalent: ["Same offering", 0], overlapping: ["Partly overlaps", 1], distinct: ["Different offering", 2] };
+
+/* Connect's Ecosystem gap: the Xcelerator sellers nearest the startup's offering, each with how far
+   it overlaps and, for one that sells the same thing, what evidence sets the startup apart. The
+   score is computed from these labels, so they are the "why", not a list of matches. */
+function Neighbours({ items }) {
+  if (!items?.length) return null;
+  const sorted = [...items].sort((a, b) => (OVERLAP[a.overlap]?.[1] ?? 3) - (OVERLAP[b.overlap]?.[1] ?? 3));
+  return (
+    <>
+      <h5>Nearest Xcelerator sellers</h5>
+      <ul className="crit-catalog">
+        {sorted.map((n) => (
+          <li key={n.id}>
+            <span className="crit-catalog-name">{n.url ? <ExtLink href={n.url}>{n.name}</ExtLink> : n.name}
+              <span className="kind-tag">{OVERLAP[n.overlap]?.[0] || n.overlap}{n.unlabelled ? " · not labelled" : ""}</span></span>
+            {n.overlap === "equivalent" && (n.differentiator
+              ? <span className="muted">Differs: {n.differentiator}</span>
+              : <span className="muted">Nothing evidenced sets the startup apart.</span>)}
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
+/* Connect's Ecosystem value: the three signals it is derived from, the path they put it on, and
+   the audience the model named, each with its role and reason. */
+const ROLE = { use: "Would use it", integrate: "Would integrate it", resell: "Would resell it", partner: "Would partner on it" };
+const SIGNALS = [["audience", "An ecosystem audience"], ["industry_topic", "A clear industry & topic fit"], ["market", "A good market signal"]];
+
+function ValueSignals({ c }) {
+  return (
+    <>
+      <h5>{c.path === "audience" ? "Audience path" : "Open space: no ecosystem audience"}</h5>
+      <ul className="value-signals">
+        {SIGNALS.map(([k, label]) => (
+          <li key={k}><span className={`pill ${c.signals[k] ? "pill-ok" : "pill-neutral"}`}>{c.signals[k] ? "Yes" : "No"}</span> {label}</li>
+        ))}
+      </ul>
+      {c.audience?.length > 0 && <>
+        <h5>Ecosystem audience</h5>
+        <ul className="crit-catalog">
+          {c.audience.map((a) => (
+            <li key={a.id}>
+              <span className="crit-catalog-name">{a.url ? <ExtLink href={a.url}>{a.name}</ExtLink> : a.name}
+                <span className="kind-tag">{ROLE[a.role] || a.role}</span></span>
+              <span className="muted">{a.reason}</span>
+            </li>
+          ))}
+        </ul>
+      </>}
+    </>
+  );
+}
+
 /** The panel's shell, shared by every "open one item's detail" interaction on Scoring & Fit: a
     pointer back at the control that opened it, a header with the item's score, Close and Escape,
     and a two-column body — where it sits on its scale (`scale`), and why (`children`). */
@@ -96,7 +152,9 @@ export default function CriterionDetail({ id, anchorId, context, criterion: c, m
       <h5>Why this level</h5>
       {c.rationale ? <p>{c.rationale}</p> : <p className="muted">No rationale was recorded.</p>}
       {notes.map((n) => <p key={n} className="crit-note">{n}</p>)}
-      <CatalogMatches items={c.catalog} what={catalogLabel} matched={c.score > 0} />
+      {c.neighbours ? <Neighbours items={c.neighbours} />
+        : c.signals ? <ValueSignals c={c} />
+        : <CatalogMatches items={c.catalog} what={catalogLabel} matched={c.score > 0} />}
       {/* A caller that can show the evidence as what it is about (Team & Ecosystem: people and
           organisations) replaces the plain quote list. */}
       {evidenceView || <><h5>Startup evidence</h5><EvidenceList items={c.evidence} audit={false} /></>}

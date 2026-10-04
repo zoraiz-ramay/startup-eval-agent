@@ -49,7 +49,7 @@ export default function TeamPanel({ res }) {
                 <span className="strength-meter" aria-hidden="true">
                   {[1, 2, 3, 4, 5].map((i) => <span key={i} className={i <= c.score ? "on" : ""} />)}</span>
                 <span className="team-box-anchor">{c.anchor}</span>
-                <EvidencePreview criterion={c} res={res} />
+                <EvidencePreview criterion={c} res={res} criteria={t.criteria} />
                 <span className="team-box-more" aria-hidden="true">{on ? "Hide details" : "Show details"}</span>
               </button>
             );
@@ -60,7 +60,7 @@ export default function TeamPanel({ res }) {
         <CriterionDetail id="team-criterion" anchorId={boxId(open)} max={5} context="Team & Ecosystem"
           criterion={t.criteria[index]} scale={res.assessment?.scales?.team_ecosystem?.[open]}
           question={CRITERION_QUESTIONS.team_ecosystem[open]} onClose={close}
-          evidenceView={<TeamEvidence criterion={t.criteria[index]} res={res} />} />
+          evidenceView={<TeamEvidence criterion={t.criteria[index]} res={res} criteria={t.criteria} onOpen={setOpen} />} />
       )}
     </Section>
   );

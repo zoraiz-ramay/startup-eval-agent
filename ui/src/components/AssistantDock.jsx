@@ -4,6 +4,7 @@ import { iconAi, iconLogIn, iconSendRight, iconTrashcan } from "@siemens/ix-icon
 import { api } from "../api.js";
 import { useApp } from "../state.jsx";
 import { Loading } from "./widgets.jsx";
+import AnswerText from "./AnswerText.jsx";
 
 const GENERIC_SUGGESTIONS = [
   "Which startups are working on industrial AI inspection?",
@@ -16,11 +17,22 @@ const CONTEXT_SUGGESTIONS = [
   "How big is its market, and how fast is it growing?",
   "What are the top risks?",
 ];
+// Two follow-ups under the latest answer, picked from what was just asked — templated, so they
+// cost no model call. A question already asked in this conversation is not offered again.
+const FOLLOW_UPS = [
+  [/fund|invest|raise|round|backed/i, ["Who are its investors?", "How does its funding compare with its competitors?"]],
+  [/compet|rival|alternative|peer/i, ["What sets it apart from its competitors?", "Which competitor has raised the most?"]],
+  [/market|size|grow|cagr/i, ["Who are the funded peers in this market?", "What are the top risks?"]],
+  [/risk|concern|flag|weak/i, ["Which of its claims could not be verified?", "Who are its closest competitors?"]],
+  [/team|founder|ceo/i, ["Which programmes has it joined?", "Who are its investors?"]],
+  [/siemens|fit|connect|collaborate|empower|route/i, ["Why is that the recommended route?", "What are the top risks?"]],
+];
 const HISTORY_TURNS = 10;
 // How each answer was sourced, in words a reviewer can weigh. "unverified" is kept loud on
 // purpose: an answer from the model's memory must never read like a searched one.
 const PROVIDER = {
   tracxn: { label: "Tracxn", tone: "ok" },
+  run: { label: "This evaluation", tone: "ok" },
   web: { label: "Web search", tone: "ok" },
   model: { label: "AI knowledge · unverified", tone: "warn" },
   none: { label: "Not answered", tone: "warn" },
@@ -30,27 +42,12 @@ function hostOf(url, fallback) {
   try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return fallback || url; }
 }
 
-/* The little markdown a model writes — **bold**, "- " bullets, blank-line paragraphs — as React
-   elements. Never HTML: the answer is model output, so it is only ever rendered as text. */
-const inline = (line) => line.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
-  /^\*\*[^*]+\*\*$/.test(part) ? <strong key={i}>{part.slice(2, -2)}</strong> : part);
-
-function RichText({ text }) {
-  return String(text || "").split(/\n{2,}/).map((block, i) => {
-    const lines = block.split("\n");
-    if (lines.every((l) => /^\s*[-*•]\s+/.test(l))) {
-      return <ul key={i}>{lines.map((l, j) => <li key={j}>{inline(l.replace(/^\s*[-*•]\s+/, ""))}</li>)}</ul>;
-    }
-    return <p key={i}>{lines.map((l, j) => <React.Fragment key={j}>{j > 0 && <br />}{inline(l)}</React.Fragment>)}</p>;
-  });
-}
-
 function Answer({ m }) {
   const p = PROVIDER[m.provider] || { label: m.source || "Assistant", tone: "ok" };
   return (
     <div className="dock-msg assistant">
       <span className={`dock-src ${p.tone}`}>{p.label}</span>
-      <div className="dock-text"><RichText text={m.text} /></div>
+      <div className="dock-text"><AnswerText text={m.text} sources={m.evidence} /></div>
       {m.note && <p className="dock-note">{m.note}</p>}
       {m.evidence?.length > 0 && (
         <ol className="dock-sources" aria-label="Sources">
@@ -128,6 +125,10 @@ export default function AssistantDock() {
     try { window.location.assign((await api.tracxnConnect("home")).url); } catch { setTracxn({ connected: false, configured: false }); }
   };
   const suggestions = dockCtx ? CONTEXT_SUGGESTIONS : GENERIC_SUGGESTIONS;
+  const asked = new Set(msgs.filter((m) => m.role === "user").map((m) => m.text));
+  const lastQ = [...msgs].reverse().find((m) => m.role === "user")?.text || "";
+  const followUps = !dockCtx || busy || msgs[msgs.length - 1]?.role !== "assistant" ? []
+    : [...new Set(FOLLOW_UPS.filter(([re]) => re.test(lastQ)).flatMap(([, qs]) => qs))].filter((s) => !asked.has(s)).slice(0, 2);
 
   return (
     // IxPane owns the title bar and its close button; the pane mounts and unmounts on `dockOpen`
@@ -162,7 +163,12 @@ export default function AssistantDock() {
           {msgs.map((m, i) => (m.role === "user"
             ? <div key={i} className="dock-msg user">{m.text}</div>
             : <Answer key={i} m={m} />))}
-          {busy && <Loading text={tracxn?.connected ? "Checking Tracxn…" : "Searching the web…"} />}
+          {followUps.length > 0 && (
+            <div className="dock-suggest dock-follow" aria-label="Suggested follow-ups">
+              {followUps.map((s) => <button key={s} type="button" onClick={() => send(s)}>{s}</button>)}
+            </div>
+          )}
+          {busy && <Loading text={dockCtx ? "Checking the evaluation…" : tracxn?.connected ? "Checking Tracxn…" : "Searching the web…"} />}
         </div>
         <div className="dock-input">
           <textarea ref={inputRef} className="input dock-field" rows={1} value={q} aria-label="Message the assistant"

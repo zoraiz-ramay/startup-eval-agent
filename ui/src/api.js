@@ -166,6 +166,8 @@ export const api = {
   adminSearches: () => request("/api/admin/searches"),
   adminList: () => request("/api/admin/admins"),
   // Siemens catalog tools Empower recommended that a web search could not find.
+  adminTokenUsage: (limit = 100) => request(`/api/admin/token-usage?limit=${limit}`),
+  adminTokenUsageRun: (runId) => request(`/api/admin/token-usage/${encodeURIComponent(runId)}`),
   adminToolChecks: (status = "not_found") => request(`/api/admin/tool-checks?status=${encodeURIComponent(status)}`),
   adminGrant: (upn, note = "") =>
     request("/api/admin/admins", { method: "POST", body: { upn, note } }),

@@ -140,11 +140,19 @@ def build_all(result: dict, departments: list, pillar_results: dict, team: dict,
     ranked = sorted(built, key=lambda dep_id: _collaborate_rank(built[dep_id], order[dep_id]))
     best = ranked[0]
     collab = ((built[best].get("assessment") or {}).get("pillars") or {}).get("Collaborate") or {}
+    # The best department is the maximum, so a best of 0/9 means every department scored 0: none
+    # of them is a recommendation, and naming the first configured one would read as a finding.
+    if collab.get("status") != "assessed":
+        basis = "no_collaborate_assessment"
+    elif not collab.get("total"):
+        basis = "no_collaborate_match"
+    else:
+        basis = "collaborate"
     out = dict(built[best])
     out["departments"] = {
         "scope": "all",
-        "recommended": best if collab.get("status") == "assessed" else None,
-        "basis": "collaborate" if collab.get("status") == "assessed" else "no_collaborate_assessment",
+        "recommended": best if basis == "collaborate" else None,
+        "basis": basis,
         "assessment_key": all_departments_key(
             (next(iter(pillar_results.values())) or {}).get("catalogs") or {},
             {i: (r.get("catalogs") or {}).get("department_needs") for i, r in pillar_results.items()}),
@@ -165,7 +173,12 @@ def _hydrate_departments(result: dict) -> dict:
         one = hydrate({**base, "department": entry.get("department"), "assessment": entry.get("assessment"),
                        "routing": entry.get("routing")})
         ranked.append({**entry, "assessment": one.get("assessment"), "score": one.get("score")})
-    return {**result, "departments": {**block, "ranked": ranked}}
+    block = {**block, "ranked": ranked}
+    # Runs stored before the no-match rule named a department even when every one scored 0/9.
+    head = ((ranked[0].get("assessment") or {}).get("pillars") or {}).get("Collaborate") or {} if ranked else {}
+    if block.get("recommended") and head.get("status") == "assessed" and not head.get("total"):
+        block.update(recommended=None, basis="no_collaborate_match")
+    return {**result, "departments": block}
 
 
 def _named_customers(result: dict) -> dict:
@@ -191,9 +204,14 @@ def hydrate(result: dict) -> dict:
     if not isinstance(result, dict) or not isinstance(result.get("assessment"), dict) \
             or not result.get("department"):
         return result
+    a = dict(result["assessment"])
+    if isinstance(a.get("pillars"), dict) and a["pillars"]:
+        # Recomputed so a stored run follows the current Siemens Fit rule, as traction does.
+        a["siemens_fit"] = P.siemens_fit(a["pillars"])
+    result = {**result, "assessment": a}
     parts = components(result)
     grand = total(parts)
-    a = {**result["assessment"], "components": parts, "total": grand,
+    a = {**a, "components": parts, "total": grand,
          "market_method": "rubric" if (result.get("market") or {}).get("status") == "assessed"
          else "unassessed" if result.get("market") else "llm_judgment",
          "total_status": "complete" if grand is not None else "pending", "scales": rubric_scales()}

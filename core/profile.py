@@ -25,7 +25,7 @@ from .provenance import Fact
 from .web import _ddg_many
 from .llm import LLMClient
 from .config import KNOWN_PROGRAM_TIERS
-from .text import _clean_source_url, _norm, has_funding_signal, is_named_org
+from .text import _clean_source_url, _norm, dedupe_people, has_funding_signal, is_named_org
 # Known startup programs for offline detection (matched case-insensitively).
 KNOWN_PROGRAMS = {
     "siemens xcelerator": "corporate_program",
@@ -498,6 +498,8 @@ def _llm_extract(company: str, row: pd.Series, results: dict, llm: LLMClient) ->
     for key in ("founders", "key_team", "advisors", "programs", "reference_customers"):
         if isinstance(data.get(key), list):
             prof[key] = [x for x in data[key] if x]
+    for key in ("founders", "key_team", "advisors"):
+        prof[key] = dedupe_people(prof[key])
     prof["employees"] = str(data.get("employees") or "").strip()
     prof["parent_group"] = str(data.get("parent_group") or "").strip()
     prof["customer_segment"] = str(data.get("customer_segment") or "").strip()
@@ -625,7 +627,7 @@ def _recover_founders(prof: dict, company: str, llm: LLMClient) -> None:
     found = [f for f in data.get("founders", [])
              if isinstance(f, dict) and str(f.get("name", "")).strip()]
     if found:
-        prof["founders"] = found
+        prof["founders"] = dedupe_people(found)
 
 
 def _deepen_founders(prof: dict, company: str, llm: LLMClient) -> None:

@@ -223,3 +223,13 @@ def test_background_work_runs_at_its_own_lower_cap_when_idle(backend):
         with flight.slot(limit=2, background=True):
             # A third would exceed the cap of 2; it is refused rather than queued.
             assert flight.slot(limit=2, background=True)._try() == 1
+
+
+def test_a_request_after_a_run_finished_starts_a_new_run(backend):
+    """A refresh pressed after another one finished got that finished run back, because the
+    finished record stayed on the flight key for its followers. It must start a run of its own."""
+    calls = []
+    run = lambda emit: calls.append(1) or {"run_id": len(calls)}
+    assert flight.single_flight("flight:acme", run) == {"run_id": 1}
+    assert flight.single_flight("flight:acme", run) == {"run_id": 2}
+    assert len(calls) == 2

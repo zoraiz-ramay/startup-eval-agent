@@ -33,7 +33,9 @@ export function pillarRows(res) {
         provisional: Boolean(p.provisional), lowActionability: false, message: p.message || "" };
     }
     const third = (p.criteria || []).find((c) => c.id === THIRD[name]);
+    const noDepartment = name === "Collaborate" && res?.departments?.basis === "no_collaborate_match";
     const role = name === recommended ? "Recommended"
+      : noDepartment ? "Not recommended · 0/9 for every department"
       : p.band === "strong" ? "Alternative"
       : p.band === "review" ? "Review"
       : p.provisional ? "No match to current needs" : "No match";
@@ -67,10 +69,13 @@ export function contributions(res) {
   return { rows, total, missing, status: total != null ? "complete" : "pending" };
 }
 
-/** Catalog entries a pillar's criteria cited, merged by id, grouped for display. */
+/** Catalog entries a pillar's criteria cited, merged by id, grouped for display. Connect's
+    Ecosystem gap is left out: its entries are sellers that already offer the same thing, which
+    are competitors to the startup, not an audience it could reach. */
 export function catalogGroups(pillar) {
   const seen = new Map();
   for (const c of pillar?.criteria || []) {
+    if (c.basis === "derived") continue;
     for (const e of c.catalog || []) if (e?.id && !seen.has(e.id)) seen.set(e.id, e);
   }
   const all = [...seen.values()];
@@ -115,6 +120,7 @@ function concepts(res, name, limit = 8) {
   return out.slice(0, limit);
 }
 
+const ROLE = { use: "Would use it", integrate: "Would integrate it", resell: "Would resell it", partner: "Would partner on it" };
 const entry = (e) => ({ text: e.name, tag: e.division || CATALOG_KIND[e.id?.split(":")[0]] || "", detail: e.description || "", url: e.url || "" });
 
 /** What each criterion asks, in a sentence, so a score can be read without knowing the rubric. */
@@ -128,9 +134,12 @@ export const CRITERION_QUESTIONS = {
     need_fit: "Does it address one of the department's stated needs?",
     actionability: "Can a concrete pilot with the department be described, with a next step?" },
   Connect: {
+    ecosystem_gap: "Do Xcelerator sellers already offer the same thing, with nothing evidenced to set the startup apart?",
+    industry_topic_fit: "Does it target an Xcelerator industry, with a core offering that matches an Xcelerator topic?",
+    // Rubric v1, for stored runs.
     industry_fit: "Does the startup target an industry in the Siemens Xcelerator catalog?",
     topic_fit: "Does its core offering match an Xcelerator topic?",
-    ecosystem_value: "Would Xcelerator partners gain something concrete from connecting with it?" },
+    ecosystem_value: "Would connecting it be worth something: an ecosystem audience for it, or, without one, a clear industry and topic fit and a good market?" },
   team_ecosystem: {
     founder_experience: "What leadership, startup or senior experience do the founders bring?",
     domain_expertise: "How deep is the team's expertise in the field it works in?",
@@ -173,6 +182,10 @@ export function opportunity(res, name) {
       nextStep: p.next_step, gap: !linked };
   }
   if (name === "Connect") {
+    // Rubric v3 runs carry the audience the value was derived from, and the case for connecting.
+    const value = (p.criteria || []).find((c) => c.id === "ecosystem_value");
+    const audience = value?.audience ? value.audience.map((a) => ({ text: a.name, tag: ROLE[a.role] || a.role, detail: a.reason, url: a.url || "" }))
+      : g.sellers.map(entry);
     return { title: "Where the offering could connect", note: "Potential relevance · catalog presence is not a partnership",
       connector: "potential relevance", linked,
       nodes: [
@@ -180,16 +193,22 @@ export function opportunity(res, name) {
           hint: "What the startup sells or builds, from its cited research." },
         { label: "Xcelerator industry & topic", items: [...g.industries, ...g.topics].map(entry), empty: "No Xcelerator industry or topic was matched.",
           hint: "Where that offering sits in the Siemens Xcelerator catalog: the industries it serves and the topics it covers." },
-        { label: "Ecosystem audience", items: g.sellers.map(entry), statement: linked ? p.statement : "",
+        { label: "Ecosystem audience", items: audience, statement: linked ? p.statement : "", case: p.case || null,
           empty: "No supported ecosystem link identified.",
-          hint: "Xcelerator partners the startup could reach, and why the connection would matter to them." }],
+          hint: p.case ? "Who in the ecosystem would use, integrate or resell it, and whether connecting makes sense on the evidence this run holds."
+            : "Xcelerator partners the startup could reach, and why the connection would matter to them." }],
       nextStep: p.next_step, gap: !linked };
   }
   // With a link, the needs it was matched to. Without one, every need it was assessed against —
   // listing only the ones the model happened to cite would read as if those were all there are.
   const cited = new Map(g.needs.map((n) => [n.name, n]));
+  // Without a link, the needs closest to the startup come first and say so (ranked by meaning and
+  // words, core/pillar_match.py) — the pointer a reviewer needs when the match found nothing.
+  const closest = p.closest_needs || [];
+  const unlinked = [...closest.filter((n) => (p.needs || []).includes(n)), ...(p.needs || []).filter((n) => !closest.includes(n))];
   const needs = linked && g.needs.length ? g.needs.map(entry)
-    : (p.needs || []).map((n) => (cited.has(n) ? entry(cited.get(n)) : { text: n, tag: p.provisional ? "Example need" : "Department need" }));
+    : unlinked.map((n) => (cited.has(n) ? entry(cited.get(n))
+      : { text: n, tag: closest.includes(n) ? "Closest to the startup" : p.provisional ? "Example need" : "Department need" }));
   return { title: linked ? "How the department could pilot it" : "No supported link to the current needs",
     note: `${res?.department?.label || "Department"} · ${p.provisional ? "example needs · provisional" : "configured needs"}`,
     connector: linked ? "could address" : "no supported link", linked,

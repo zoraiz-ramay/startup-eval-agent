@@ -70,6 +70,35 @@ describe("AssistantDock", () => {
     expect(screen.getByText(/nothing here was checked against a source/)).toBeInTheDocument();
   });
 
+  it("lays an answer out as a lead, cited bullets, a comparison table and a gap note, with linked sources", async () => {
+    api.ask.mockResolvedValue({ provider: "run", source: "This evaluation", note: "",
+      answer: "Radical Dot is backed by UVC Partners and Accenture Ventures [1][2].\n- UVC Partners led the pre-seed [1]."
+        + "\n\n| Competitor | Raised |\n|---|---|\n| Circ | $30M [3] |\n| UpcycleX | seed |\n\nNot covered: the size of each round.",
+      evidence: [{ title: "Investor: UVC Partners", url: "https://uvc.test/news" },
+        { title: "Investor: Accenture Ventures", url: "https://acc.test" }, { title: "Funded peer: Circ", url: "https://circ.test" }] });
+    render(<AssistantDock />);
+    say("Who funds it?");
+    const reply = (await screen.findByText("This evaluation")).closest(".dock-msg");
+    expect(reply.querySelector(".dock-lead")).toHaveTextContent("Radical Dot is backed by UVC Partners and Accenture Ventures 12");
+    expect(within(reply).getAllByRole("link", { name: /^Source 1/ })[0]).toHaveAttribute("href", "https://uvc.test/news");
+    expect(within(reply).getByRole("link", { name: "Source 3: Funded peer: Circ" })).toHaveAttribute("href", "https://circ.test");
+    const table = within(reply).getByRole("table");
+    expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Competitor", "Raised"]);
+    expect(within(table).getAllByRole("row")).toHaveLength(3);                // the |---| line is not a row
+    expect(reply.querySelector(".dock-gap")).toHaveTextContent("Not covered: the size of each round.");
+  });
+
+  it("offers two templated follow-ups to the latest answer, never one already asked", async () => {
+    api.ask.mockResolvedValue({ answer: "BlueAlp and Circ [1].", provider: "run", source: "This evaluation", note: "", evidence: [] });
+    render(<AssistantDock />);
+    say("Who are its closest competitors?");
+    const chips = await screen.findByLabelText("Suggested follow-ups");
+    expect(within(chips).getAllByRole("button").map((b) => b.textContent))
+      .toEqual(["What sets it apart from its competitors?", "Which competitor has raised the most?"]);
+    fireEvent.click(within(chips).getByText("Which competitor has raised the most?"));
+    await waitFor(() => expect(api.ask).toHaveBeenLastCalledWith("Which competitor has raised the most?", 44, expect.any(Array)));
+  });
+
   it("clears the conversation", async () => {
     api.ask.mockResolvedValue({ answer: "Hello.", provider: "web", source: "Web search (AI)", note: "", evidence: [] });
     render(<AssistantDock />);
