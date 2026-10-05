@@ -126,9 +126,11 @@ export function HeatStrip({ cells, max = 3, name, openId = null, onToggle, idPre
       {cells.map((c) => {
         const open = openId === c.id;
         return (
-          <button key={c.id} id={`${idPrefix}-${c.id}`} type="button" className={`heat-item${open ? " open" : ""}`}
+          // A criterion shown for what it says but not added up (a crowded Connect) is drawn faded.
+          <button key={c.id} id={`${idPrefix}-${c.id}`} type="button"
+            className={`heat-item${open ? " open" : ""}${c.counted === false ? " uncounted" : ""}`}
             aria-expanded={open} aria-controls={open ? controls : undefined} onClick={() => onToggle(c.id)}
-            aria-label={`${c.label}: ${c.score} of ${max}, ${c.anchor}`}>
+            aria-label={`${c.label}: ${c.score} of ${max}, ${c.anchor}${c.counted === false ? ", not counted" : ""}`}>
             <span className={`heat-cell l${clamp(c.score, 0, max)}`}>{c.score}</span>
             <span className="heat-label">{c.short || c.label}</span>
           </button>

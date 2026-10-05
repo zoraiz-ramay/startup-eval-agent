@@ -81,6 +81,28 @@ def test_duplicates_within_one_run_collapse_and_fill_each_others_blanks():
     assert out["profile"]["founders"] == [{"name": "Andreas Wagner", "role": "CEO", "source_url": src}]
 
 
+def test_a_founder_stored_with_and_without_initials_is_one_founder():
+    # Phena's latest run listed "KD Kutadgu Gokalp Demirci" (this run) and "Kutadgu Gokalp Demirci"
+    # (carried from August) — one co-founder, shown twice, because the initials defeated the name key.
+    fresh = {"founders": [{"name": "KD Kutadgu Gokalp Demirci", "role": "Co-Founder",
+                           "linkedin": "kutadgu@phena.tech", "source_url": "https://phena.example/en/about"}]}
+    older = prior("2026-08-19T00:00:00+00:00", founders=[
+        {"name": "Kutadgu Gokalp Demirci", "role": "Co-Founder", "linkedin": "kutadgu@phena.tech",
+         "source_url": "https://phena.example"}])
+    out, report = merge(fresh, [older])
+    assert [f["name"] for f in out["profile"]["founders"]] == ["KD Kutadgu Gokalp Demirci"]
+    assert report["founders"]["carried"] == 0
+
+
+def test_a_founder_also_listed_as_an_advisor_is_shown_as_a_founder_only():
+    src = "https://acme.example/team"
+    out, _ = merge({"founders": [{"name": "Trevor Amanya", "source_url": src}],
+                    "advisors": [{"name": "Trevor Amanya", "source_url": src},
+                                 {"name": "Jane Roe", "source_url": src}]},
+                   [prior("2026-08-01T00:00:00+00:00")])
+    assert [a["name"] for a in out["profile"]["advisors"]] == ["Jane Roe"]
+
+
 def test_a_namesake_with_another_domain_contributes_nothing():
     other = prior("2026-08-01T00:00:00+00:00", investors=[UVC], website="https://acme-other.example")
     out, _ = merge({"commercial": {"investors": []}}, [other])
@@ -147,17 +169,28 @@ def _size(as_of, url="https://reports.example/m"):
     return {"value": "USD 3B", "cagr": "12%", "as_of": as_of, "source_url": url}
 
 
-def test_a_market_figure_older_than_18_months_is_dropped_even_on_a_first_run():
+def test_a_market_figure_older_than_two_years_is_dropped_even_on_a_first_run():
     report = {}
     out = cf.merge_trend({"landscape": {"market_size": _size("2023")}}, [], NOW, TODAY, report)
     assert out["landscape"]["market_size"] is None
     assert report["market_size_dropped"]["as_of"] == "2023"
 
 
-def test_year_only_and_month_dates_are_read_against_the_18_month_line():
-    assert cf.market_size_current(_size("2025"), TODAY)            # read as Dec 2025: 9 months
-    assert not cf.market_size_current(_size("2025-03"), TODAY)     # 18 months and a few days
-    assert not cf.market_size_current(_size(""), TODAY)            # undated is not current
+def test_a_base_year_within_two_years_is_current_and_a_forecast_year_is_not():
+    # Reports published in 2026 state the 2024 or 2025 market. The 18-month line dropped those and
+    # kept "2030" figures, because a forecast is always dated ahead.
+    assert cf.market_size_current(_size("2025"), TODAY)
+    assert cf.market_size_current(_size("2025-03"), TODAY)
+    assert cf.market_size_current(_size("2024"), TODAY)
+    assert not cf.market_size_current(_size("2023"), TODAY)
+    assert not cf.market_size_current(_size("2030"), TODAY)        # a forecast, not the size
+
+
+def test_an_undated_figure_is_current_only_when_it_was_found_recently():
+    assert cf.market_size_current(_size(""), TODAY, found=TODAY)
+    assert cf.market_size_current(_size(""), TODAY, found=dt.date(2025, 6, 1))
+    assert not cf.market_size_current(_size(""), TODAY, found=dt.date(2025, 1, 1))
+    assert not cf.market_size_current(_size(""), TODAY)            # no date at all
 
 
 def test_a_current_market_figure_from_an_earlier_run_fills_a_gap_and_a_stale_one_does_not():

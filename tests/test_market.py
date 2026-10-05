@@ -39,6 +39,27 @@ def test_every_growth_boundary(value, level):
     assert (out[0] if out else None) == level
 
 
+@pytest.mark.parametrize("value, eur_billions", [
+    ("US$15.2 bln", 13.07), ("$15.2-billion", 13.07), ("USD 15.2 billion", 13.07), ("15.2 Mrd. US-Dollar", 13.07),
+    # The base comes first and the forecast after; the largest amount put forecasts in the size band.
+    ("USD 15.2B (2024) to USD 25B (2030)", 13.07),
+    ("15.2 USD Billion", 13.07),                         # the currency between number and magnitude
+])
+def test_market_sizes_in_the_notations_reports_use(value, eur_billions):
+    assert round(M.size_level(value)[1] / 1e9, 2) == eur_billions
+
+
+def test_an_amount_too_small_to_be_a_market_is_unparsed_not_a_niche():
+    # "US$15.2 bln" once parsed as fifteen dollars and scored "niche/local" instead of letting the
+    # model judge it.
+    assert M.size_level("15.2 USD") is None and M.size_level("$500") is None
+
+
+@pytest.mark.parametrize("value, pct", [("7,8 %", 7.8), ("7.8 percent", 7.8), ("8.1 per cent", 8.1), ("12.5%-15%", 12.5)])
+def test_growth_in_the_notations_reports_use(value, pct):
+    assert M.growth_level(value)[1] == pct
+
+
 @pytest.mark.parametrize("points, label", [(0, "Limited Market"), (6, "Limited Market"), (7, "Moderate Market"),
                                            (9, "Moderate Market"), (10, "Attractive Market"),
                                            (12, "Attractive Market"), (13, "Highly Attractive Market"),

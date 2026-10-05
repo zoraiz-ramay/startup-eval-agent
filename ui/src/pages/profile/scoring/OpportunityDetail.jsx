@@ -8,8 +8,8 @@ import { opportunity } from "./presentation.js";
 
 const MAX_ITEMS = 3;
 const ICONS = { "Startup activity": iconRocket, "Startup offering": iconRocket, "Startup capability": iconRocket,
-  "Siemens tool": iconBuildingBlock, "Xcelerator industry & topic": iconGlobe, "Department needs": iconBuilding1, "Potential benefit": iconTrendUpward, "Ecosystem audience": iconConnections,
-  "Proposed pilot": iconBulb };
+  "Siemens tool": iconBuildingBlock, "Xcelerator industry & topic": iconGlobe, "Department needs": iconBuilding1, "Potential benefit": iconTrendUpward,
+  "Partnership case": iconConnections, "Proposed pilot": iconBulb };
 const RELATION_PILL = { complement: "pill-ok", integration: "pill-ok", substitute: "pill-warn" };
 
 /* A term or catalog entry: what it is (the tag), and in the detailed view where it came from — the
@@ -28,7 +28,7 @@ function Item({ item, detailed }) {
   );
 }
 
-/* Connect's answer to "does connecting this startup make sense?": a verdict from the pillar's band
+/* Connect's answer to "should Siemens partner with this startup?": a verdict from the pillar's band
    and the facts behind it, each for or against, built by core/pillars.connect_case from the
    criteria — sentences the run's evidence already supports, never a model's opinion. */
 const VERDICT_PILL = { makes_sense: "pill-ok", worth_exploring: "pill-warn", not_yet: "pill-neutral" };
@@ -61,7 +61,7 @@ function Node({ node, step, detailed }) {
       </span>
       <p className="opp-hint">{node.hint}</p>
       {node.case && <ConnectCase c={node.case} />}
-      <ExpandableList items={items} max={MAX_ITEMS} className="opp-items" itemKey={(t) => t.text}
+      <ExpandableList items={items} max={node.max || MAX_ITEMS} className="opp-items" itemKey={(t) => t.text}
         renderItem={(t) => <Item item={t} detailed={detailed} />} />
       {node.statement && <p className="opp-statement">{node.statement}</p>}
       {!items.length && !node.statement && !node.case && <p className="opp-empty">{node.empty}</p>}

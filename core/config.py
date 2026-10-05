@@ -163,22 +163,35 @@ GLASSDOLLAR_API_KEY = os.getenv("GLASSDOLLAR_API_KEY", "").strip()
 GLASSDOLLAR_API_TIMEOUT = float(os.getenv("GLASSDOLLAR_API_TIMEOUT", "60"))
 
 
-# --- Connect: ecosystem gap and market signals (core/pillars.py, core/pillar_match.py) ---------
-# How many Xcelerator sellers nearest the startup's offering the Connect match labels.
-CONNECT_NEIGHBOURS = 10
-# Ecosystem gap counts only equivalents WITHOUT an evidenced differentiator: a startup in a crowded
-# area is not penalised for its neighbourhood when it can show what sets it apart.
-#   3 · no equivalent, and at most ABSENT_MAX_OVERLAP sellers overlapping
-#   2 · every equivalent differentiated (or only overlaps)
-#   1 · 1..PARTIAL_MAX undifferentiated equivalents
-#   0 · more than PARTIAL_MAX — the ecosystem already offers this
-CONNECT_GAP_ABSENT_MAX_OVERLAP = 2
-CONNECT_GAP_PARTIAL_MAX = 2
-# "Good market signals" for Ecosystem value 3: a cited size or CAGR at or above these core/market.py
-# levels (3 = ≥ €5B / ≥ 5% CAGR), or this many grounded funded peers.
-CONNECT_GOOD_MARKET = {"size_level": 3, "growth_level": 3, "funded_peers": 2}
+# ----------------------------------------------------------------------------- Siemens Directory
+# Employee directory (core/directory_api.py) for the "Relevant Siemens Contact" under Empower's
+# Tool fit. API-key header; /people filtered by department. Like the GlassDollar key, it resolves
+# only inside the Siemens network, so nothing about it can be verified from a laptop or CI. The
+# header and parameter names are configurable because only the endpoint is documented here.
+SIEMENS_DIRECTORY_API_BASE = os.getenv("SIEMENS_DIRECTORY_API_BASE", "https://api.siemens.com/directory").rstrip("/")
+SIEMENS_DIRECTORY_KEY_HEADER = os.getenv("SIEMENS_DIRECTORY_KEY_HEADER", "x-api-key")
+SIEMENS_DIRECTORY_DEPARTMENT_PARAM = os.getenv("SIEMENS_DIRECTORY_DEPARTMENT_PARAM", "department")
+SIEMENS_DIRECTORY_CURSOR_PARAM = os.getenv("SIEMENS_DIRECTORY_CURSOR_PARAM", "cursor")
+# The docs recommend low limits: one page of this size, at most DIRECTORY_MAX_PAGES pages.
+SIEMENS_DIRECTORY_LIMIT = int(os.getenv("SIEMENS_DIRECTORY_LIMIT", "25"))
+SIEMENS_DIRECTORY_MAX_PAGES = int(os.getenv("SIEMENS_DIRECTORY_MAX_PAGES", "4"))
+SIEMENS_DIRECTORY_TIMEOUT = float(os.getenv("SIEMENS_DIRECTORY_TIMEOUT", "15"))
+# How many contacts are shown per tool, and how long a tool's contacts are reused before asking again.
+SIEMENS_CONTACTS_PER_TOOL = 3
+SIEMENS_CONTACTS_TTL_DAYS = 7
 
-# Sellers serving the startup's Xcelerator industries and topics, offered to the Connect match as
-# a possible audience — who would use, integrate or resell it. Not its nearest neighbours: those
-# answer "does someone already sell this?", these answer "who would want it?".
-CONNECT_AUDIENCE_CANDIDATES = 10
+
+# --- Connect: similar sellers and market signals (core/pillars.py, core/pillar_match.py) -------
+# How many Xcelerator sellers nearest the startup's offering the Connect match labels same /
+# different. Similarity scores alone cannot count "sells the same thing" — measured on the stored
+# index every seller sits within 0.58-0.70 of the startup — so the model confirms each one, and the
+# count can only reach this many ("30 or more").
+CONNECT_NEIGHBOURS = 30
+# The crowded case: (at least this many sellers sell the same kind of solution, Connect's total
+# out of 9). Below the first band the open case scores the startup itself.
+CONNECT_CROWDED = ((2, 3), (4, 2), (8, 1), (12, 0))
+# How many similar sellers are named; the rest are "+ N more".
+CONNECT_SIMILAR_SHOWN = 5
+# "Good market signals", one point each of Market signals: a cited size or CAGR at or above these
+# core/market.py levels (3 = >= EUR 5B / >= 5% CAGR), and this many grounded funded peers.
+CONNECT_GOOD_MARKET = {"size_level": 3, "growth_level": 3, "funded_peers": 2}

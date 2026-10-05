@@ -4,12 +4,14 @@ import { IxContentHeader } from "@siemens/ix-react";
 import Section from "../Section.jsx";
 import CriterionDetail from "./CriterionDetail.jsx";
 import OpportunityDetail from "./OpportunityDetail.jsx";
+import SiemensContacts from "./SiemensContacts.jsx";
 import { HeatStrip, RingGauge } from "../../../components/charts.jsx";
-import { CRITERION_QUESTIONS, PILLAR_ORDER, criterionNotes, pillarRows } from "./presentation.js";
+import { CRITERION_QUESTIONS, PILLAR_ORDER, criterionNotes, pillarRows, scaleHelp } from "./presentation.js";
 
 const SHORT = { tool_fit: "Tool", benefit_fit: "Benefit", actionability: "Action", capability_fit: "Capability",
-  need_fit: "Need", ecosystem_gap: "Gap", industry_topic_fit: "Fit", ecosystem_value: "Ecosystem",
-  // Connect's criteria before rubric v2, for stored runs.
+  need_fit: "Need", industry_topic_fit: "Fit", market_signals: "Market", offering: "Offering",
+  // Connect's criteria before rubric v5 (v2-v4: gap and value; v1: industry and topic), for stored runs.
+  ecosystem_gap: "Gap", ecosystem_value: "Ecosystem",
   industry_fit: "Industry", topic_fit: "Topic" };
 const ROLE_PILL = { Recommended: "pill-ok", Alternative: "pill-ok", Review: "pill-warn" };
 const cellId = (pillar, id) => `fit-cell-${pillar}-${id}`;
@@ -37,12 +39,15 @@ function RouteCard({ r, pillar, selected, onSelect, onKey, openId, onCell }) {
         ? <HeatStrip cells={cells} name={r.name} openId={openId} onToggle={onCell} idPrefix={`fit-cell-${r.name}`} controls="fit-criterion" />
         : <span className="route-card-empty">{r.state === "pending" ? "Assessing…" : "Not assessed"}</span>}
       {r.lowActionability && <small className="route-card-warn">Next step needs definition</small>}
+      {/* A crowded Connect is scored from the count of sellers that already sell this, not its cells. */}
+      {pillar?.similar?.case === "crowded" && <small className="route-card-warn">
+        Crowded: {pillar.similar.count}{pillar.similar.at_least ? "+" : ""} similar sellers · scored from the count</small>}
       {r.state === "assessed" && r.band === "no_match" && r.provisional && <small className="muted">Against example needs</small>}
     </div>
   );
 }
 
-export default function FitComparison({ res, detailed = false }) {
+export default function FitComparison({ res, runId = null, detailed = false }) {
   const [params, setParams] = useSearchParams();
   const [open, setOpen] = useState(null);                       // { pillar, id } of the opened criterion
   const rows = pillarRows(res);
@@ -89,7 +94,12 @@ export default function FitComparison({ res, detailed = false }) {
           context={`${open.pillar} · criterion ${index + 1} of 3`} criterion={criteria[index]}
           scale={res.assessment?.scales?.pillars?.[open.pillar]?.[open.id]}
           question={CRITERION_QUESTIONS[open.pillar]?.[open.id]}
-          notes={criterionNotes(pillars[open.pillar], criteria[index])} catalogLabel={CATALOG_LABEL[open.pillar]} onClose={close} />
+          notes={criterionNotes(pillars[open.pillar], criteria[index])} catalogLabel={CATALOG_LABEL[open.pillar]}
+          similar={open.id === "offering" ? pillars[open.pillar]?.similar : null}
+          scaleHelp={scaleHelp(open.pillar, criteria[index])}
+          // Tool fit ends with who at Siemens works on the matched tools, not a second evidence list.
+          evidenceView={open.pillar === "Empower" && open.id === "tool_fit"
+            ? <SiemensContacts runId={runId ?? res.run_id ?? null} /> : null} onClose={close} />
       )}
       <div id="fit-opportunity" aria-live="polite">
         <OpportunityDetail res={res} name={selected} row={rows.find((r) => r.name === selected)} detailed={detailed}

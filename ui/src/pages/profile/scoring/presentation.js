@@ -6,6 +6,8 @@
  * startup concept and a catalog entry is drawn unless the saved assessment cited it.
  */
 
+import { connectOpportunity } from "./connectOpportunity.js";
+
 export const PILLAR_ORDER = ["Empower", "Connect", "Collaborate"];
 export const COMPONENTS = [
   ["traction", "Traction"], ["siemens_fit", "Siemens Fit"],
@@ -69,9 +71,9 @@ export function contributions(res) {
   return { rows, total, missing, status: total != null ? "complete" : "pending" };
 }
 
-/** Catalog entries a pillar's criteria cited, merged by id, grouped for display. Connect's
-    Ecosystem gap is left out: its entries are sellers that already offer the same thing, which
-    are competitors to the startup, not an audience it could reach. */
+/** Catalog entries a pillar's criteria cited, merged by id, grouped for display. Derived rows are
+    left out: Connect's v2-v4 Ecosystem gap cited the sellers that already offer the same thing,
+    which are competitors, not what a partnership rests on. */
 export function catalogGroups(pillar) {
   const seen = new Map();
   for (const c of pillar?.criteria || []) {
@@ -120,8 +122,15 @@ function concepts(res, name, limit = 8) {
   return out.slice(0, limit);
 }
 
-const ROLE = { use: "Would use it", integrate: "Would integrate it", resell: "Would resell it", partner: "Would partner on it" };
 const entry = (e) => ({ text: e.name, tag: e.division || CATALOG_KIND[e.id?.split(":")[0]] || "", detail: e.description || "", url: e.url || "" });
+
+/** The "?" beside a Siemens Fit criterion's scale: that the levels are the scoring and the
+    numbers are scores. Kept to two short sentences on purpose — it is a reminder, not the rubric. */
+export function scaleHelp(pillar, criterion, max = 3) {
+  const base = `This is how ${criterion.label} is scored. Each level is a score from 0 to ${max}; the highlighted one is this startup's.`;
+  return criterion.counted === false
+    ? `${base} Not counted here: Connect is scored from the number of similar sellers.` : base;
+}
 
 /** What each criterion asks, in a sentence, so a score can be read without knowing the rubric. */
 export const CRITERION_QUESTIONS = {
@@ -134,12 +143,15 @@ export const CRITERION_QUESTIONS = {
     need_fit: "Does it address one of the department's stated needs?",
     actionability: "Can a concrete pilot with the department be described, with a next step?" },
   Connect: {
-    ecosystem_gap: "Do Xcelerator sellers already offer the same thing, with nothing evidenced to set the startup apart?",
     industry_topic_fit: "Does it target an Xcelerator industry, with a core offering that matches an Xcelerator topic?",
+    market_signals: "How many good market signals are cited: a large market, strong growth, funded peers?",
+    offering: "Does the startup have a clear, evidenced offering — and does it differ from what the ecosystem already sells?",
+    // Rubric v2-v4, for stored runs.
+    ecosystem_gap: "Do Xcelerator sellers already offer the same thing, with nothing evidenced to set the startup apart?",
     // Rubric v1, for stored runs.
     industry_fit: "Does the startup target an industry in the Siemens Xcelerator catalog?",
     topic_fit: "Does its core offering match an Xcelerator topic?",
-    ecosystem_value: "Would connecting it be worth something: an ecosystem audience for it, or, without one, a clear industry and topic fit and a good market?" },
+    ecosystem_value: "Would partnering with it be worth it to Siemens: a clear industry and topic fit, and good market signals?" },
   team_ecosystem: {
     founder_experience: "What leadership, startup or senior experience do the founders bring?",
     domain_expertise: "How deep is the team's expertise in the field it works in?",
@@ -182,22 +194,7 @@ export function opportunity(res, name) {
       nextStep: p.next_step, gap: !linked };
   }
   if (name === "Connect") {
-    // Rubric v3 runs carry the audience the value was derived from, and the case for connecting.
-    const value = (p.criteria || []).find((c) => c.id === "ecosystem_value");
-    const audience = value?.audience ? value.audience.map((a) => ({ text: a.name, tag: ROLE[a.role] || a.role, detail: a.reason, url: a.url || "" }))
-      : g.sellers.map(entry);
-    return { title: "Where the offering could connect", note: "Potential relevance · catalog presence is not a partnership",
-      connector: "potential relevance", linked,
-      nodes: [
-        { label: "Startup offering", items: startup, empty: "No startup offering was cited.",
-          hint: "What the startup sells or builds, from its cited research." },
-        { label: "Xcelerator industry & topic", items: [...g.industries, ...g.topics].map(entry), empty: "No Xcelerator industry or topic was matched.",
-          hint: "Where that offering sits in the Siemens Xcelerator catalog: the industries it serves and the topics it covers." },
-        { label: "Ecosystem audience", items: audience, statement: linked ? p.statement : "", case: p.case || null,
-          empty: "No supported ecosystem link identified.",
-          hint: p.case ? "Who in the ecosystem would use, integrate or resell it, and whether connecting makes sense on the evidence this run holds."
-            : "Xcelerator partners the startup could reach, and why the connection would matter to them." }],
-      nextStep: p.next_step, gap: !linked };
+    return connectOpportunity(p, { startup, industries: [...g.industries, ...g.topics], sellers: g.sellers, linked, entry });
   }
   // With a link, the needs it was matched to. Without one, every need it was assessed against —
   // listing only the ones the model happened to cite would read as if those were all there are.

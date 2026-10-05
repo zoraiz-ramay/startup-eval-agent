@@ -745,6 +745,23 @@ def run_business_flow(run_id: int, user: Principal = Depends(current_user)) -> d
     return out
 
 
+@app.post("/api/runs/{run_id}/lookup/contacts")
+def run_contacts(run_id: int, refresh: bool = False, user: Principal = Depends(current_user)) -> dict:
+    """Relevant Siemens contacts for the tools this run's Empower Tool fit cites, from the Siemens
+    Directory (core/siemens_contacts.py). Declared before the generic lookup route so "contacts" is
+    not read as one of its kinds.
+
+    Cached per tool and department, not stored as a company enrichment: who works on a Siemens
+    tool does not depend on which startup is being evaluated.
+    """
+    from core.siemens_contacts import contacts
+    res = _run_for(run_id, user)
+    empower = ((res.get("assessment") or {}).get("pillars") or {}).get("Empower") or {}
+    tool_fit = next((c for c in empower.get("criteria") or [] if c.get("id") == "tool_fit"), {})
+    return contacts([e for e in tool_fit.get("catalog") or [] if str(e.get("id", "")).startswith("tool:")],
+                    refresh=refresh)
+
+
 @app.post("/api/runs/{run_id}/lookup/{kind}")
 def run_lookup(run_id: int, kind: Literal["funding", "headcount", "signals"], refresh: bool = False,
                user: Principal = Depends(current_user)) -> dict:

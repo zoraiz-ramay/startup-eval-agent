@@ -63,7 +63,7 @@ export default function ScoringTab({ res: run, runId, onAssessment, onRefresh })
       ))}
       <FitSummary res={res} runId={runId} onAssessment={onAssessment} detailed={detailed} />
       <TotalContribution res={res} detailed={detailed} />
-      <FitComparison res={res} detailed={detailed} />
+      <FitComparison res={res} runId={runId} detailed={detailed} />
       <TractionPanel res={res} runId={runId} detailed={detailed} />
       <TeamPanel res={res} />
       <MarketScorePanel res={res} detailed={detailed} />

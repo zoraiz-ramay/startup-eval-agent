@@ -2,7 +2,7 @@ import React from "react";
 import EvidenceList from "./EvidenceList.jsx";
 import { Sources } from "./TractionLookup.jsx";
 import ConfirmedTag from "../../../components/ConfirmedTag.jsx";
-import { personKey } from "../people.js";
+import { personResolver } from "../people.js";
 
 /* A Team & Ecosystem criterion's evidence as the people and organisations it rests on, instead of
    a list of record quotes. A criterion cites records such as `deep_profile.founders[1].background`;
@@ -130,7 +130,9 @@ function Org({ item, kind, cited, confirmed }) {
 }
 
 const nameOf = (item) => (typeof item === "string" ? item : item?.name || "");
-const entityKey = (kind, item) => (PEOPLE.includes(kind) ? `p:${personKey(nameOf(item))}` : `o:${norm(nameOf(item))}`);
+// A person spelled two ways ("Dr. A. Wagner", "KD Kutadgu Gokalp Demirci") is one entity: people are
+// keyed through a per-layout resolver that matches on more than the name (people.js::samePerson).
+const entityKey = (kind, item, person) => (PEOPLE.includes(kind) ? `p:${person(item)}` : `o:${norm(nameOf(item))}`);
 
 /** Every entity of a kind on record, the cited ones first. */
 export function onRecord(dp, kind, cited) {
@@ -144,6 +146,7 @@ export function onRecord(dp, kind, cited) {
     first criterion that lists it, and a person spelled two ways ("Dr. A. Wagner") is one entity. */
 export function layout(criteria, dp) {
   const owner = new Map();
+  const person = personResolver();
   return (criteria || []).map((criterion) => {
     const { entities, rest } = resolveEvidence(criterion.evidence, dp);
     const groups = [];
@@ -153,7 +156,7 @@ export function layout(criteria, dp) {
       if (!entities[kind]?.length) continue;
       const items = [];
       for (const entry of onRecord(dp, kind, entities[kind])) {
-        const key = entityKey(kind, entry.item);
+        const key = entityKey(kind, entry.item, person);
         const prev = owner.get(key);
         if (prev === undefined) {
           owner.set(key, criterion);

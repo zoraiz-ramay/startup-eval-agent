@@ -69,13 +69,16 @@ def _load(db_path: str) -> list[dict]:
         for d in (result.get("traction") or {}).get("divisions") or []:
             if d.get("points") is not None:
                 dims[f"traction.{d['id']}"] = d["points"]
-        # Connect's criteria, so the Ecosystem gap bands (config.CONNECT_GAP_*) are tuned from the
-        # distribution rather than argued: a gap that is 3 for everyone means the neighbours are
-        # never labelled equivalent, and 0 for everyone means the bands are too strict.
+        # Connect's criteria and, from rubric v5, how many sellers already sell the same thing, so
+        # the crowded bands (config.CONNECT_CROWDED) are tuned from the distribution rather than
+        # argued: a count that is 0 for everyone means no seller is ever labelled same, and one
+        # past the last band for everyone means every startup is crowded.
         connect = (((result.get("assessment") or {}).get("pillars") or {}).get("Connect") or {})
         if connect.get("status") == "assessed":
             for c in connect.get("criteria") or []:
                 dims[f"connect.{c['id']}"] = c["score"]
+            if connect.get("similar"):
+                dims["connect.similar_count"] = connect["similar"]["count"]
         if dims:
             out.append({"id": rid, "company": company, "dimensions": dims})
     return out

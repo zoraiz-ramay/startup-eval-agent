@@ -151,8 +151,8 @@ def _portfolio_stance(fit: dict) -> dict:
 
 
 _ROUTE_TEMPLATES = {
-    "Connect": "Introduce to the relevant Siemens business unit for a deployment/vendor "
-               "conversation — route score {rs}, traction {tr}.",
+    "Connect": "Partner with the startup directly as an Xcelerator solution provider — "
+               "route score {rs}, traction {tr}.",
     "Collaborate": "Set up a co-development or pilot engagement around {tool} — route score {rs}.",
     "Empower": "Offer Siemens tools/credits to accelerate the startup's build "
                "(closest tool: {tool}) — route score {rs}.",
