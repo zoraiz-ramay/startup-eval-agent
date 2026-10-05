@@ -51,6 +51,10 @@ RETRY_BACKOFF = 2
 # per-minute quota those retries fail too, and the caller's offline fallback then hands the
 # reviewer a weaker result with no sign anything went wrong.
 RATE_LIMIT_MAX_WAIT = float(os.getenv("RATE_LIMIT_MAX_WAIT", "60"))
+# Embeddings get one attempt more than completions. Gemini's embedding 429 carries no retry hint, so
+# the waits are the plain backoff (~4s, 8s, 16s): three attempts gave up after ~13s, inside the
+# per-minute window. The wait overlaps the fit stage, which runs far longer, so it costs little.
+EMBED_RETRIES = int(os.getenv("EMBED_RETRIES", "4"))
 # Vector size for semantic tool search (core/tool_search.py). gemini-embedding-001 is trained so a
 # shorter prefix keeps its meaning; 768 keeps the stored catalog index at ~4.5 MB.
 EMBEDDING_DIMS = int(os.getenv("EMBEDDING_DIMS", "768"))
@@ -411,16 +415,32 @@ class LLMClient:
             if isinstance(hit, list):
                 _record_call(kind="embedding", model=model, provider=self.provider, started=started, cached=True)
                 return hit
-        try:
-            resp = self._client.embeddings.create(model=model, input=list(texts), dimensions=dims,
-                                                  timeout=LLM_TIMEOUT)
-            vectors = [list(d.embedding) for d in resp.data]
-        except Exception as e:                                  # noqa: BLE001 — any failure means "no vectors"
-            self.last_error = str(e)
-            log.warning("Embedding failed (%s): %s", model, e)
-            _record_call(kind="embedding", model=model, provider=self.provider, started=started,
-                         ok=False, reason=_failure_reason(e))
-            return None
+        # A rate limit is retried after the quota window, like a completion. Without it a 429 sent
+        # Connect's seller search to word matching alone, which looked at a different 30 sellers:
+        # Wandelbots' count of sellers selling the same thing went from 3 to 8 between two runs,
+        # and with it the score. Any other failure still means "no vectors" at once.
+        attempt = 0
+        while True:
+            attempt += 1
+            try:
+                if _rate_gate is not None:
+                    _rate_gate()
+                resp = self._client.embeddings.create(model=model, input=list(texts), dimensions=dims,
+                                                      timeout=LLM_TIMEOUT)
+                vectors = [list(d.embedding) for d in resp.data]
+                break
+            except Exception as e:                              # noqa: BLE001 — any failure means "no vectors"
+                wait = _rate_limit_wait(e, attempt)
+                if wait is not None and attempt < EMBED_RETRIES:
+                    log.warning("Embedding rate-limited (%s), attempt %d/%d; retrying in %.0fs",
+                                model, attempt, EMBED_RETRIES, wait)
+                    time.sleep(wait)
+                    continue
+                self.last_error = str(e)
+                log.warning("Embedding failed (%s): %s", model, e)
+                _record_call(kind="embedding", model=model, provider=self.provider, started=started,
+                             ok=False, reason=_failure_reason(e), attempts=attempt)
+                return None
         usage = getattr(resp, "usage", None)
         _record_call(kind="embedding", model=model, provider=self.provider, started=started,
                      input_tokens=getattr(usage, "prompt_tokens", 0), total_tokens=getattr(usage, "total_tokens", 0))

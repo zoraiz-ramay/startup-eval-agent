@@ -66,6 +66,43 @@ def test_a_call_that_fails_for_good_is_charged_to_its_stage(no_sleep):
     assert failures == [{"stage": "fit", "reason": "rate_limited"}]
 
 
+def _embedder(outcomes):
+    """An LLMClient whose embeddings endpoint answers with ``outcomes`` in turn."""
+    calls = []
+
+    class Embeddings:
+        def create(self, **kw):
+            calls.append(kw)
+            out = outcomes.pop(0) if len(outcomes) > 1 else outcomes[0]
+            if isinstance(out, Exception):
+                raise out
+            return type("R", (), {"data": [type("D", (), {"embedding": out})()], "usage": None})()
+
+    c = _client(["unused"])
+    c._client.embeddings = Embeddings()
+    return c, calls
+
+
+def test_a_rate_limited_embedding_waits_and_retries_instead_of_falling_back_to_words(no_sleep):
+    # A 429 here used to mean "no vectors", so Connect searched by words alone and counted a
+    # different set of similar sellers — Wandelbots went from 3 to 8 between two runs.
+    client, calls = _embedder([_RateLimited("RESOURCE_EXHAUSTED"), [0.1, 0.2]])
+    assert client.embed(["startup"], dims=2, cache=False) == [[0.1, 0.2]]
+    assert len(calls) == 2 and len(no_sleep) == 1 and 27 <= no_sleep[0] <= 28
+
+
+def test_an_embedding_that_stays_rate_limited_gives_up_after_the_retries(no_sleep):
+    client, calls = _embedder([_RateLimited("RESOURCE_EXHAUSTED")])
+    assert client.embed(["startup"], dims=2, cache=False) is None
+    assert len(calls) == llm_mod.EMBED_RETRIES and len(no_sleep) == llm_mod.EMBED_RETRIES - 1
+
+
+def test_an_embedding_failure_that_is_not_a_rate_limit_is_not_retried(no_sleep):
+    client, calls = _embedder([ValueError("bad input")])
+    assert client.embed(["startup"], dims=2, cache=False) is None
+    assert len(calls) == 1 and no_sleep == []
+
+
 def test_a_timeout_is_not_mistaken_for_a_rate_limit(no_sleep):
     token, failures = llm_mod.collect_failures()
     try:
