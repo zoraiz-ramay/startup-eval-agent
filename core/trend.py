@@ -41,14 +41,69 @@ def _trend_label(score: int):
 # These five queries ride in the SAME wave as stage 2's, so the landscape costs no extra search
 # time: _ddg_many caps concurrency at 10 and the merged wave is exactly that. The one added cost is
 # a completion, and it runs concurrently with the momentum call.
-def _landscape_queries(niche: str) -> dict:
+def _landscape_queries(niche: str, markets: list[str] | None = None) -> dict:
+    """The landscape's queries. Size is searched under the PARENT market's name, the way reports
+    are titled ("chemical recycling market"), not the 5-10 word niche label: "AI-powered robotics
+    operating system for flexible industrial automation market size" returned a CAGR definition
+    page and a calculator, never a report."""
+    market = (markets or [""])[0] or niche
     return {
         "lc_competitors": f"{niche} competitors vendors alternatives landscape",
         "lc_funding": f"{niche} startup raised seed series A funding round 2025 2026",
-        "lc_size": f"{niche} market size CAGR forecast 2030",
+        "lc_size": f"{market} market size billion CAGR report",
         "lc_investors": f"{niche} investors venture capital active portfolio",
-        "lc_leaders": f"{niche} leading companies market share report",
+        "lc_leaders": f"{(markets or [''])[-1] or niche} market size growth leading companies",
     }
+
+
+# What a market figure looks like in a page: an amount with a magnitude, or a percentage.
+_FIGURE = re.compile(r"(?:[$€£]|USD|EUR|US\$)\s?\d[\d.,]*\s?(?:billion|million|bn|mn|bln|B|M)\b"
+                     r"|\d[\d.,]*\s?(?:billion|million|bn|bln)\b|\d+(?:[.,]\d+)?\s?%|CAGR", re.I)
+
+
+def _figure_sentences(text: str, limit: int = 1500) -> str:
+    """The sentences of a report page that state a market figure, up to ``limit`` characters.
+
+    Search snippets end mid-sentence — Phena's "USD 12.5 billion in 2025, with a compound a…" lost
+    its CAGR at the cut — so the top size results are read as pages, keeping only what matters."""
+    out, total = [], 0
+    for sentence in re.split(r"(?<=[.!?])\s+", str(text or "")):
+        sentence = sentence.strip()
+        if 20 <= len(sentence) <= 400 and len(_FIGURE.findall(sentence)) >= 2:
+            out.append(sentence)
+            total += len(sentence)
+            if total >= limit:
+                break
+    return " ".join(out)
+
+
+def _read_size_pages(hits: list[dict], pages: int = 2) -> list[dict]:
+    """The top size-query results fetched as pages and cut to their figure sentences.
+
+    A fetch, not a model call, through the SSRF-guarded and cached web.fetch_url; a page that does
+    not load is simply skipped."""
+    from .web import fetch_url
+    urls = [h.get("href", "") for h in hits[:pages] if h.get("href")]
+    if not urls:
+        return []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(urls)) as ex:
+        texts = list(ex.map(lambda u: fetch_url(u, timeout=8.0), urls))
+    return [{"title": h.get("title", ""), "url": u, "snippet": s}
+            for h, u, t in zip(hits, urls, texts) if (s := _figure_sentences(t))]
+
+
+def _blank(value) -> str:
+    """A value as text, with the model's ways of saying 'nothing' made empty. str(None) once
+    reached the page as the market size "None"."""
+    text = str(value if value is not None else "").strip()
+    return "" if text.lower() in ("none", "null", "n/a", "na", "unknown", "-", "—") else text
+
+
+def _numbers_cited(value: str, raw_text: str) -> bool:
+    """Every number in ``value`` appears in the results it was read from. Simplifying is allowed;
+    adding a number is not (the same rule as core/business_flow.py::_supported)."""
+    numbers = re.findall(r"\d+(?:[.,]\d+)?", value)
+    return bool(numbers) and all(n in raw_text for n in numbers)
 
 
 def _grounded_rows(items, text_blob: str, name_key: str, fields: tuple) -> list[dict]:
@@ -82,7 +137,7 @@ def _grounded_rows(items, text_blob: str, name_key: str, fields: tuple) -> list[
 
 
 def _market_landscape(niche: str, evidence: list[dict], web_text: str,
-                      llm: LLMClient, company: str = "") -> dict | None:
+                      llm: LLMClient, company: str = "", markets: list[str] | None = None) -> dict | None:
     """Competitors, funded peers, market size and active investors — strictly from the results."""
     if not (llm.available and web_text and niche):
         return None
@@ -95,27 +150,44 @@ def _market_landscape(niche: str, evidence: list[dict], web_text: str,
         "being evaluated, and not generic categories.\n"
         "- funded_peers: companies in this niche that raised money, with the round, amount and "
         "date exactly as stated. Omit any field the results do not state.\n"
-        "- market_size: the market size and CAGR only if a figure is actually cited, with the "
-        "year the figure is for.\n"
+        "- market_size: the size of the market this startup sells into (or its closest parent "
+        "market), only if a figure is actually cited. "
+        + (f"Prefer a figure for '{markets[0]}'"
+           + (f"; use '{markets[1]}' only when no figure for the first is cited" if len(markets) > 1 else "")
+           + ", and never a broader market when a narrower one is cited. " if markets else "")
+        + "`value` is the CURRENT or base-year size "
+        "and `as_of` its year; a projected figure goes in `forecast_value` / `forecast_year`, "
+        "never in `value`. `cagr` is the compound annual growth rate as stated. Copy figures "
+        "exactly; leave a field empty when the results do not state it.\n"
         "- active_investors: investors named as backing companies in this niche.\n"
         "Every entry needs source_url: a real http link copied from the results.\n"
         'Return ONLY JSON: {"competitors":[{"name":"","note":"","source_url":""}],'
         '"funded_peers":[{"company":"","round":"","amount":"","date":"","investors":"",'
-        '"source_url":""}],"market_size":{"value":"","cagr":"","as_of":"","source_url":""},'
+        '"source_url":""}],"market_size":{"value":"","as_of":"","forecast_value":"",'
+        '"forecast_year":"","cagr":"","source_url":""},'
         '"active_investors":[{"name":"","note":"","source_url":""}]}',
         system="You extract structured market facts strictly from supplied evidence. JSON only.",
         max_tokens=900, reasoning="none")) or {}
 
-    # Grounding is checked against the raw result text, not the model's own output.
-    blob = _norm(" ".join(f"{e.get('title', '')} {e.get('snippet', '')} {e.get('url', '')}"
-                          for e in evidence))
+    # Grounding is checked against the raw result text the model was shown, not its own output,
+    # and against the same rows: the name check once read only the landscape queries' results
+    # while the prompt also held the trend ones, so a competitor named there was dropped.
+    raw_text = "\n".join(f"{e.get('title', '')} {e.get('snippet', '')} {e.get('url', '')}" for e in evidence)
+    blob = _norm(raw_text)
+    urls = {e.get("url", "") for e in evidence}
     size = data.get("market_size") if isinstance(data.get("market_size"), dict) else {}
     size_url = _clean_source_url(size.get("source_url"))
+    # A figure stands only if every number in it is in the results, from a URL the search returned:
+    # the size used to be the one landscape field with no grounding at all.
+    fields = {k: _blank(size.get(k)) for k in ("value", "as_of", "forecast_value", "forecast_year", "cagr")}
+    for k in ("value", "forecast_value", "cagr"):
+        if fields[k] and not _numbers_cited(fields[k], raw_text):
+            fields[k] = ""
     market_size = None
-    if size_url and (str(size.get("value", "")).strip() or str(size.get("cagr", "")).strip()):
-        market_size = {"value": str(size.get("value", "")).strip(),
-                       "cagr": str(size.get("cagr", "")).strip(),
-                       "as_of": str(size.get("as_of", "")).strip(),
+    if size_url in urls and (fields["value"] or fields["cagr"]):
+        market_size = {"value": fields["value"], "cagr": fields["cagr"], "as_of": fields["as_of"],
+                       **({"forecast_value": fields["forecast_value"], "forecast_year": fields["forecast_year"]}
+                          if fields["forecast_value"] else {}),
                        "source_url": size_url}
 
     # The startup is not its own competitor. The prompt says so and the model lists it anyway —
@@ -157,6 +229,7 @@ def analyze_trend(row: "pd.Series", summary: str, niche_terms: list[str],
     # ---- Stage 1: AI generates search queries specific to this niche ---------
     niche = ""
     queries: list[str] = []
+    markets: list[str] = []
     if llm.available:
         q1_prompt = (
             f"A startup called '{company}' operates in this space: {pitch}\n"
@@ -166,12 +239,17 @@ def analyze_trend(row: "pd.Series", summary: str, niche_terms: list[str],
             "2. Five DuckDuckGo search queries that together cover: "
             "market trends, recent funding, market size/CAGR, key competitors, "
             "and geographic growth hotspots for this niche (use year 2025 or 2026 where helpful).\n"
-            'Return ONLY JSON: {"niche": "...", "queries": ["...", "...", "...", "...", "..."]}'
+            "3. One or two parent markets as market research reports name them, 2-4 words each, "
+            "most specific first (e.g. 'chemical recycling', 'industrial machine vision').\n"
+            'Return ONLY JSON: {"niche": "...", "queries": ["...", "...", "...", "...", "..."], '
+            '"markets": ["...", "..."]}'
         )
         data = LLMClient.parse_json(llm.complete(q1_prompt, max_tokens=400))
         if data:
             niche   = str(data.get("niche",   "")).strip()
             queries = [str(q).strip() for q in data.get("queries", []) if str(q).strip()]
+            markets = [re.sub(r"\s+market$", "", _blank(m), flags=re.I) for m in data.get("markets") or []
+                       if _blank(m)][:2]
 
     if not queries:
         # fallback: build basic queries from niche_terms directly
@@ -188,6 +266,7 @@ def analyze_trend(row: "pd.Series", summary: str, niche_terms: list[str],
     # ---- Stage 2: DuckDuckGo fetches live results ----------------------------
     evidence: list[dict] = []
     landscape_evidence: list[dict] = []
+    landscape_rows: list[dict] = []
     web_text = ""
     landscape_text = ""
     if do_web:
@@ -195,7 +274,7 @@ def analyze_trend(row: "pd.Series", summary: str, niche_terms: list[str],
         # sequence because _ddg_many's semaphore caps concurrency at 10 anyway, so ten queries
         # cost one round trip and the landscape adds no search time at all.
         wave = {str(i): q for i, q in enumerate(queries)}
-        wave.update(_landscape_queries(niche or " ".join(niche_terms[:4]) or company))
+        wave.update(_landscape_queries(niche or " ".join(niche_terms[:4]) or company, markets))
         raw = _ddg_many(wave, max_results=4)
 
         def _collect(keys):
@@ -205,18 +284,26 @@ def analyze_trend(row: "pd.Series", summary: str, niche_terms: list[str],
                     url = h.get("href", "")
                     if url and url not in seen_urls:
                         seen_urls.add(url)
-                        out.append({"title": h.get("title", ""), "url": url,
-                                    "snippet": h.get("body", "")[:200]})
+                        # The whole snippet: cut at 200 characters, Phena's "USD 12.5 billion in
+                        # 2025, with a compound a…" lost its CAGR. Snippets run to ~300 at most.
+                        out.append({"title": h.get("title", ""), "url": url, "snippet": h.get("body", "")})
             return out
 
         evidence = _collect(str(i) for i in range(len(queries)))
-        landscape_evidence = _collect(_landscape_queries("").keys())
+        # The top market-size results read as pages (their figure sentences only) go first.
+        pages = _read_size_pages(raw.get("lc_size", []) or [])
+        landscape_evidence = pages + [e for e in _collect(_landscape_queries("").keys())
+                                      if e["url"] not in {p["url"] for p in pages}]
         as_text = lambda rows: "\n".join(  # noqa: E731
-            f"[{e['url']}] {e['title']}: {e['snippet']}" for e in rows[:20])
-        web_text = as_text(evidence)
+            f"[{e['url']}] {e['title']}: {e['snippet']}" for e in rows)
+        web_text = as_text(evidence[:20])
         # The landscape reads its own queries' results plus the trend ones: a funding round for a
-        # peer turns up as often in a "market trends" result as in a "who raised" result.
-        landscape_text = as_text(landscape_evidence + evidence)
+        # peer turns up as often in a "market trends" result as in a "who raised" result. Each
+        # gets its own budget — one shared cap of 20 let the landscape fill it and cut every trend
+        # result, which is where the older runs' market figures were.
+        landscape_rows = landscape_evidence[:22] + [e for e in evidence[:20]
+                                                    if e["url"] not in {x["url"] for x in landscape_evidence}]
+        landscape_text = as_text(landscape_rows)
 
     # ---- Stage 3: AI synthesizes verdict from search results -----------------
     if llm.available:
@@ -274,8 +361,8 @@ def analyze_trend(row: "pd.Series", summary: str, niche_terms: list[str],
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
             f_momentum = _spawn(ex, lambda: llm.complete(q3_prompt, max_tokens=800))
-            f_landscape = _spawn(ex, _market_landscape, niche, landscape_evidence,
-                                 landscape_text, llm, company)
+            f_landscape = _spawn(ex, _market_landscape, niche, landscape_rows,
+                                 landscape_text, llm, company, markets)
             try:
                 data3 = LLMClient.parse_json(f_momentum.result())
             except Exception:

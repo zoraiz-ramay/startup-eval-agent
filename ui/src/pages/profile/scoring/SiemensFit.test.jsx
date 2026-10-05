@@ -102,7 +102,7 @@ describe("FitComparison", () => {
     fireEvent.keyDown(empower, { key: "ArrowRight" });
     expect(screen.getByTestId("pillar")).toHaveTextContent("Connect");
     expect(screen.getByRole("button", { name: /^Connect/ })).toHaveFocus();
-    expect(screen.getByRole("heading", { name: "Where the offering could connect" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Why Siemens could partner with it" })).toBeInTheDocument();
   });
 
   it("draws a no-match as a labelled gap, not a fabricated connection", () => {
@@ -135,13 +135,16 @@ describe("FitComparison", () => {
     const levels = within(region).getAllByRole("listitem").filter((li) => li.closest(".crit-scale"));
     expect(levels.map((li) => li.querySelector(".crit-level").textContent)).toEqual(["3", "2", "1", "0"]);
     expect(levels[0]).toHaveAttribute("aria-current", "true");
-    // Two records with the same quote and link are one entry, under a human label.
-    expect(within(region).getAllByText("Oxolysis scale-up")).toHaveLength(1);
-    expect(within(region).getByText("Founder background · crunchbase.com")).toBeInTheDocument();
-    expect(within(region).queryByText("Record path")).toBeNull();     // the audit trail lives under Evidence
     expect(within(region).getByText("Matched Siemens tools")).toBeInTheDocument();
+    // Tool fit ends with who at Siemens works on the matched tools, not the startup's evidence.
+    expect(within(region).getByRole("heading", { name: "Relevant Siemens Contact" })).toBeInTheDocument();
+    expect(within(region).queryByText("Startup evidence")).toBeNull();
     await user.click(screen.getByRole("button", { name: /^Benefit fit: 3 of 3/ }));
-    expect(screen.getByRole("region", { name: "Empower · criterion 2 of 3: Benefit fit" })).toBeInTheDocument();
+    const benefit = screen.getByRole("region", { name: "Empower · criterion 2 of 3: Benefit fit" });
+    // Two records with the same quote and link are one entry, under a human label.
+    expect(within(benefit).getAllByText("Oxolysis scale-up")).toHaveLength(1);
+    expect(within(benefit).getByText("Founder background · crunchbase.com")).toBeInTheDocument();
+    expect(within(benefit).queryByText("Record path")).toBeNull();     // the audit trail lives under Evidence
     await user.click(screen.getByRole("button", { name: /^Benefit fit: 3 of 3/ }));
     expect(screen.queryByRole("region", { name: /criterion/ })).toBeNull();
   });
@@ -179,27 +182,61 @@ describe("FitComparison", () => {
     expect(within(region).queryByText(/^Matched/)).toBeNull();
   });
 
-  it("says in Connect's third step whether connecting makes sense, point by point, with sources", async () => {
+  it("says in Connect's third step whether partnering makes sense, point by point, with sources", async () => {
     const user = userEvent.setup();
-    const value = { id: "ecosystem_value", label: "Ecosystem value", score: 2, basis: "derived", path: "open_space",
-      anchor: "An audience with a clear fit or a good market, or open space with both", rationale: "Open space.",
-      signals: { audience: false, industry_topic: true, market: true }, audience: [], evidence: [], catalog: [] };
+    const value = { id: "ecosystem_value", label: "Ecosystem value", score: 2, basis: "derived", path: "partnership",
+      anchor: "A clear fit and one good market signal, or several good market signals without it", rationale: "Fit and growth.",
+      signals: { industry_topic: true, market_size: false, market_growth: true, funded_peers: false }, evidence: [], catalog: [] };
     const connect = { ...CONNECT, criteria: [...CONNECT.criteria.slice(0, 2), value],
       case: { verdict: "worth_exploring", title: "Worth exploring, with open questions", summary: "Nobody in the ecosystem uses it yet.",
         points: [{ tone: "plus", text: "Good market signals: growth 12% CAGR.", sources: ["https://m.test/report"] },
-          { tone: "minus", text: "No Xcelerator seller was found who would use, integrate or resell it.", sources: [] }] } };
+          { tone: "minus", text: "Already done by 1 member(s) of the ecosystem with nothing evidenced to set it apart: PlasCo.", sources: [] }] } };
     withRouter(<FitComparison res={{ ...RUN, assessment: { ...RUN.assessment, pillars: { ...RUN.assessment.pillars, Connect: connect } } }} />, "/startup/1?pillar=Connect");
     const map = screen.getByRole("group", { name: "Connect opportunity map" });
     expect(within(map).getByText("Worth exploring, with open questions")).toBeInTheDocument();
     const points = within(map).getByRole("list", { name: "Why" });
     expect(within(points).getByText(/Good market signals/).closest("li")).toHaveTextContent("In favour:");
     expect(within(points).getByRole("link", { name: "m.test" })).toHaveAttribute("href", "https://m.test/report");
-    expect(within(points).getByText(/No Xcelerator seller/).closest("li")).toHaveTextContent("Against:");
+    expect(within(points).getByText(/Already done by/).closest("li")).toHaveTextContent("Against:");
     await user.click(screen.getByRole("button", { name: /^Ecosystem value: 2 of 3/ }));
     const region = screen.getByRole("region", { name: /Ecosystem value/ });
-    expect(within(region).getByText("Open space: no ecosystem audience")).toBeInTheDocument();
+    expect(within(region).getByText("Direct partnership: fit plus market signals")).toBeInTheDocument();
     const signals = within(region).getAllByRole("listitem").filter((li) => li.closest(".value-signals")).map((li) => li.textContent);
-    expect(signals).toEqual(["No An ecosystem audience", "Yes A clear industry & topic fit", "Yes A good market signal"]);
+    expect(signals).toEqual(["Yes A clear industry & topic fit", "No A good cited market size",
+      "Yes A good cited market growth", "No Funded peers in the niche"]);              // no audience row
+  });
+
+  it("scores a crowded Connect from its similar sellers, fading the cells it did not add up", async () => {
+    const user = userEvent.setup();
+    const seller = (i) => ({ id: `seller:s${i}`, name: `Seller ${i}`, url: `https://s${i}.test`, label: "same",
+      differentiator: i === 0 ? "Runs at ambient pressure" : "", evidence: [] });
+    const sellers = [0, 1, 2, 3, 4, 5, 6].map(seller);
+    const uncounted = (c) => ({ ...c, counted: false });
+    const connect = { ...CONNECT, total: 2, band: "no_match",
+      criteria: crit([["industry_topic_fit", "Industry & topic fit", 3, "Directly targets"],
+        ["market_signals", "Market signals", 2, "Two good market signals"], ["offering", "Offering", 3, "Clear and differentiated"]]).map(uncounted),
+      similar: { case: "crowded", count: 7, searched: 30, at_least: false, shown: sellers.slice(0, 5), more: 2, sellers, skipped: 0 } };
+    withRouter(<FitComparison res={{ ...RUN, assessment: { ...RUN.assessment, pillars: { ...RUN.assessment.pillars, Connect: connect } } }} />);
+    expect(screen.getByText(/Crowded: 7 similar sellers · scored from the count/)).toBeInTheDocument();
+    const offering = screen.getByRole("button", { name: /^Offering: 3 of 3, .*, not counted$/ });
+    expect(offering).toHaveClass("uncounted");
+    await user.click(offering);
+    const region = screen.getByRole("region", { name: /Offering/ });
+    expect(within(region).getByText(/^Not counted: other sellers already sell this/)).toBeInTheDocument();
+    expect(within(region).getByText("Similar sellers in Xcelerator")).toBeInTheDocument();
+    expect(within(region).getAllByRole("link").map((a) => a.textContent).slice(0, 7)).toEqual(sellers.map((s) => s.name));
+    expect(within(region).getByText("Differs: Runs at ambient pressure")).toBeInTheDocument();
+  });
+
+  it("explains a criterion's scale from a ? beside it, on Siemens Fit only", async () => {
+    const user = userEvent.setup();
+    withRouter(<FitComparison res={RUN} />);
+    await user.click(screen.getByRole("button", { name: /^Tool fit: 3 of 3/ }));
+    const help = screen.getByRole("button", { name: "How Tool fit is scored" });
+    expect(help).toHaveAccessibleDescription(/This is how Tool fit is scored\. Each level is a score from 0 to 3/);
+    withRouter(<TeamPanel res={RUN} />);
+    await user.click(screen.getAllByRole("button", { name: /Founder experience/ })[0]);
+    expect(screen.queryByRole("button", { name: "How Founder experience is scored" })).toBeNull();
   });
 
   it("opens a criterion from Scoring method too", async () => {

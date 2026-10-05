@@ -125,13 +125,53 @@ describe("opportunity", () => {
       ["Defect Detection", "Closest to the startup"], ["Asset Tracking", "Department need"], ["Cybersecurity", "Department need"]]);
   });
 
-  it("gives Connect's third step the audience with its role and the case for connecting", () => {
-    const connect = p(8, "strong", 2, { third: "ecosystem_value", statement: "s",
-      case: { verdict: "makes_sense", title: "Connecting makes sense", summary: "x", points: [] } });
-    connect.criteria[2].audience = [{ id: "seller:oem", name: "OEM", role: "integrate", reason: "Wires it into lines.", url: "https://oem.test" }];
+  it("leads a v5 Connect's partnership case with five similar sellers, the rest counted, then the market", () => {
+    const connect = p(2, "no_match", 3, { third: "offering", statement: "",
+      case: { verdict: "not_yet", title: "Partnering does not make sense on current evidence", summary: "x", points: [] } });
+    connect.criteria[1] = { id: "market_signals", path: "market",
+      evidence: [{ id: "M1", source: "market:size", quote: "Market size $15B", url: "https://m.test" }] };
+    const shown = [0, 1, 2, 3, 4].map((i) => ({ id: `seller:s${i}`, name: `S${i}`, url: `https://s${i}.test` }));
+    connect.similar = { case: "crowded", count: 25, at_least: false, shown, more: 20, sellers: shown };
     const node = opportunity(run({ Connect: connect }, "Connect"), "Connect").nodes[2];
-    expect(node.case.verdict).toBe("makes_sense");
-    expect(node.items).toEqual([{ text: "OEM", tag: "Would integrate it", detail: "Wires it into lines.", url: "https://oem.test" }]);
+    expect(node.label).toBe("Partnership case");
+    expect(node.items.map((i) => i.text)).toEqual(["S0", "S1", "S2", "S3", "S4", "+ 20 more similar sellers in Xcelerator", "Market size $15B"]);
+    expect(node.max).toBe(7);                                         // none hidden behind "show more"
+  });
+
+  it("gives a direct-partnership Connect a partnership case with its market signals, not an audience", () => {
+    const connect = p(8, "strong", 2, { third: "ecosystem_value", statement: "s",
+      case: { verdict: "makes_sense", title: "Partnering makes sense", summary: "x", points: [] } });
+    Object.assign(connect.criteria[2], { path: "partnership",
+      evidence: [{ id: "M1", source: "market:size", quote: "Market size $15B", url: "https://m.test" }] });
+    const o = opportunity(run({ Connect: connect }, "Connect"), "Connect");
+    expect(o.title).toBe("Why Siemens could partner with it");
+    expect(o.nodes[2].label).toBe("Partnership case");
+    expect(o.nodes[2].case.verdict).toBe("makes_sense");
+    expect(o.nodes[2].items).toEqual([{ text: "Market size $15B", tag: "Market signal", url: "https://m.test" }]);
+  });
+
+  it("restates a stored v3 Connect as a Siemens partnership, its audience summarised to one line", () => {
+    const reason = "SoftServe could partner with Radical Dot to develop digital solutions for optimising its process and data management, as it is at the prototype stage.";
+    const audience = ["SoftServe", "Capgemini", "TrendMiner", "Siemens Advanta", "Base", "Extra"].map((name) => (
+      { id: `seller:${name}`, name, role: "partner", reason, url: "https://s.test" }));
+    const connect = p(8, "strong", 2, { third: "ecosystem_value", statement: "s",
+      case: { verdict: "makes_sense", title: "Connecting makes sense", summary: "Part of the ecosystem would use, integrate or resell it.",
+        points: [{ tone: "plus", text: `Who in the ecosystem would benefit: SoftServe would partner on it (${reason}); …`, sources: ["https://e.test"] },
+          { tone: "minus", text: "No Xcelerator seller was found who would use, integrate or resell it.", sources: [] },
+          { tone: "plus", text: "Serves Xcelerator industries and topics: Chemicals.", sources: [] }] } });
+    connect.criteria[2].audience = audience;
+    const o = opportunity(run({ Connect: connect }, "Connect"), "Connect");
+    expect(o.title).toBe("Why Siemens could partner with it");
+    expect(o.note).toMatch(/earlier Connect rubric/);
+    const node = o.nodes[2];
+    expect(node.label).toBe("Partnership case");
+    expect(node.items).toEqual([{ text: "Ecosystem audience: SoftServe, Capgemini, TrendMiner, Siemens Advanta, Base + 1 more", tag: "Earlier rubric" }]);
+    expect(node.case.title).toBe("Partnering makes sense");
+    expect(node.case.summary).toMatch(/re-evaluate for the current score/);
+    expect(node.case.points.map((pt) => pt.text)).toEqual([
+      "Named as an ecosystem audience, which the current rubric no longer counts: SoftServe, Capgemini, TrendMiner, Siemens Advanta, Base + 1 more.",
+      "Serves Xcelerator industries and topics: Chemicals."]);
+    expect(JSON.stringify(node)).not.toContain(reason);                 // no paragraph per seller
   });
 
   it("tags each startup term with its kind and the sentence it was grounded in", () => {

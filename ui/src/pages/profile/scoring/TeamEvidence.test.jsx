@@ -1,6 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import TeamEvidence, { EvidencePreview, resolveEvidence } from "./TeamEvidence.jsx";
+import TeamEvidence, { EvidencePreview, layout, resolveEvidence } from "./TeamEvidence.jsx";
 
 /**
  * A Team & Ecosystem criterion's evidence drawn as the people and organisations it rests on — not
@@ -28,6 +28,16 @@ const VALIDATION = { id: "external_validation", label: "External validation", ev
   ev("deep_profile.commercial.investors[0].name", "UVC Partners"), ev("deep_profile.programs[7].name", "Ghost Programme")] };
 
 describe("TeamEvidence", () => {
+  it("lists a founder stored with and without his initials once", () => {
+    // Phena's latest run: "KD Kutadgu Gokalp Demirci" (this run) and "Kutadgu Gokalp Demirci" (carried).
+    const dp = { founders: [{ name: "KD Kutadgu Gokalp Demirci", source_url: "https://phena.test/about" },
+      { name: "Kutadgu Gokalp Demirci", source_url: "https://phena.test" }] };
+    const [view] = layout([{ id: "founder_experience", label: "Founder experience",
+      evidence: [ev("deep_profile.founders[0].name", "KD Kutadgu Gokalp Demirci")] }], dp);
+    expect(view.groups[0].items.map((e) => e.item.name)).toEqual(["KD Kutadgu Gokalp Demirci"]);
+  });
+
+
   it("shows founders as profile cards — photo when recorded, else initials — with background lines and profile links", () => {
     render(<TeamEvidence criterion={FOUNDER} res={{ deep_profile: DP }} />);
     const people = screen.getByRole("list", { name: "Founders" });

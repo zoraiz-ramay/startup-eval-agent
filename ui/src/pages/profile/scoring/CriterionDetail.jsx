@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ExtLink } from "../../../components/widgets.jsx";
 import EvidenceList from "./EvidenceList.jsx";
+import HelpTip from "../../../components/HelpTip.jsx";
 
 /* One criterion, opened from the cell or box that shows its score: the whole scale with the level
    this startup reached marked on it, why it reached it, and what it was measured against.
@@ -73,32 +74,51 @@ function Neighbours({ items }) {
   );
 }
 
-/* Connect's Ecosystem value: the three signals it is derived from, the path they put it on, and
-   the audience the model named, each with its role and reason. */
-const ROLE = { use: "Would use it", integrate: "Would integrate it", resell: "Would resell it", partner: "Would partner on it" };
-const SIGNALS = [["audience", "An ecosystem audience"], ["industry_topic", "A clear industry & topic fit"], ["market", "A good market signal"]];
+/* Connect's derived signals. Rubric v5's Market signals (path "market") lists each good cited
+   signal; v4's Ecosystem value also counted the fit; v3 runs, kept as history, carry the ecosystem
+   audience the model named — shown as one line of names, because Siemens partners with the startup
+   directly and a paragraph per seller answered a question Connect no longer asks. Only the
+   signals a run holds are listed. */
+const SIGNALS = [["audience", "An ecosystem audience"], ["industry_topic", "A clear industry & topic fit"],
+  ["market", "A good market signal"], ["market_size", "A good cited market size"],
+  ["market_growth", "A good cited market growth"], ["funded_peers", "Funded peers in the niche"]];
+const PATHS = { market: "Good market signals", partnership: "Direct partnership: fit plus market signals", audience: "Audience path",
+  open_space: "Open space: no ecosystem audience" };
 
 function ValueSignals({ c }) {
   return (
     <>
-      <h5>{c.path === "audience" ? "Audience path" : "Open space: no ecosystem audience"}</h5>
+      <h5>{PATHS[c.path] || PATHS.open_space}</h5>
       <ul className="value-signals">
-        {SIGNALS.map(([k, label]) => (
+        {SIGNALS.filter(([k]) => k in c.signals).map(([k, label]) => (
           <li key={k}><span className={`pill ${c.signals[k] ? "pill-ok" : "pill-neutral"}`}>{c.signals[k] ? "Yes" : "No"}</span> {label}</li>
         ))}
       </ul>
       {c.audience?.length > 0 && <>
-        <h5>Ecosystem audience</h5>
-        <ul className="crit-catalog">
-          {c.audience.map((a) => (
-            <li key={a.id}>
-              <span className="crit-catalog-name">{a.url ? <ExtLink href={a.url}>{a.name}</ExtLink> : a.name}
-                <span className="kind-tag">{ROLE[a.role] || a.role}</span></span>
-              <span className="muted">{a.reason}</span>
+        <h5>Ecosystem audience (earlier rubric)</h5>
+        <p className="muted">{c.audience.map((a) => a.name).join(", ")}. Counted by the rubric this run was scored
+          with; the current one asks only whether Siemens should partner with the startup. Re-evaluate for the current score.</p>
+      </>}
+    </>
+  );
+}
+
+/* Connect's similar sellers (rubric v5): every Xcelerator seller the search found selling the same
+   kind of solution, nearest first, with what evidence sets the startup apart from each. */
+function SimilarSellers({ similar }) {
+  return (
+    <>
+      <h5>Similar sellers in Xcelerator</h5>
+      {similar.count === 0 ? <p className="muted">None of the {similar.searched} nearest sellers sells the same kind of solution.</p>
+        : <ul className="crit-catalog">
+          {similar.sellers.map((s) => (
+            <li key={s.id}>
+              <span className="crit-catalog-name">{s.url ? <ExtLink href={s.url}>{s.name}</ExtLink> : s.name}
+                <span className="kind-tag">Sells the same kind of solution</span></span>
+              <span className="muted">{s.differentiator ? `Differs: ${s.differentiator}` : "Nothing evidenced sets the startup apart."}</span>
             </li>
           ))}
-        </ul>
-      </>}
+        </ul>}
     </>
   );
 }
@@ -131,7 +151,7 @@ export function DetailPanel({ id, anchorId, context, title, score, max, question
 }
 
 export default function CriterionDetail({ id, anchorId, context, criterion: c, max, scale, question, notes = [], catalogLabel = "catalog entries",
-  evidenceView = null, onClose }) {
+  similar = null, scaleHelp = "", evidenceView = null, onClose }) {
   // The scale reads top-down like a ladder, best level first; without the rubric's scale (an
   // older API) only the level reached is shown, never a guessed one.
   const levels = Array.isArray(scale) && scale.length === max + 1
@@ -140,7 +160,8 @@ export default function CriterionDetail({ id, anchorId, context, criterion: c, m
   return (
     <DetailPanel id={id} anchorId={anchorId} context={context} title={c.label} score={c.score} max={max}
       question={question} onClose={onClose} scale={<>
-        <h5>Where this startup sits</h5>
+        <h5 className="crit-scale-head">Where this startup sits
+          {scaleHelp && <HelpTip id={`${id}-scale-help`} label={`How ${c.label} is scored`} text={scaleHelp} />}</h5>
         <ol className="crit-scale" aria-label={`${c.label} scale, 0 to ${max}`}>
           {levels.map((l) => (
             <li key={l.level} className={l.level === c.score ? "on" : ""} aria-current={l.level === c.score ? "true" : undefined}>
@@ -152,6 +173,8 @@ export default function CriterionDetail({ id, anchorId, context, criterion: c, m
       <h5>Why this level</h5>
       {c.rationale ? <p>{c.rationale}</p> : <p className="muted">No rationale was recorded.</p>}
       {notes.map((n) => <p key={n} className="crit-note">{n}</p>)}
+      {c.counted === false && <p className="crit-note">Not counted: other sellers already sell this, so Connect is scored from how many.</p>}
+      {similar && <SimilarSellers similar={similar} />}
       {c.neighbours ? <Neighbours items={c.neighbours} />
         : c.signals ? <ValueSignals c={c} />
         : <CatalogMatches items={c.catalog} what={catalogLabel} matched={c.score > 0} />}

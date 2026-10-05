@@ -34,9 +34,10 @@ import datetime as _dt
 import re
 from urllib.parse import urlparse
 
-from .text import dedupe_people, person_key
+from .text import dedupe_people, founders_first, person_key, same_person
 
-MARKET_MAX_AGE_DAYS = 548                    # 18 months
+MARKET_MAX_AGE_DAYS = 548                    # 18 months: an undated figure, by when it was found
+MARKET_MAX_AGE_YEARS = 2                     # a dated figure: its year within the last two
 
 # (container path in the profile result, key fields that identify an item)
 _PROFILE_LISTS = (
@@ -206,6 +207,11 @@ def _merge_list(fresh_items, prior_runs, path, fields, getter, now: str, report:
             key = _item_key(item, fields)
             if not key or not any(key) or key in seen or not _grounded(item):
                 continue
+            # A person is matched on more than the name key: an earlier run's "KD Kutadgu Gokalp
+            # Demirci" is this run's "Kutadgu Gokalp Demirci", and carrying both listed him twice.
+            if fields == ("person",) and any(same_person(item, i) for i in fresh_items
+                                             + [v for k, v in carried.items() if k != key]):
+                continue
             entry = copy.deepcopy(item)
             entry["last_confirmed_at"] = item.get("last_confirmed_at") or _when(run)
             carried[key] = entry
@@ -244,6 +250,7 @@ def merge_profile(fresh: dict, prior_runs: list, now: str, report: dict) -> dict
                              lambda run, p: _get(_profile_of(run), p), now, report, ".".join(path))
         if merged or _get(dp, path) is not None:
             _set(dp, path, merged)
+    founders_first(dp)
     history = dp["history"] if isinstance(dp.get("history"), dict) else {}
     for path, spec in _SCALARS:
         fresh_val = _get(dp, path)
@@ -361,10 +368,28 @@ def _as_of(size: dict, today: _dt.date):
     return _dt.date(year, 12, 31)            # year only: the latest reading of that year
 
 
-def market_size_current(size, today: _dt.date) -> bool:
-    """A cited market figure no older than 18 months; an undated one is not current."""
-    when = _as_of(size, today) if isinstance(size, dict) else None
-    return when is not None and (today - when).days <= MARKET_MAX_AGE_DAYS
+def market_size_current(size, today: _dt.date, found=None) -> bool:
+    """A cited market figure that is current: its year within the last MARKET_MAX_AGE_YEARS, and
+    not in the future.
+
+    Reports published this year state last year's or the year before's market, so the old 18-month
+    line dropped a 2024 base figure in October 2026 while a "2030" figure passed, because a forecast
+    is always dated ahead. A future-dated figure is a forecast and is not the market's size. An
+    undated figure is current when it was found (``found``, the run's date) within 18 months.
+    """
+    if not isinstance(size, dict):
+        return False
+    when = _as_of(size, today)
+    if when is None:
+        return found is not None and 0 <= (today - found).days <= MARKET_MAX_AGE_DAYS
+    return today.year - MARKET_MAX_AGE_YEARS <= when.year <= today.year
+
+
+def _run_date(run: dict):
+    try:
+        return _dt.date.fromisoformat(_when(run)[:10])
+    except ValueError:
+        return None
 
 
 def merge_trend(fresh: dict, prior_runs: list, now: str, today: _dt.date, report: dict) -> dict:
@@ -375,9 +400,10 @@ def merge_trend(fresh: dict, prior_runs: list, now: str, today: _dt.date, report
     land = out.get("landscape")
     if isinstance(land, dict):
         size = land.get("market_size")
-        if size and not market_size_current(size, today):
+        if size and not market_size_current(size, today, found=today):
             land["market_size"] = None
-            report["market_size_dropped"] = {"as_of": (size or {}).get("as_of", ""), "reason": "older than 18 months"}
+            report["market_size_dropped"] = {"as_of": (size or {}).get("as_of", ""),
+                                             "reason": "a forecast or older than two years"}
         if prior_runs:
             for path, fields in _TREND_LISTS:
                 land[path[-1]] = _merge_list(_get(out, path), prior_runs, path, fields,
@@ -386,7 +412,7 @@ def merge_trend(fresh: dict, prior_runs: list, now: str, today: _dt.date, report
             if not land.get("market_size"):
                 for run in reversed(prior_runs):            # newest qualifying prior figure
                     prior = _get(run.get("trend") or {}, ("landscape", "market_size"))
-                    if prior and _http(prior.get("source_url")) and market_size_current(prior, today):
+                    if prior and _http(prior.get("source_url")) and market_size_current(prior, today, _run_date(run)):
                         land["market_size"] = {**prior, "last_confirmed_at": prior.get("last_confirmed_at") or _when(run)}
                         report.setdefault("fields_carried", []).append("landscape.market_size")
                         break

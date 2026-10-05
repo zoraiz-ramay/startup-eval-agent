@@ -220,33 +220,38 @@ department-less engine calls).
   `pillars._recommended_tools` (shortlisted, relation, reason, a real citation) and existence-checked;
   one that cannot be found is dropped without a re-match. They never move the score. Fit also lists
   up to 5, but everything that decides from `fit.matches` reads the first one or three.
-- **Connect asks whether the offering is already in the ecosystem** (rubric v2+). Its criteria are
-  Ecosystem gap · Industry & topic fit · Ecosystem value. The gap is **derived, never scored by the
-  model**: the Xcelerator sellers are embedded into `data/xcelerator_index/`
-  (`scripts/build_tool_index.py --catalog xcelerator`, ~10s; rerun after any change to the
-  workbook), the 10 nearest the startup's offering are fused with word overlap, the model labels
-  each `equivalent | overlapping | distinct` in the Connect call it already makes, and
-  `pillars.gap_level` counts only equivalents with **no cited differentiator** — a raw count
-  punished a startup for working in a busy area even when it was evidently different. A skipped
-  seller counts as overlapping, never as absent. Bands are `config.CONNECT_GAP_*`; tune them from
-  `connect.ecosystem_gap` in `scripts/dimension_variance.py`, not by argument. A saturated offering
-  (gap 0) tops out at 6/9 and can never be Strong. **Absence is a gap only where the ecosystem
-  is**: with Industry & topic fit below 2 the gap is capped at 1 — an offering nobody sells because
-  it is unrelated is distant, not new, and scoring that 3/3 lifted weak startups to Review.
-- **Connect's Ecosystem value is derived too, on two paths** (rubric v3; the model now scores only
-  Industry & topic fit, which at 2+ must cite both an industry and a topic). Its three signals:
-  an ecosystem **audience** (sellers the model names as would use / integrate / resell / partner,
-  each with a reason and a citation, never one it labelled equivalent — drawn from the nearest
-  sellers or from `audience_candidates`, sellers in the startup's industries and topics), a clear
-  **fit**, and a good **market** signal — a `market:` record `pillar_match.market_records` builds in
-  Python from the trend stage's cited figures (`config.CONNECT_GOOD_MARKET`), so "good" is never
-  the model's call. With an audience: 1, +1 for fit or market, +1 for both. Without one — open
-  space — fit and market alone: 0, 1 or 2 (`pillars.value_level`). So an open-space startup that
-  fits and has a strong market can still be Strong (3+3+2); one that does neither cannot.
-  `pillars.connect_case` turns the same rows into the verdict the opportunity map's third step
-  shows — "Connecting makes sense" / "Worth exploring" / "does not make sense", from the band —
-  with each point for or against and its source: templated, never generated. The equivalent
-  sellers are competitors: `catalogGroups` keeps them out of the "Ecosystem audience" node.
+- **Connect is Siemens partnering with the startup itself, and asks first how many Xcelerator
+  sellers already sell the same thing** (rubric v5). The sellers are embedded into
+  `data/xcelerator_index/` (`scripts/build_tool_index.py --catalog xcelerator`, ~10s; rerun after
+  any change to the workbook), the 30 nearest the startup's offering are fused with word overlap
+  (`config.CONNECT_NEIGHBOURS`), and the model labels each `same | different` by **what it sells**
+  in the Connect call it already makes — shared buyers or industries are `different`. The model
+  never gives the count. Similarity alone cannot count: on the stored index every seller sits
+  within 0.58–0.70 of the startup, and Radical Dot's third-nearest was a battery recycler. A
+  skipped seller counts as different, because a "same" moves the startup into the crowded case.
+  - **Crowded (2+ same):** Connect scores from the count alone — 2–3 → 3/9, 4–7 → 2, 8–11 → 1,
+    12+ → 0 (`config.CONNECT_CROWDED`, `pillars.crowded_level`), always No match. The criteria
+    are still computed and shown, marked `counted: False`.
+  - **Open (0–1 same):** Industry & topic fit (model; 2+ cites an industry and a topic) + Market
+    signals (Python: one point per `market:` record `pillar_match.market_records` builds from the
+    trend stage's cited size, CAGR and funded peers, `config.CONNECT_GOOD_MARKET` — never the
+    model's call) + Offering (model, third, so it gates Strong). Offering needs research citations
+    but **no catalog id**: what a startup sells is a fact about the startup, and requiring one
+    zeroed Celonis's process-mining offering. With exactly one same seller, Offering reaches 3
+    only with a cited differentiator against it.
+  - The 5 nearest same sellers are named and the rest are "+ N more" (`similar` on the pillar; "or
+    more" when all 30 searched were same). Tune the bands from `connect.similar_count` in
+    `scripts/dimension_variance.py`, not by argument.
+  - v2–v4 scored an Ecosystem gap and an Ecosystem value, and v3 an ecosystem **audience** of
+    sellers who would resell the startup — removed because Siemens partners with it directly.
+    Stored runs keep those rows. The UI renders them as history, restated as a Siemens partnership
+    (`ui/src/pages/profile/scoring/connectOpportunity.js`): the audience is one line of names, never
+    a paragraph per seller, with a pointer to re-evaluate. A plain search re-assesses a stored run
+    whose `assessment_key` predates the rubric, so re-searching the company is enough.
+  - `pillars.connect_case` turns the same facts into the verdict the opportunity map's third step
+    ("Partnership case") shows — "Partnering makes sense" / "Worth exploring" / "does not make
+    sense", from the band — with each point for or against and its source: templated, never
+    generated.
 - **Collaborate ranks a department's needs by meaning** (`data/needs_index/`, all ~50 needs of the
   requirements workbook, `scripts/build_tool_index.py --catalog needs`; rerun after any change to
   it). Ranked once per evaluation in `prepare_pillars`, filtered per department. Not fused with
@@ -313,8 +318,47 @@ competitor beside a link is indistinguishable from a real one. The startup is al
 its own landscape in code — Celonis came back at the top of its own process-mining competitor list,
 because in results about a company's own niche that company genuinely is the most prominent name.
 
+**The market size is grounded too, and read as a report states it.** It used to be the one
+landscape field with no check, and was often missing although the web had it. What changed, at no
+extra model or search call:
+- Size is searched under the **parent market** stage 1 now names ("chemical recycling"), the way
+  reports are titled. The niche label returned CAGR definitions and calculators.
+- Snippets are read whole (a 200-character cut lost Phena's CAGR). The landscape and trend results
+  have separate budgets. The top two size results are fetched as pages and cut to their figure
+  sentences (`_read_size_pages`, `web.fetch_url`).
+- The model returns the **base-year** `value` / `as_of` and the forecast apart (`forecast_value`,
+  `forecast_year`). `market.size_level` reads the first amount, never the largest. The largest was
+  the forecast, and put Wandelbots' 2032 figure in the size band.
+- Every number in `value` and `cagr` must appear in the results, and `source_url` must be a URL the
+  search returned. A "None" from the model is stored empty, never as the text "None". The name
+  check reads the same rows the prompt did.
+
 `landscape` absent and `landscape` present-but-empty are different statements, and the UI renders
 them differently: "not researched on this run" versus "the search named no competitor".
+
+## Relevant Siemens Contact: the Directory, read as an inference
+
+Empower → Tool fit ends with "Relevant Siemens Contact" instead of a second evidence list
+(`POST /api/runs/{id}/lookup/contacts` → `core/siemens_contacts.py` → `core/directory_api.py`).
+- **Input:** each cited tool's name, category and department, which is the catalogue's `division`.
+  The department is **shown as supplied**; a high-level one ("DI", "FT") is never replaced by a
+  guessed sub-department.
+- **The directory:** `GET /people`, API key in a header, filtered by department, low limit, cursor
+  paging. It restarts from the beginning once on an invalid cursor, as the docs require. Only
+  `commonName`, `department` and `email` leave the client, and any may be null.
+- **Ranking:** a department matches people, not tool owners, so the people are **ranked by the app**:
+  - an exact or deeper match of the tool's department first;
+  - then departments naming a word of the tool's name or category;
+  - then the more specific department.
+
+  The top 3 are shown, under a note that says this is an inference. Divisions written as names
+  ("Digital Industries Software") are searched as their code, and the row says so.
+- **No key:** "not configured", never an empty list.
+- **Testing:** the key, like GlassDollar's, resolves only inside the Siemens network, so the client's
+  contract is driven with a fake (`tests/test_siemens_contacts.py`). Header, parameter and cursor
+  names are env-configurable because only the endpoint is documented here.
+- **Caching:** per tool and department in the web cache for 7 days. Contacts belong to a tool, not
+  to the company being evaluated.
 
 ## A profile appears before its verdict
 
@@ -377,8 +421,15 @@ run of the company (`store.prior_runs_for`, oldest first) into the fresh one as 
 - Named reference customers have no URL of their own; one is carried only when an earlier run's
   verification claim sourced it and did not contradict it, with that source in
   `deep_profile.customer_evidence` (traction reads it) and its label in `customer_classes`.
-- Market size / CAGR older than 18 months is dropped, fresh or carried; a year-only `as_of` is read
-  as 31 December.
+- A market figure is current when its `as_of` year is within the last two calendar years and not in
+  the future. An undated one counts by when its run found it (18 months). The old 18-month line
+  dropped 2024 base figures in October 2026 but kept "2030" ones, because a forecast is always
+  dated ahead. A future-dated figure is a forecast, not the size.
+- People are one person by `text.same_person`, not by the name alone: equal name keys, names that
+  differ only by initials ("KD Kutadgu Gokalp Demirci"), or the same profile link plus a shared
+  name token. The token is required because research once attached one colleague's LinkedIn to
+  another. `founders_first` drops from key_team and advisors anyone already listed as a founder.
+  `ui/src/pages/profile/people.js` mirrors both, so stored runs display correctly unrewritten.
 - The Team & Ecosystem panel lists every entity of a cited kind on record, cited ones first and
   marked. Showing only the model's citations made carried investors look lost: it cited a
   different two of fifteen each run.

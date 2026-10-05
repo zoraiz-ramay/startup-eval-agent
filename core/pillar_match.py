@@ -186,7 +186,7 @@ def collaborate_query(run: dict, concepts: dict) -> str:
 
 
 def market_records(run: dict) -> list[dict]:
-    """The run's GOOD market signals as citable records (`market:` sources), for Ecosystem value 3.
+    """The run's GOOD market signals as citable records (`market:` sources), each a point of Ecosystem value.
 
     Built from what the trend stage cited, banded by core/market.py, so the judgement of "good" is
     Python's and not the model's. Kept out of the 14k evidence budget, which in practice cuts the
@@ -213,19 +213,6 @@ def market_records(run: dict) -> list[dict]:
                                                  if v and str(v).strip().lower() not in ("none", "null", "n/a"))
                                         for p in peers[:3])})
     return [{**r, "id": f"M{i + 1}"} for i, r in enumerate(out)]
-
-
-def audience_candidates(concepts: dict, catalog: dict, taken: set) -> list[dict]:
-    """Sellers in the startup's Xcelerator industries and topics — who might use, integrate or
-    resell it — ranked by shared filter values, then by how much of the startup's use cases their
-    description shares. The nearest sellers (``taken``) are excluded: they answer another question."""
-    filters = [c for g in ("industries", "topics") for c in concepts.get(g, [])]
-    uses = [c for g in ("use_cases", "capabilities") for c in concepts.get(g, [])]
-    if not filters:
-        return []
-    ranked = sorted(((_overlap(filters, " ".join(s["industries"] + s["topics"])), _overlap(uses, s["description"]), s)
-                     for s in catalog["entries"] if s["id"] not in taken), key=lambda x: (-x[0], -x[1]))
-    return [{**s, "slot": "audience"} for n, _, s in ranked[:config.CONNECT_AUDIENCE_CANDIDATES] if n > 0]
 
 
 def seller_word_ranking(concepts: dict, catalog: dict) -> list[dict]:
@@ -258,15 +245,15 @@ def shortlist(pillar: str, concepts: dict, catalog: dict, run: dict, semantic: l
         return [by_id[i] for i in order][:_NEEDS_SHORTLIST]
     if pillar == "Connect":
         # The filter vocabularies are small and closed, so all of them go to the model. The sellers
-        # are the startup's nearest neighbours in the ecosystem, by meaning and by words fused, and
-        # the model labels each one for Ecosystem gap.
+        # are the startup's nearest neighbours in the ecosystem, by meaning and by words fused, in
+        # that order — the order the similar sellers are shown in — and the model labels each one
+        # same / different.
         from .tool_search import fuse
         words = seller_word_ranking(concepts, catalog)
         by_name = {s["name"].casefold(): s for s in catalog["entries"]}
         names = fuse([s["name"] for s in words], semantic, config.CONNECT_NEIGHBOURS)
         nearest = [{**by_name[n.casefold()], "slot": "neighbour"} for n in names if n.casefold() in by_name]
-        return (catalog["industries"] + catalog["topics"] + nearest
-                + audience_candidates(concepts, catalog, {e["id"] for e in nearest}))
+        return catalog["industries"] + catalog["topics"] + nearest
     words = tool_word_ranking(concepts, catalog, run)
     if not semantic:
         return words[:_SHORTLIST]
@@ -292,16 +279,14 @@ def _catalog_line(e: dict) -> str:
 
 
 def _catalog_block(pillar: str, entries: list[dict]) -> str:
-    """The shortlist as the prompt shows it. Connect's sellers come in two labelled lists, because
-    the model is asked a different question about each."""
+    """The shortlist as the prompt shows it. Connect's vocabulary and its nearest sellers are listed
+    apart, because the model is asked a different question about each."""
     if pillar != "Connect":
         return "Catalog shortlist (id | name | detail):\n" + "\n".join(_catalog_line(e) for e in entries) + "\n"
-    groups = {"vocab": [], "neighbour": [], "audience": []}
-    for e in entries:
-        groups["vocab" if not e["id"].startswith("seller:") else e.get("slot", "neighbour")].append(e)
-    block = "Xcelerator industries and topics (id | name):\n" + "\n".join(_catalog_line(e) for e in groups["vocab"]) + "\n"
-    block += "NEAREST SELLERS (id | name | detail):\n" + ("\n".join(_catalog_line(e) for e in groups["neighbour"]) or "(none)") + "\n"
-    block += "POSSIBLE AUDIENCE (id | name | detail):\n" + ("\n".join(_catalog_line(e) for e in groups["audience"]) or "(none)") + "\n"
+    vocab = [e for e in entries if not e["id"].startswith("seller:")]
+    sellers = [e for e in entries if e["id"].startswith("seller:")]
+    block = "Xcelerator industries and topics (id | name):\n" + "\n".join(_catalog_line(e) for e in vocab) + "\n"
+    block += "NEAREST SELLERS (id | name | detail):\n" + ("\n".join(_catalog_line(e) for e in sellers) or "(none)") + "\n"
     return block
 
 
@@ -322,24 +307,25 @@ def deep_match(pillar: str, concepts: dict, entries: list[dict], records: list[d
     market = market_records(run) if pillar == "Connect" else []
     neighbours_shape = ""
     if pillar == "Connect":
+        # Connect is Siemens partnering with the startup directly, so the sellers are asked about
+        # only as competition: does someone in the ecosystem already sell this? "Same" is judged on
+        # what is sold, never on shared buyers or industries — that rule once labelled two
+        # laboratory-furniture makers as overlapping a chemical-recycling process.
         context = (
-            "You score ONLY industry_topic_fit; at 2-3 it must cite at least one industry: id and one "
-            "topic: id. Ecosystem gap and ecosystem value are computed from the two lists you return.\n"
-            "1. neighbours: label EVERY seller under NEAREST SELLERS. equivalent = sells the same "
-            "solution to the same buyers; overlapping = shares part of the offering or the buyers; "
-            "distinct = a different offering. For an equivalent seller, write a differentiator ONLY if a "
-            "research record evidences how the startup differs, and cite it; otherwise leave it empty.\n"
-            "2. audience: up to 5 sellers from either list who would use, integrate or resell the "
-            "startup's offering, or partner on it (never one you labelled equivalent), each with a "
-            "one-sentence reason grounded in what both sides do and the research records that support "
-            "it. An empty list is a valid finding: say nobody when nobody would.\n"
-            "The statement's [industry/ecosystem audience] names an audience seller or, without one, "
-            "the Xcelerator industry it is for.\n"
+            "Siemens is considering partnering with this startup directly. You score industry_topic_fit "
+            "and offering. At 2-3, industry_topic_fit must cite at least one industry: id and one "
+            "topic: id. offering judges what the startup sells, whatever its industry, and cites the "
+            "research records that describe it. Market signals are computed separately.\n"
+            "neighbours: label EVERY seller under NEAREST SELLERS by what it sells compared with what "
+            "the startup sells. same = sells the same kind of solution; different = sells something "
+            "else, even if it serves the same industry or buyers, or covers only a small part of what "
+            "the startup does. For a same seller, write a differentiator ONLY if a research record "
+            "evidences how the startup differs, and cite it; otherwise leave it empty.\n"
+            "The statement's [Xcelerator industry] names an industry you cite.\n"
             + ("Good market signals (context; already counted): " + _prompt_evidence(market) + "\n" if market else
                "No good market signal is evidenced.\n"))
-        neighbours_shape = (',"neighbours":[{"catalog_id":"seller:...","overlap":"equivalent|overlapping|distinct",'
-                            '"differentiator":"","citations":["E1"]}],"audience":[{"catalog_id":"seller:...",'
-                            '"role":"use|integrate|resell|partner","reason":"","citations":["E1"]}]')
+        neighbours_shape = (',"neighbours":[{"catalog_id":"seller:...","label":"same|different",'
+                            '"differentiator":"","citations":["E1"]}]')
     shape = ",".join(f'"{k}":{{"score":0,"rationale":"","citations":["E1"],"catalog_ids":["..."]}}'
                      for k, _ in spec["criteria"] if k not in spec.get("derived", ()))
     tools_rule = tools_shape = ""
@@ -368,7 +354,8 @@ def deep_match(pillar: str, concepts: dict, entries: list[dict], records: list[d
         + "Research records:\n" + _prompt_evidence(ev) + "\n"
         + 'Return ONLY JSON {"criteria":{' + shape + '},"statement":"","next_step":""' + tools_shape
         + neighbours_shape + '}')
-    data = LLMClient.parse_json(llm.complete(prompt, max_tokens=1600 if pillar == "Connect" else 1100,
+    # Connect labels 30 sellers, so its answer runs to roughly twice the others'.
+    data = LLMClient.parse_json(llm.complete(prompt, max_tokens=2600 if pillar == "Connect" else 1100,
                                              reasoning="none"))
     by_id = {r["id"]: {"id": r["id"], "source": r["source"], "quote": r["text"], "url": r.get("url", "")}
              for r in list(records) + market}

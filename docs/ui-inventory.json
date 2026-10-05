@@ -407,7 +407,7 @@
     },
     {
       "path": "ui/src/components/charts.jsx",
-      "lines": 140,
+      "lines": 142,
       "exports": [
         "BandScale",
         "HeatStrip",
@@ -504,6 +504,17 @@
       "css_classes": [
         "link-btn",
         "list-more"
+      ]
+    },
+    {
+      "path": "ui/src/components/HelpTip.jsx",
+      "lines": 20,
+      "exports": [
+        "HelpTip"
+      ],
+      "css_classes": [
+        "help-btn",
+        "sr-only"
       ]
     },
     {
@@ -920,7 +931,7 @@
     },
     {
       "path": "ui/src/pages/profile/people.test.jsx",
-      "lines": 38,
+      "lines": 73,
       "exports": [],
       "css_classes": []
     },
@@ -963,7 +974,7 @@
     },
     {
       "path": "ui/src/pages/profile/scoring/CriterionDetail.jsx",
-      "lines": 164,
+      "lines": 187,
       "exports": [
         "CriterionDetail",
         "DetailPanel"
@@ -979,6 +990,7 @@
         "crit-note",
         "crit-question",
         "crit-scale",
+        "crit-scale-head",
         "crit-score",
         "crit-why",
         "eyebrow",
@@ -1050,7 +1062,7 @@
     },
     {
       "path": "ui/src/pages/profile/scoring/FitComparison.jsx",
-      "lines": 101,
+      "lines": 111,
       "exports": [
         "FitComparison"
       ],
@@ -1215,8 +1227,31 @@
       ]
     },
     {
+      "path": "ui/src/pages/profile/scoring/SiemensContacts.jsx",
+      "lines": 39,
+      "exports": [
+        "SiemensContacts"
+      ],
+      "css_classes": [
+        "contact-list",
+        "contact-tool",
+        "contact-tools",
+        "contacts",
+        "crit-catalog-name",
+        "fd",
+        "kind-tag",
+        "muted"
+      ]
+    },
+    {
+      "path": "ui/src/pages/profile/scoring/SiemensContacts.test.jsx",
+      "lines": 43,
+      "exports": [],
+      "css_classes": []
+    },
+    {
       "path": "ui/src/pages/profile/scoring/SiemensFit.test.jsx",
-      "lines": 334,
+      "lines": 371,
       "exports": [],
       "css_classes": []
     },
@@ -1248,7 +1283,7 @@
     },
     {
       "path": "ui/src/pages/profile/scoring/TeamEvidence.jsx",
-      "lines": 247,
+      "lines": 250,
       "exports": [
         "EvidencePreview",
         "TeamEvidence",
@@ -1283,7 +1318,7 @@
     },
     {
       "path": "ui/src/pages/profile/scoring/TeamEvidence.test.jsx",
-      "lines": 136,
+      "lines": 146,
       "exports": [],
       "css_classes": []
     },
@@ -1601,7 +1636,7 @@
     "routes": 9,
     "api_methods": 38,
     "design_tokens": 70,
-    "jsx_files": 87,
-    "jsx_lines": 9493
+    "jsx_files": 90,
+    "jsx_lines": 9715
   }
 }

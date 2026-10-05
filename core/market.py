@@ -17,7 +17,7 @@ import re
 
 from . import config
 from .llm import LLMClient
-from .text import parse_money, _clean_source_url
+from .text import first_money, _clean_source_url
 
 VERSION = "market-rubric-v1"
 NO_FIGURE_CAP = 2
@@ -41,23 +41,37 @@ def band(points: int) -> str:
 
 
 def size_level(value) -> tuple[int, float] | None:
-    """(level, EUR) for a cited market size, or None when it states no usable amount."""
-    money = parse_money(value)
+    """(level, EUR) for a cited market size, or None when it states no usable amount.
+
+    The first amount, not the largest: a cited size usually names its base year first and a
+    forecast after, and the largest put Wandelbots' 2032 forecast in the size band. Below EUR 1M
+    is not a market size but a misread one ("US$15.2 bln" once parsed as fifteen dollars), and is
+    reported as unparsed so the model may judge instead of the band reading it as a niche."""
+    # Report sites write the currency between the number and the magnitude ("2.573 USD Billion",
+    # Celonis' process-mining market); read that as "USD 2.573 Billion".
+    value = re.sub(r"(\d[\d.,]*)\s*(USD|EUR|GBP|US\$)\s+(?=(?:billion|million|trillion|bn|mn)\b)",
+                   r"\2 \1 ", str(value or ""), flags=re.I)
+    money = first_money(value)
     if not money or money["low"] <= 0:
         return None
     rate = config.FX_TO_EUR.get(money.get("currency") or "USD")   # market reports quote USD
     if rate is None:
         return None
     eur = money["low"] * rate
+    if eur < 1e6:
+        return None
     return next(lvl for floor, lvl in SIZE_BANDS if eur >= floor), eur
 
 
 def growth_level(value) -> tuple[int, float] | None:
-    """(level, percent) for a cited CAGR; a negative rate is a declining market."""
-    m = re.search(r"(-?\d+(?:\.\d+)?)\s*%", str(value or ""))
+    """(level, percent) for a cited CAGR; a negative rate is a declining market.
+
+    Reads "7.8%", "7,8 %" (a decimal comma, once read as 8), "7.8 percent" and "7.8 per cent".
+    A range ("12.5%-15%") is read by its first figure."""
+    m = re.search(r"(-?\d+(?:[.,]\d+)?)\s*(?:%|percent\b|per\s+cent\b)", str(value or ""), re.I)
     if not m:
         return None
-    pct = float(m.group(1))
+    pct = float(m.group(1).replace(",", "."))
     if pct < 0:
         return 0, pct
     return next(lvl for floor, lvl in GROWTH_BANDS if pct >= floor), pct

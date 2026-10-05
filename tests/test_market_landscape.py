@@ -108,6 +108,50 @@ def test_an_uncited_market_size_is_dropped_entirely():
     assert out["market_size"] is None
 
 
+def test_a_market_size_the_results_never_state_is_dropped():
+    # The size was the one landscape field with no grounding: a figure the model wrote reached the
+    # page as long as it came with any http link.
+    out = _run({"market_size": {"value": "$9.9B", "cagr": "", "source_url": "https://research.example/report"}})
+    assert out["market_size"] is None
+    out = _run({"market_size": {"value": "$3.4B", "cagr": "35%", "source_url": "https://research.example/report"}})
+    assert out["market_size"]["value"] == "$3.4B" and out["market_size"]["cagr"] == ""   # 35% is not in the results
+
+
+def test_a_market_size_cited_to_a_url_the_search_never_returned_is_dropped():
+    out = _run({"market_size": {"value": "$3.4B", "cagr": "21%", "source_url": "https://elsewhere.example/r"}})
+    assert out["market_size"] is None
+
+
+def test_none_from_the_model_is_never_stored_as_the_text_none():
+    out = _run({"market_size": {"value": None, "cagr": "21%", "as_of": "null",
+                                "source_url": "https://research.example/report"}})
+    assert out["market_size"]["value"] == "" and out["market_size"]["as_of"] == ""
+
+
+def test_a_forecast_is_kept_apart_from_the_base_size():
+    evidence = EVIDENCE + [{"title": "Report", "url": "https://r.example/m",
+                            "snippet": "Valued at USD 15.2 billion in 2024, reaching USD 25 billion by 2030 at 8.1% CAGR."}]
+    out = _run({"market_size": {"value": "USD 15.2 billion", "as_of": "2024", "forecast_value": "USD 25 billion",
+                                "forecast_year": "2030", "cagr": "8.1%", "source_url": "https://r.example/m"}}, evidence)
+    assert out["market_size"]["value"] == "USD 15.2 billion" and out["market_size"]["forecast_value"] == "USD 25 billion"
+
+
+def test_market_size_is_searched_under_the_parent_market_not_the_niche_label():
+    q = _landscape_queries("AI-powered robotics operating system for flexible industrial automation",
+                           ["industrial robot software", "industrial automation"])
+    assert q["lc_size"].startswith("industrial robot software market size")
+    assert q["lc_leaders"].startswith("industrial automation market")
+    assert _landscape_queries("meeting intelligence")["lc_size"].startswith("meeting intelligence market size")
+
+
+def test_only_the_figure_sentences_of_a_report_page_are_kept():
+    from core.trend import _figure_sentences
+    page = ("Welcome to our site. Accept cookies. The global chemical recycling market was valued at "
+            "USD 12.3 billion in 2024 and is projected to grow at a CAGR of 9.4% to 2030. Contact us today.")
+    assert _figure_sentences(page) == ("The global chemical recycling market was valued at USD 12.3 billion "
+                                       "in 2024 and is projected to grow at a CAGR of 9.4% to 2030.")
+
+
 def test_an_empty_market_size_is_not_reported_as_a_figure():
     out = _run({"market_size": {"value": "", "cagr": "",
                                 "source_url": "https://research.example/report"}})

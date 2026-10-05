@@ -950,6 +950,7 @@ details.blind > summary { cursor: pointer; padding: 10px 14px; font-weight: 600;
 .heat-cell.l2 { background: color-mix(in srgb, var(--accent) 55%, transparent); color: var(--text-1); }
 .heat-cell.l3 { background: var(--accent); color: var(--theme-color-primary--contrast, var(--surface)); }
 .heat-item:hover .heat-cell { box-shadow: 0 0 0 1px var(--text-2); }
+.heat-item.uncounted .heat-cell { opacity: .45; }
 .heat-item.open .heat-cell { box-shadow: 0 0 0 2px var(--text-1); }
 .heat-label { font-size: 11px; color: var(--text-2); text-align: center; }
 .heat-item.open .heat-label { color: var(--text-1); font-weight: 600; }
@@ -1029,6 +1030,11 @@ details.blind > summary { cursor: pointer; padding: 10px 14px; font-weight: 600;
 .crit-question { margin: 4px 0 0; }
 .crit-drawer-body { display: grid; grid-template-columns: minmax(240px, 340px) minmax(0, 1fr); gap: 24px; }
 .crit-drawer-body h5 { margin: 0 0 6px; font-size: var(--fs-meta); letter-spacing: .06em; text-transform: uppercase; color: var(--text-2); font-weight: 600; }
+.crit-scale-head { display: flex; align-items: center; gap: 6px; }
+.help-btn { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0;
+  border: 0; border-radius: 50%; background: none; color: var(--text-2); cursor: help; }
+.help-btn:hover { color: var(--text-1); }
+.help-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .crit-why h5:not(:first-child) { margin-top: 14px; }
 .crit-why p { margin: 0 0 6px; line-height: 1.5; }
 .crit-scale { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
@@ -1181,6 +1187,9 @@ details.blind > summary { cursor: pointer; padding: 10px 14px; font-weight: 600;
 .scored-tag { display: inline-block; margin-left: 6px; font-size: 10.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--success); border: 1px solid var(--success); border-radius: 3px; padding: 0 5px; vertical-align: middle; }
 .fd-sources { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 12px; }
 .fd { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.contact-tools, .contact-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.contact-tool { display: grid; gap: 4px; }
+.contact-list { gap: 4px; padding-left: 12px; border-left: 2px solid var(--border); }
 .fd-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
 .fd-head h5 { margin: 0 !important; }
 .fd-provider { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; border-radius: 3px; padding: 1px 6px; }

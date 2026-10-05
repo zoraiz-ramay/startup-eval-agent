@@ -11,21 +11,18 @@ from core import pillars as P
 
 EVIDENCE = {"E1": {"id": "E1", "source": "summary", "quote": "AI visual inspection for factories", "url": ""},
             "E2": {"id": "E2", "source": "facts[0].value", "quote": "Deployed at Bosch", "url": "https://x.test"},
-            "M1": {"id": "M1", "source": "market:growth", "quote": "Market growth 12% CAGR", "url": "https://m.test"}}
+            "M1": {"id": "M1", "source": "market:growth", "quote": "Market growth 12% CAGR", "url": "https://m.test"},
+            "M2": {"id": "M2", "source": "market:funded_peers", "quote": "3 funded peers in this niche", "url": "https://p.test"}}
 CATALOG = {"tool:simatic-ai": {"id": "tool:simatic-ai", "name": "SIMATIC AI"},
            "need:inspection": {"id": "need:inspection", "name": "inspection"},
            "industry:automotive": {"id": "industry:automotive", "name": "Automotive"},
-           "topic:quality": {"id": "topic:quality", "name": "Quality"},
-           # A Connect audience candidate: a seller in the startup's industries, not a neighbour.
-           "seller:oem": {"id": "seller:oem", "name": "OEM Integrator", "slot": "audience"}}
-AUDIENCE = [{"catalog_id": "seller:oem", "role": "integrate", "reason": "Integrates inspection into lines.",
-             "citations": ["E1"]}]
+           "topic:quality": {"id": "topic:quality", "name": "Quality"}}
 
 
-def raw(pillar, scores, statement="", next_step="", cites=None, cats=None, neighbours=(), audience=AUDIENCE):
-    """A model answer. Connect's gap and value are derived, so their scores in ``scores`` are
-    skipped: the gap comes from ``neighbours`` (none shortlisted → 3), the value from ``audience``,
-    the fit and the market record M1 in EVIDENCE."""
+def raw(pillar, scores, statement="", next_step="", cites=None, cats=None, neighbours=()):
+    """A model answer. Connect's Market signals is derived, so its score in ``scores`` is skipped:
+    it is the count of market records in EVIDENCE (M1 and M2 → 2). ``neighbours`` are the
+    same / different labels; none shortlisted is the open case with nobody similar."""
     spec = P.PILLARS[pillar]
     derived = spec.get("derived", ())
     cites = cites if cites is not None else (("E1", "M1") if pillar == "Connect" else ("E1",))
@@ -36,14 +33,13 @@ def raw(pillar, scores, statement="", next_step="", cites=None, cats=None, neigh
            "statement": statement, "next_step": next_step}
     if derived:
         out["neighbours"] = list(neighbours)
-        out["audience"] = list(audience)
     return out
 
 
 GOOD_STATEMENT = {
     "Empower": "SIMATIC AI could help the startup deploy models faster by running inference on the line.",
     "Collaborate": "Digital Industries could pilot the startup's inspection capability on one line.",
-    "Connect": "The startup could be relevant to the Xcelerator ecosystem because its inspection addresses quality for Automotive suppliers.",
+    "Connect": "Siemens could partner with the startup because its inspection addresses quality for Automotive suppliers.",
 }
 
 
@@ -75,7 +71,8 @@ def test_high_actionability_without_a_concrete_statement_is_capped_at_1(pillar):
     out = P.validate_match(pillar, raw(pillar, [3, 3, 3], statement="Seems like a great fit overall."),
                            EVIDENCE, CATALOG)
     assert out["criteria"][2]["score"] == 1
-    assert out["total"] == 7 and out["band"] == "review"    # 7 but third < 2: never strong
+    # 7 (Connect: 3 fit + 2 market + 1) but third < 2: never strong
+    assert out["total"] == (6 if pillar == "Connect" else 7) and out["band"] == "review"
     assert out["statement"] == "" and any("capped" in n for n in out["notes"])
 
 
@@ -87,14 +84,14 @@ def test_a_statement_must_name_a_matched_catalog_entry_and_carry_a_next_step():
     assert no_step["criteria"][2]["score"] == 1
 
 
-def test_connect_ecosystem_value_needs_the_xcelerator_statement_not_thematic_similarity():
+def test_a_connect_offering_needs_the_partnership_statement_not_thematic_similarity():
     thematic = "Automotive is a shared theme, so it is broadly similar to the ecosystem."
     out = P.validate_match("Connect", raw("Connect", [3, 3, 3], thematic, "Introduce them."), EVIDENCE, CATALOG)
     assert out["criteria"][2]["score"] == 1
 
 
 def test_a_statement_that_only_mentions_the_ecosystem_is_not_the_required_sentence():
-    # Written by a real model on a live run while it scored ecosystem value 3/3.
+    # Written by a real model on a live run while it scored its third Connect criterion 3/3.
     loose = ("Acme's inspection offers a direct fit with Siemens' focus on quality within Automotive, "
              "presenting clear opportunities for collaboration within the Xcelerator ecosystem.")
     out = P.validate_match("Connect", raw("Connect", [3, 3, 3], loose, "Introduce them to partners."), EVIDENCE, CATALOG)
@@ -104,128 +101,132 @@ def test_a_statement_that_only_mentions_the_ecosystem_is_not_the_required_senten
     assert out["criteria"][2]["score"] == 1
 
 
-# ----------------------------------------------------------------------------- Connect v2
+# ----------------------------------------------------------------------------- Connect v5
 
-SELLERS = {f"seller:s{i}": {"id": f"seller:s{i}", "name": f"Seller {i}", "url": f"https://s{i}.test"} for i in range(6)}
-
-
-def label(i, overlap, differentiator="", cites=("E1",)):
-    return {"catalog_id": f"seller:s{i}", "overlap": overlap, "differentiator": differentiator, "citations": list(cites)}
+SELLERS = {f"seller:s{i}": {"id": f"seller:s{i}", "name": f"Seller {i}", "url": f"https://s{i}.test"} for i in range(30)}
 
 
-def connect(neighbours, scores=(0, 2, 2), **kw):
-    return P.validate_match("Connect", raw("Connect", list(scores), GOOD_STATEMENT["Connect"], "Introduce them.",
-                                           neighbours=neighbours, **kw), EVIDENCE, {**CATALOG, **SELLERS})
+def label(i, same=True, differentiator="", cites=("E1",)):
+    return {"catalog_id": f"seller:s{i}", "label": "same" if same else "different",
+            "differentiator": differentiator, "citations": list(cites)}
 
 
-@pytest.mark.parametrize("equivalents, undifferentiated, overlapping, level", [
-    (0, 0, 0, 3), (0, 0, 2, 3),          # nobody offers it; a little overlap is not crowding
-    (0, 0, 3, 2),                        # related offerings, none the same
-    (2, 0, 0, 2),                        # equivalents exist, each with an evidenced difference
-    (1, 1, 0, 1), (3, 2, 0, 1),          # one or two offer the same with nothing to set it apart
-    (3, 3, 0, 0), (5, 4, 1, 0),          # already well represented
+def connect(neighbours, scores=(3, 0, 3), sellers=6, **kw):
+    catalog = {**CATALOG, **{k: SELLERS[k] for k in list(SELLERS)[:sellers]}}
+    return P.validate_match("Connect", raw("Connect", list(scores), GOOD_STATEMENT["Connect"], "Book a partnership scoping call.",
+                                           neighbours=neighbours, **kw), EVIDENCE, catalog)
+
+
+def labels(same, sellers=6):
+    return [label(i, same=i < same) for i in range(sellers)]
+
+
+@pytest.mark.parametrize("count, level", [
+    (0, None), (1, None),                  # open case: the startup is scored instead
+    (2, 3), (3, 3), (4, 2), (7, 2), (8, 1), (11, 1), (12, 0), (30, 0),
 ])
-def test_ecosystem_gap_counts_only_undifferentiated_equivalents(equivalents, undifferentiated, overlapping, level):
-    assert P.gap_level(equivalents, undifferentiated, overlapping) == level
+def test_the_crowded_score_falls_with_every_band_of_similar_sellers(count, level):
+    assert P.crowded_level(count) == level
 
 
-def test_a_crowded_offering_scores_a_gap_of_zero_and_names_who_already_sells_it():
-    out = connect([label(i, "equivalent") for i in range(3)] + [label(i, "distinct") for i in range(3, 6)])
-    gap = out["criteria"][0]
-    assert gap["id"] == "ecosystem_gap" and gap["score"] == 0 and gap["basis"] == "derived"
-    assert [e["name"] for e in gap["catalog"]] == ["Seller 0", "Seller 1", "Seller 2"]
-    assert "Seller 0" in gap["rationale"]
+@pytest.mark.parametrize("same, total", [(2, 3), (4, 2), (8, 1), (12, 0)])
+def test_a_crowded_startup_is_scored_from_the_count_alone(same, total):
+    out = connect(labels(same, sellers=14), sellers=14)       # fit 3, market 2, offering 3 = 8 if open
+    assert out["similar"]["case"] == "crowded" and out["similar"]["count"] == same
+    assert out["total"] == total and out["band"] == "no_match"
+    assert all(c["counted"] is False for c in out["criteria"])
+    assert [c["score"] for c in out["criteria"]] == [3, 2, 3]   # still shown for what they say
 
 
-def test_a_differentiated_equivalent_does_not_count_against_the_startup():
-    out = connect([label(0, "equivalent", "Runs on the edge, the seller is cloud-only")]
-                  + [label(i, "distinct") for i in range(1, 6)])
-    assert out["criteria"][0]["score"] == 2
+def test_the_five_most_similar_are_named_nearest_first_and_the_rest_counted():
+    out = connect(labels(9, sellers=12), sellers=12)
+    sim = out["similar"]
+    assert [x["name"] for x in sim["shown"]] == [f"Seller {i}" for i in range(5)]
+    assert sim["more"] == 4 and len(sim["sellers"]) == 9 and sim["at_least"] is False
+    assert "Seller 0, Seller 1, Seller 2, Seller 3, Seller 4 + 4 more" in out["case"]["points"][0]["text"]
+    assert out["case"]["points"][0]["sources"] == [f"https://s{i}.test" for i in range(5)]
+
+
+def test_when_every_searched_seller_is_similar_the_count_is_a_floor():
+    out = connect(labels(30, sellers=30), sellers=30)
+    assert out["similar"]["at_least"] is True and "30 or more" in out["case"]["points"][0]["text"]
+
+
+def test_the_open_case_sums_fit_market_and_offering():
+    out = connect(labels(0))
+    assert out["similar"]["case"] == "open" and "counted" not in out["criteria"][0]
+    assert out["total"] == 8 and out["band"] == "strong"
+    assert out["case"]["points"][0]["text"].startswith("No Xcelerator seller sells the same kind of solution")
+
+
+def test_one_similar_seller_caps_the_offering_at_2_without_a_cited_difference():
+    out = connect(labels(1))
+    assert out["similar"]["case"] == "open" and out["criteria"][2]["score"] == 2 and out["total"] == 7
+    assert any("Seller 0 already sells" in n for n in out["notes"])
+    assert out["case"]["points"][0]["tone"] == "minus"
+    differs = connect([label(0, differentiator="Runs on the edge; the seller is cloud-only")]
+                      + [label(i, same=False) for i in range(1, 6)])
+    assert differs["criteria"][2]["score"] == 3 and differs["total"] == 8
+    assert differs["case"]["points"][0]["tone"] == "plus"
 
 
 def test_a_differentiator_without_a_citation_is_ignored():
-    out = connect([label(0, "equivalent", "Better", cites=())] + [label(i, "distinct") for i in range(1, 6)])
-    assert out["criteria"][0]["score"] == 1
+    out = connect([label(0, differentiator="Better", cites=())] + [label(i, same=False) for i in range(1, 6)])
+    assert out["similar"]["sellers"][0]["differentiator"] == "" and out["criteria"][2]["score"] == 2
 
 
-def test_a_seller_the_model_skipped_counts_as_overlapping_not_absent():
-    out = connect([label(0, "distinct")])                       # five of six unlabelled
-    gap = out["criteria"][0]
-    assert gap["score"] == 2 and "not labelled" in gap["rationale"]
+def test_a_seller_the_model_skipped_is_not_counted_as_similar():
+    out = connect([label(0), label(1, same=False)])            # four of six unlabelled
+    assert out["similar"]["count"] == 1 and out["similar"]["skipped"] == 4
+    assert any("not labelled" in n for n in out["notes"])
 
 
 @pytest.mark.parametrize("bad", [
     None,                                                          # no labels at all
-    [{"catalog_id": "seller:invented", "overlap": "distinct"}],     # not shortlisted
-    [{"catalog_id": "seller:s0", "overlap": "same"}],               # not a known label
-    [{"catalog_id": "seller:s0", "overlap": "equivalent", "citations": ["E99"]}],
+    [{"catalog_id": "seller:invented", "label": "same"}],           # not shortlisted
+    [{"catalog_id": "seller:s0", "label": "equivalent"}],           # not a known label
+    [{"catalog_id": "seller:s0", "label": "same", "citations": ["E99"]}],
 ])
 def test_malformed_neighbour_labels_are_rejected(bad):
-    r = raw("Connect", [0, 2, 2], GOOD_STATEMENT["Connect"], "Introduce them.")
+    r = raw("Connect", [3, 0, 3], GOOD_STATEMENT["Connect"], "Introduce them.")
     r["neighbours"] = bad
     with pytest.raises(ValueError):
         P.validate_match("Connect", r, EVIDENCE, {**CATALOG, **SELLERS})
 
 
 def test_industry_and_topic_fit_needs_both_an_industry_and_a_topic():
-    out = connect([], scores=(0, 3, 2), cats=["industry:automotive"])
-    assert out["criteria"][1]["score"] == 1 and any("industry and a topic" in n for n in out["notes"])
+    out = connect([], scores=(3, 0, 2), cats=["industry:automotive"])
+    assert out["criteria"][0]["score"] == 1 and any("industry and a topic" in n for n in out["notes"])
 
 
-@pytest.mark.parametrize("audience, fit, market, level", [
-    (True, True, True, 3), (True, True, False, 2), (True, False, True, 2), (True, False, False, 1),
-    # No ecosystem audience: open space, scored on fit and market alone.
-    (False, True, True, 2), (False, True, False, 1), (False, False, True, 1), (False, False, False, 0),
-])
-def test_ecosystem_value_follows_two_paths(audience, fit, market, level):
-    assert P.value_level(audience, fit, market) == level
+def test_market_signals_are_one_point_per_good_cited_signal():
+    three = {**EVIDENCE, "M3": {"id": "M3", "source": "market:size", "quote": "Market size $20B", "url": "https://z.test"}}
+    for evidence, level in ((three, 3), (EVIDENCE, 2), ({k: v for k, v in EVIDENCE.items() if k != "M2"}, 1),
+                            ({k: v for k, v in EVIDENCE.items() if not k.startswith("M")}, 0)):
+        row = P.market_signals(evidence)
+        assert row["score"] == level and row["basis"] == "derived"
+    assert P.market_signals(EVIDENCE)["signals"] == {"market_size": False, "market_growth": True, "funded_peers": True}
 
 
-def connect_with(audience=AUDIENCE, fit=2, market=True):
-    evidence = EVIDENCE if market else {k: v for k, v in EVIDENCE.items() if k != "M1"}
-    r = raw("Connect", [0, fit, 0], GOOD_STATEMENT["Connect"], "Introduce them.", cites=("E1",), audience=audience)
-    return P.validate_match("Connect", r, evidence, CATALOG)        # no nearest sellers: gap 3
+def test_the_offering_is_judged_on_research_alone_not_on_a_catalog_match():
+    # Celonis's process-mining offering scored 0 when it had to cite a catalog entry, because no
+    # Xcelerator entry is process mining. Research citations are still required.
+    r = raw("Connect", [3, 0, 3], GOOD_STATEMENT["Connect"], "Book a call.")
+    r["criteria"]["offering"]["catalog_ids"] = []
+    assert P.validate_match("Connect", r, EVIDENCE, CATALOG)["criteria"][2]["score"] == 3
+    r["criteria"]["offering"]["citations"] = []
+    assert P.validate_match("Connect", r, EVIDENCE, CATALOG)["criteria"][2]["score"] == 0
 
 
-def test_open_space_with_a_clear_fit_and_a_good_market_scores_higher_than_without():
-    strong = connect_with(audience=[], fit=3, market=True)
-    weak = connect_with(audience=[], fit=1, market=False)
-    assert strong["criteria"][2]["score"] == 2 and strong["criteria"][2]["path"] == "open_space"
-    assert strong["total"] == 8 and strong["band"] == "strong"           # new to the ecosystem, and it belongs
-    assert weak["criteria"][2]["score"] == 0 and weak["band"] == "no_match"
-    # Absent because it is unrelated is distance, not a gap: 1, not 3.
-    assert weak["criteria"][0]["score"] == 1 and weak["total"] == 2
-
-
-def test_an_audience_needs_a_role_a_reason_and_a_citation_and_is_never_a_competitor():
-    bad = [{"catalog_id": "seller:oem", "role": "integrate", "reason": "", "citations": ["E1"]},
-           {"catalog_id": "seller:oem", "role": "admire", "reason": "x", "citations": ["E1"]},
-           {"catalog_id": "seller:oem", "role": "use", "reason": "x", "citations": []},
-           {"catalog_id": "seller:invented", "role": "use", "reason": "x", "citations": ["E1"]}]
-    assert connect_with(audience=bad)["criteria"][2]["path"] == "open_space"
-    rival = [{**AUDIENCE[0], "catalog_id": "seller:s0"}]
-    r = raw("Connect", [0, 2, 0], GOOD_STATEMENT["Connect"], "Introduce them.",
-            neighbours=[label(0, "equivalent")], audience=rival)
-    out = P.validate_match("Connect", r, EVIDENCE, {**CATALOG, **SELLERS})
-    assert out["criteria"][2]["audience"] == []                          # it sells the same thing
-
-
-def test_the_case_says_whether_connecting_makes_sense_and_why():
-    out = connect_with(fit=3)
-    case = out["case"]
-    assert case["verdict"] == "makes_sense" and case["title"] == "Connecting makes sense"
+def test_the_case_says_whether_partnering_makes_sense_and_why():
+    case = connect(labels(0))["case"]
+    assert case["verdict"] == "makes_sense" and case["title"] == "Partnering makes sense"
     texts = [p["text"] for p in case["points"]]
-    assert any("OEM Integrator would integrate it" in t for t in texts)
-    assert any(t.startswith("Good market signals") for t in texts)
-    assert next(p for p in case["points"] if p["text"].startswith("Good market"))["sources"] == ["https://m.test"]
-    nothing = connect_with(audience=[], fit=0, market=False)["case"]
-    assert nothing["verdict"] == "not_yet"
-    assert [p["tone"] for p in nothing["points"]] == ["minus"] * 4          # even its absence is distance
-
-
-def test_a_saturated_offering_can_never_be_a_strong_connect():
-    out = connect([label(i, "equivalent") for i in range(6)], scores=(0, 3, 3))
-    assert out["total"] == 6 and out["band"] == "review"
+    assert next(t for t in texts if t.startswith("Good market"))
+    assert next(p for p in case["points"] if p["text"].startswith("Good market"))["sources"] == ["https://m.test", "https://p.test"]
+    weak = connect(labels(0), scores=(0, 0, 0))["case"]
+    assert weak["verdict"] == "not_yet"
+    assert [p["tone"] for p in weak["points"]] == ["plus", "minus", "plus", "minus"]
 
 
 def test_a_positive_score_without_evidence_or_catalog_is_zeroed():

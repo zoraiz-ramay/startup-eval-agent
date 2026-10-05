@@ -82,8 +82,8 @@ _ISO = ("USD", "EUR", "GBP", "CHF", "SAR", "AED", "INR", "JPY", "CNY", "RMB", "S
         "DKK", "PLN", "CAD", "AUD", "SGD", "HKD", "ILS", "BRL", "KRW", "QAR", "TRY")
 _CURRENCY_WORDS = {"euro": "EUR", "euros": "EUR", "dollar": "USD", "dollars": "USD",
                    "pounds": "GBP", "rupees": "INR"}
-_MONEY_MAG = {"k": 1e3, "thousand": 1e3, "m": 1e6, "mn": 1e6, "mio": 1e6, "million": 1e6,
-              "millions": 1e6, "b": 1e9, "bn": 1e9, "mrd": 1e9, "billion": 1e9, "billions": 1e9,
+_MONEY_MAG = {"k": 1e3, "thousand": 1e3, "m": 1e6, "mn": 1e6, "mln": 1e6, "mio": 1e6, "million": 1e6,
+              "millions": 1e6, "b": 1e9, "bn": 1e9, "bln": 1e9, "mrd": 1e9, "billion": 1e9, "billions": 1e9,
               "trillion": 1e12, "trillions": 1e12, "tn": 1e12,
               "lakh": 1e5, "lakhs": 1e5, "lac": 1e5, "lacs": 1e5,
               "crore": 1e7, "crores": 1e7, "cr": 1e7}
@@ -95,10 +95,11 @@ _CUR = (r"(?:US\$|CA\$|C\$|AU\$|A\$|S\$|HK\$|[$€£₹¥]|(?-i:\b(?:" + "|".joi
 _MNUM = r"\d{1,3}(?:[ \u202f]\d{3})+(?!\d)|\d[\d.,]*\d|\d|\.\d+"
 # Longest alternatives first, so "m" never wins against "million" or "mio".
 _MMAG = (r"(?:trillions|trillion|millions|million|thousand|billions|billion|crores|crore|lakhs|lakh|lacs|lac"
-         r"|mrd|mio|mn|bn|tn|cr"
+         r"|mrd|mio|mln|mn|bln|bn|tn|cr"
          r"|[kmb])\b\.?")
 _MONEY = re.compile(
-    rf"(?P<c1>{_CUR})?\s*(?P<n1>{_MNUM})\s*(?P<m1>{_MMAG})?"
+    # "$15.2-billion" hyphenates the magnitude; without the optional hyphen it read as 15.2 USD.
+    rf"(?P<c1>{_CUR})?\s*(?P<n1>{_MNUM})(?:\s*-\s*(?={_MMAG})|\s*)(?P<m1>{_MMAG})?"
     rf"(?:\s*(?:-|–|—|to)\s*(?P<c2>{_CUR})?\s*(?P<n2>{_MNUM})\s*(?P<m2>{_MMAG})?)?"
     # A trailing currency must not be followed by a number: in "Seed 2023 $2.3M" that "$" belongs
     # to 2.3M, and taking it made the year a USD 2023 and left the real amount without a currency.
@@ -186,6 +187,13 @@ def find_money(value) -> list[dict]:
                     "currency_assumed": not currency, "text": m.group(0).strip(),
                     "start": m.start(), "end": m.end()})
     return out
+
+
+def first_money(value) -> dict | None:
+    """The first amount a string states, or None. A market figure states its base first and its
+    forecast after ("USD 15.2B in 2024, reaching USD 25B by 2030"); the largest would be the forecast."""
+    found = find_money(value)
+    return min(found, key=lambda a: a["start"]) if found else None
 
 
 def parse_money(value) -> dict | None:
@@ -332,25 +340,71 @@ def person_key(name) -> str:
     return " ".join(words)
 
 
+def _identity_link(item: dict) -> str:
+    """A person's own profile link, normalised: the `linkedin` value, or a LinkedIn profile used as
+    the source. Not any other source_url — a team page names everyone on it."""
+    for value, any_link in ((item.get("linkedin"), True), (item.get("source_url"), False)):
+        text = str(value or "").strip().casefold()
+        if not text or (not any_link and "linkedin.com/in/" not in text):
+            continue
+        return re.sub(r"^https?://(www\.)?|/+$", "", text)
+    return ""
+
+
+def same_person(a, b) -> bool:
+    """Whether two people entries are one person.
+
+    Name keys match, or they differ only by initials ("KD Kutadgu Gokalp Demirci" and "Kutadgu
+    Gokalp Demirci" — Phena's founder, stored twice because the initials defeated the name key), or
+    both carry the same profile link and share a name token. The shared token is required because
+    research has attached one person's LinkedIn to a colleague (Radical Dot's "Florian Zahn" carried
+    Anna Winiwarter's), and merging those would lose a real person.
+    """
+    if not isinstance(a, dict) or not isinstance(b, dict):
+        return False
+    ka, kb = person_key(a.get("name")), person_key(b.get("name"))
+    if not ka or not kb:
+        return False
+    if ka == kb:
+        return True
+    ta, tb = ka.split(), kb.split()
+    # Initials are tokens of one or two letters; what is left must still be a full name.
+    fa, fb = [t for t in ta if len(t) > 2], [t for t in tb if len(t) > 2]
+    if len(fa) >= 2 and fa == fb:
+        return True
+    la, lb = _identity_link(a), _identity_link(b)
+    return bool(la) and la == lb and bool(set(ta) & set(tb))
+
+
 def dedupe_people(people) -> list:
     """One entry per person, in first-seen order; a later duplicate only fills blank fields.
 
     Nothing is invented: the merged entry holds only values one of the duplicates already had.
     """
-    out, by_key = [], {}
+    out = []
     for item in people or []:
         if not isinstance(item, dict):
             out.append(item)
             continue
-        key = person_key(item.get("name"))
-        kept = by_key.get(key) if key else None
+        kept = next((p for p in out if same_person(p, item)), None)
         if kept is None:
-            entry = dict(item)
-            if key:
-                by_key[key] = entry
-            out.append(entry)
+            out.append(dict(item))
             continue
         for field, value in item.items():
             if field != "name" and str(value or "").strip() and not str(kept.get(field) or "").strip():
                 kept[field] = value
     return out
+
+
+def founders_first(profile: dict) -> dict:
+    """Drop from key_team and advisors anyone already listed as a founder (founder wins), and from
+    advisors anyone already in key_team. One person in two lists read as two people on a profile."""
+    above: list = []
+    for key in ("founders", "key_team", "advisors"):
+        people = profile.get(key)
+        if not isinstance(people, list):
+            continue
+        if above:
+            profile[key] = [p for p in people if not any(same_person(p, q) for q in above)]
+        above += [p for p in profile[key] if isinstance(p, dict)]
+    return profile

@@ -12,8 +12,12 @@ import pytest
 from core import catalogs, pillar_match
 from core.pillars import ORDER
 
+# The cited market is what lets Connect reach Strong: Market signals counts the good cited figures
+# (core/pillars.py, rubric v5). Size and growth make 2, so Connect ties Empower at 7.
 RUN = {"company": "Acme Vision",
-       "summary": "AI visual inspection software for automotive factories using computer vision."}
+       "summary": "AI visual inspection software for automotive factories using computer vision.",
+       "trend": {"landscape": {"market_size": {"value": "$20 billion", "cagr": "12%", "as_of": "2030",
+                                               "source_url": "https://market.test/inspection"}}}}
 DEPT = {"id": "di", "label": "Digital Industries", "interests": ["inspection", "automation"], "demo": True}
 
 
@@ -44,22 +48,20 @@ class FakeLLM:
         cite = re.findall(r'"id":"(E\d+)"', prompt)[:1]
         keys = {"Empower": ("tool_fit", "benefit_fit", "actionability"),
                 "Collaborate": ("capability_fit", "need_fit", "actionability"),
-                "Connect": ("ecosystem_gap", "industry_topic_fit", "ecosystem_value")}[pillar]
+                "Connect": ("industry_topic_fit", "market_signals", "offering")}[pillar]
         statement = {"Empower": f"{name} could help the startup train models faster by simulating defects.",
                      "Collaborate": f"Digital Industries could pilot the startup for {name} on one line.",
-                     "Connect": f"The startup could be relevant to the Xcelerator ecosystem because its inspection addresses quality for {name} buyers."}[pillar]
+                     "Connect": f"Siemens could partner with the startup because its inspection addresses quality for {name} buyers."}[pillar]
         scores = (3, 2, 2) if self.strong else (1, 1, 1)
         if pillar == "Connect":
-            # Ecosystem gap is derived from per-seller labels; the model scores the other two.
+            # Market signals is derived; the model scores fit and offering and labels the sellers.
             ids = [re.search(rf"^({k}:[a-z0-9-]+) \|", prompt, re.M).group(1) for k in ("industry", "topic")]
             sellers = re.findall(r"^(seller:[a-z0-9-]+) \|", prompt, re.M)
-            audience = re.search(r"POSSIBLE AUDIENCE.*?\n(seller:[a-z0-9-]+) \|", prompt, re.S)
             return json.dumps({"criteria": {
-                "industry_topic_fit": {"score": scores[1], "rationale": "because", "citations": cite, "catalog_ids": ids}},
-                "neighbours": [{"catalog_id": i, "overlap": "distinct", "differentiator": "", "citations": cite}
+                "industry_topic_fit": {"score": scores[0], "rationale": "because", "citations": cite, "catalog_ids": ids},
+                "offering": {"score": scores[2], "rationale": "because", "citations": cite, "catalog_ids": []}},
+                "neighbours": [{"catalog_id": i, "label": "different", "differentiator": "", "citations": cite}
                                for i in sellers],
-                "audience": [{"catalog_id": audience.group(1), "role": "integrate", "reason": "Integrates it.",
-                              "citations": cite}] if audience and self.strong else [],
                 "statement": statement, "next_step": "Book a scoping call with the owner."})
         return json.dumps({"criteria": {k: {"score": s, "rationale": "because", "citations": cite,
                                               "catalog_ids": [cat_id]} for k, s in zip(keys, scores)},
